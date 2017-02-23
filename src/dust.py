@@ -469,14 +469,16 @@ class SingleFluidDrift(object):
             gas_tracers[:] += dt * self._fluxes(disc, gas_tracers, 0, 0)
 
 
-        # Update the dust fraction and tracers
+        # Update the dust fraction, size and tracers
         d_tr = 0
-        for eps_k, dV_k, St_k in zip(disc.dust_frac,DeltaV,disc.Stokes()):
+        for eps_k, dV_k, a_k, St_k in zip(disc.dust_frac, DeltaV,
+                                          disc.grain_size, disc.Stokes()):
             if dust_tracers is not None:
                 t_k = dust_tracers * eps_k * eps_inv
                 d_tr  += dt*self._fluxes(disc, t_k, dV_k, St_k)
                 
-            eps_k[:]  += dt*self._fluxes(disc, eps_k, dV_k, St_k)
+            a_k[:]   += dt*self._fluxes(disc, a_k, dV_k, St_k)
+            eps_k[:] += dt*self._fluxes(disc, eps_k, dV_k, St_k)
 
         if dust_tracers is not None:
             dust_tracers[:] += d_tr
