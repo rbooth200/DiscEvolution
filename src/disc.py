@@ -36,7 +36,13 @@ class AccretionDisc(object):
 
     @property
     def R(self):
+        '''Cell centre radii'''
         return self._grid.Rc
+
+    @property
+    def R_edge(self):
+        '''Cell edge radii'''
+        return self._grid.Re
 
     @property
     def grid(self):

@@ -1,4 +1,4 @@
-# chemo_dynamics.py
+# dust_dynamics.py
 #
 # Author: R. Booth
 # Date: 17 - Nov - 2016
@@ -227,7 +227,6 @@ if __name__ == "__main__":
     from star import SimpleStar
     from dust import DustGrowthTwoPop
     from constants import Msun, AU, Omega0
-    from planet_formation import Planets, Bitsch2015Model
     
     np.seterr(invalid='raise')
 
@@ -335,11 +334,6 @@ if __name__ == "__main__":
         if IO.need_save(evo.t) and False:
             evo.dump(os.path.join(DIR, 'disc_{:04d}.dat'.format(IO.nsave)))
 
-            if planets:
-                planet_file = os.path.join(DIR,
-                                           'planets_{:04}.dat'.format(IO.nsave))
-                planet_model.dump(planet_file, evo.t, planets)
-                                           
 
         if IO.need_print(evo.t):
             err_state = np.seterr(all='warn')

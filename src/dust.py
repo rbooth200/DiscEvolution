@@ -423,29 +423,32 @@ class SingleFluidDrift(object):
         a_av   /=  SigD_av
         
         eps_av = SigD_av / Sig_av
-        eps_g =  np.maximum(1 - eps_av.sum(0), 1e-300)
+        eps_g =  1.
+        if disc.feedback:
+            eps_g = np.maximum(1 - eps_av.sum(0), 1e-300)
 
         St_av = disc.Stokes(Sig_av*eps_g, a_av)
 
         # Compute the lambda factors
+        #   Use lambda * eps_g instead of lambda to avoid 0/0 when eps_g -> 0.
         la0, la1 = 0, 0 
         St_1 = 1 / (1 + St_av**2)
         if disc.feedback:
-            D_1 = St_1 * (eps_av/eps_g) 
-            la0 = D_1.sum(0)
-            la1 = (St_av * D_1).sum(0)
+            la0 = (eps_av / (1     + St_av** 2)).sum(0)
+            la1 = (eps_av / (St_av + St_av**-1)).sum(0)
 
         # Compute the gas velocities:
         rho = disc.midplane_gas_density
         dPdr = np.diff(disc.P) / disc.grid.dRc
-        eta = - dPdr / (0.5*(rho[1:] + rho[:-1])*Om_kav)
+        eta = - dPdr / (0.5*(rho[1:] + rho[:-1] + 1e-300)*Om_kav)
 
-        D_1 = 1 / ((1 + la0)**2 + la1**2)
-        u_gas =            la1  * eta * D_1
-        v_gas = - 0.5*(1 + la0) * eta * D_1
+        D_1 = eps_g / ((eps_g + la0)**2 + la1**2)
+        u_gas =                la1  * eta * D_1
+        v_gas = - 0.5*(eps_g + la0) * eta * D_1
 
         # Dust-gas relative velocities:
-        DeltaV = (2*v_gas*St_av - u_gas*St_av**2) * St_1
+        DeltaV = (2*v_gas / (St_av + St_av**-1) 
+                  - u_gas / (1     + St_av**-2))
 
         # epsDeltaV = v_COM - v_gas (= 0 if dust mass is neglected)
         if disc.feedback:
