@@ -21,9 +21,14 @@ class ViscousEvolution(object):
     args:
        tol       : Ratio of the time-step to the maximum stable one. 
                    Default = 0.5
+       boundary  : Type of external boundary condition:
+                     'Zero'      : Zero torque boundary
+                     'power_law' : Power-law extrapolation
+                     'Mdot'      : Constant Mdot, same as inner.
     '''
-    def __init__(self, tol=0.5):
+    def __init__(self, tol=0.5, boundary='power_law'):
         self._tol = tol
+        self._bound = boundary
 
     def header(self):
         '''header'''
@@ -42,8 +47,16 @@ class ViscousEvolution(object):
 
         S = np.zeros(len(nuX)+2, dtype='f8')
         S[1:-1] = disc.Sigma_G * nuX
-        S[-1] = S[-2]**2 / S[-3]
+        
         S[0] = S[1] * self._X[0] / self._X[1]
+        if self._bound == 'Zero':
+            S[-1] = 0
+        elif self._bound == 'power-law':
+            S[-1] = S[-2]**2 / S[-3]
+        elif self._bound == 'Mdot':
+            S[-1] = S[-2] * self._X[-2] / self._X[-1]
+        else:
+            raise ValueError("Error boundary type not recognised")
 
         self._dS = np.diff(S) / self._dXc
         
@@ -63,8 +76,9 @@ class ViscousEvolution(object):
         shape = tracers.shape[:-1] + (tracers.shape[-1]+2,)
         s = np.zeros(shape, dtype='f8')
         s[...,1:-1] = tracers
+        s[...,0] = s[...,1] ; s[...,-1] = s[...,-2]
 
-        # Upwind the tracer density        
+        # Upwind the tracer density 
         ds = self._dS * np.where(self._dS <= 0, s[...,:-1], s[...,1:])
         
         # Compute the viscous update
@@ -96,7 +110,7 @@ class ViscousEvolution(object):
 
         for t in tracers:
             if t is None: pass
-            t[:] += dt * self._tracer_fluxes(t) / Sigma_new
+            t[:] += dt * self._tracer_fluxes(t) / (Sigma_new + 1e-300)
 
         disc.Sigma[:] = Sigma_new
 

@@ -49,7 +49,7 @@ class ExternalPhotoevaporationBase(object):
 
         disc.Sigma[empty] = (dM_dust/A)[...,empty].sum(0)
         disc.dust_frac[...,empty] = \
-            dM_dust[...,empty] / (A*disc.Sigma)[empty]
+            dM_dust[...,empty] / (A*disc.Sigma + 1e-300)[empty]
 
         # Reduce the surface density of the one cell that is partially emptied
         cell_id = np.searchsorted(-M_tot, -dM_evap) - 1
@@ -74,7 +74,6 @@ class ExternalPhotoevaporationBase(object):
             dM_dust[not_entrained, cell_id] / M_left
 
         ### And we're done
-
 
 
 class FixedExternalEvaportation(ExternalPhotoevaporationBase):

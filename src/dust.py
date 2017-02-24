@@ -38,7 +38,7 @@ class DustyDisc(AccretionDisc):
         if Sigma is None:
             Sigma = self.Sigma_G
             
-        return self._Kdrag * size / Sigma
+        return self._Kdrag * size / (Sigma + 1e-300)
 
     def mass(self):
         '''Grain mass'''
@@ -179,10 +179,10 @@ class DustGrowthTwoPop(DustyDisc):
 
         # Initialize the dust distribution
         Ncells = self.Ncells
-        self._fm    = 0
+        self._fm    = np.zeros(Ncells, dtype='f8')
         self._a0    = 0 # Force well-coupled limit
-        self._eps   =  np.empty([2, Ncells], dtype='f4')
-        self._a     =  np.empty([2, Ncells], dtype='f4')
+        self._eps   = np.empty([2, Ncells], dtype='f8')
+        self._a     = np.empty([2, Ncells], dtype='f8')
         self._eps[0] = eps
         self._eps[1] = 0
         self._a[0]   = 0
@@ -230,7 +230,7 @@ class DustGrowthTwoPop(DustyDisc):
         gamma[1:-1] = abs((P[2:] - P[:-2])/(R[2:] - R[:-2]))
         gamma[ 0]   = abs((P[ 1] - P[  0])/(R[ 1] - R[ 0]))
         gamma[-1]   = abs((P[-1] - P[ -2])/(R[-1] - R[-2]))
-        gamma *= R/P
+        gamma *= R/(P+1e-300)
 
         return gamma
         
@@ -243,11 +243,11 @@ class DustGrowthTwoPop(DustyDisc):
             
         # Radial drift time-scale limit
         h = self.H / self.R
-        ad = self._fdrift * (Sigma_D/self._rho_s) / (gamma * h**2)
+        ad = self._fdrift * (Sigma_D/self._rho_s) / (gamma * h**2+1e-300)
 
         # Radial drift-driven fragmentation:
         cs = self.cs
-        St_d = 2 * (self._uf/cs) / (gamma*h)
+        St_d = 2 * (self._uf/cs) / (gamma*h + 1e-300)
         af = St_d * (2/np.pi) * (Sigma_G / self._rho_s)
 
         return ad, af
@@ -275,18 +275,20 @@ class DustGrowthTwoPop(DustyDisc):
         #   Reduce size due to erosion / fragmentation if grains have grown
         #   above this due to ice condensation
         # amin = a + np.minimum(0, afrag-a)*np.expm1(-dt/t_grow)
-        self._a[1] = amax
+        # ignore empty cells:
+        ids = eps_tot > 0
+        self._a[1, ids] = amax[ids]
 
         # Update the mass-fractions in each population
         fm   = self._fmass[1*(afrag < adrift)]
-        self._fm = fm
+        self._fm[ids] = fm[ids]
         
-        self._eps[0] = (1-fm)*eps_tot
-        self._eps[1] =    fm *eps_tot
+        self._eps[0][ids] = ((1-fm)*eps_tot)[ids]
+        self._eps[1][ids] = (   fm *eps_tot)[ids]
 
 
         # Set the average area:
-        self._area = np.pi * self.a_BT(eps_tot)**2
+        #self._area = np.pi * self.a_BT(eps_tot)**2
 
     def update_ices(self, grains):
         '''Update the grain size due to a change in bulk ice abundance'''
@@ -356,6 +358,10 @@ class SingleFluidDrift(object):
     def max_timestep(self, disc):
         step = np.inf
         
+        dV = abs(self._compute_deltaV(disc))
+        return 0.5 * (disc.grid.dRc / dV).min()
+
+
         eps_tot = 0
         if disc.feedback:
             eps_tot = disc.dust_frac.sum(0)
@@ -370,7 +376,6 @@ class SingleFluidDrift(object):
             assert(all((0 <= eps) & ( eps <= 1)))        
 
             ts = disc.Stokes(Sigma, a) / Om_k
-
             step = min(step,
                        0.25 * (grid.dRe2 / (eps*(1-eps_tot)*ts*cs2)).min())
         return step
@@ -396,11 +401,10 @@ class SingleFluidDrift(object):
         flux[...,-1] = np.maximum(0, flux[...,-2]**2 / (flux[...,-3] + 1e-300))
 
         # Do the update
-        deps = - np.diff(flux*grid.Re) / (Sigma*grid.dRe2)
-        
+        deps = - np.diff(flux*grid.Re) / ((Sigma+1e-300)*grid.dRe2)
         if self._diffuse:
             St2 = St_i**2
-            Sc = self._diffuse.Sc * (1+St2)**2 / (1+4*St2)
+            Sc = self._diffuse.Sc * (0.5625/(1 + 4*St2) + 0.4375 + 0.25*St2)
 
             deps += self._diffuse(disc, eps_i, Sc)
 
@@ -415,19 +419,17 @@ class SingleFluidDrift(object):
         a      = disc.grain_size
 
         # Average to cell edges:        
-        aSig = a*SigmaD
         Om_kav  = 0.5*(Om_k      [1:] + Om_k      [:-1])
         Sig_av  = 0.5*(Sigma     [1:] + Sigma     [:-1]) + 1e-300
-        SigD_av = 0.5*(SigmaD[...,1:] + SigmaD[...,:-1]) + 1e-300
-        a_av    = 0.5*(aSig  [...,1:] + aSig  [...,:-1])
-        a_av   /=  SigD_av
-        
+        SigD_av = 0.5*(SigmaD[...,1:] + SigmaD[...,:-1])
+        a_av    = 0.5*(a    [..., 1:] + a     [...,:-1])
+
         eps_av = SigD_av / Sig_av
         eps_g =  1.
         if disc.feedback:
             eps_g = np.maximum(1 - eps_av.sum(0), 1e-300)
 
-        St_av = disc.Stokes(Sig_av*eps_g, a_av)
+        St_av = disc.Stokes(Sig_av*eps_g, a_av+1e-300)
 
         # Compute the lambda factors
         #   Use lambda * eps_g instead of lambda to avoid 0/0 when eps_g -> 0.

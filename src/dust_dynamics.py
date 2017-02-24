@@ -19,13 +19,20 @@ class DustDynamicsModel(object):
     '''
     def __init__(self, disc,
                  diffusion=False, radial_drift=False, viscous_evo=False,
+                 evaporation=False,
                  Sc = 1, t0=0):
 
         self._disc = disc
 
         self._visc = None
         if viscous_evo:
-            self._visc = ViscousEvolution()
+            bound = 'power-law'
+            # Power law extrapolation fails with zero-density, use simple
+            # boundary condition instead
+            if evaporation: 
+                bound = 'Zero'
+            
+            self._visc = ViscousEvolution(boundary=bound)
 
         self._diffusion = None
         if diffusion:
@@ -38,6 +45,10 @@ class DustDynamicsModel(object):
             self._radial_drift = SingleFluidDrift(diffusion)
         else:
             self._diffusion = diffusion
+
+        self._evaporation = False
+        if evaporation:
+            self._evaporation = evaporation
 
         self._t = t0
                     
@@ -78,6 +89,10 @@ class DustDynamicsModel(object):
         disc.Sigma[:]     = np.maximum(disc.Sigma, 0)
         disc.dust_frac[:] = np.maximum(disc.dust_frac, 0)
 
+        # Apply any photo-evaporation:
+        if self._evaporation:
+            self._evaporation(disc, dt)
+
         # Now we should update the auxillary properties, do grain growth etc
         disc.update(dt)
 
@@ -88,11 +103,9 @@ class DustDynamicsModel(object):
     def disc(self):
         return self._disc
 
-
     @property
     def t(self):
-        return self._t
-    
+        return self._t    
 
     def dump(self, filename):
         '''Write the current state to a file, including header information'''
@@ -227,6 +240,7 @@ if __name__ == "__main__":
     from star import SimpleStar
     from dust import DustGrowthTwoPop
     from constants import Msun, AU, Omega0
+    from photoevaporation import FixedExternalEvaportation
     
     np.seterr(invalid='raise')
 
@@ -258,7 +272,7 @@ if __name__ == "__main__":
     # Model values
     Mdot = model['Mdot'] 
     alpha = model['alpha']
-    Rd = model['R_d']  = 10
+    Rd = model['R_d'] 
 
     R_in  = 0.1
     R_out = 500
@@ -310,7 +324,8 @@ if __name__ == "__main__":
     evo = DustDynamicsModel(disc,
                             viscous_evo=True,
                             radial_drift=True,
-                            diffusion=True)
+                            diffusion=True,
+                            evaporation=FixedExternalEvaportation(Mdot=1e-8))
 
 
     # Solve for the evolution
