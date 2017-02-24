@@ -19,7 +19,7 @@ class ExternalPhotoevaporationBase(object):
                                    the flow (cm).        
     '''
     def __call__(self, disc, dt):
-        '''Removes gas and dust from the edge of a disc given'''
+        '''Removes gas and dust from the edge of a disc'''
         
         # Get the photo-evaporation data:
         Mdot = self.mass_loss_rate(disc)
@@ -44,9 +44,8 @@ class ExternalPhotoevaporationBase(object):
 
         # Remove gas / entrained dust from empty cells, set density and
         # dust fraction of remaining dust
-        dM_entrained = dM_dust[disc.grain_size <= amax]
-        dM_entrained[...,empty] = 0
-        dM_dust[disc.grain_size <= amax] = dM_entrained
+        for a, dM_i in zip(disc.grain_size, dM_dust):
+            dM_i[(a < amax) & empty] = 0
 
         disc.Sigma[empty] = (dM_dust/A)[...,empty].sum(0)
         disc.dust_frac[...,empty] = \
@@ -55,6 +54,8 @@ class ExternalPhotoevaporationBase(object):
         # Reduce the surface density of the one cell that is partially emptied
         cell_id = np.searchsorted(-M_tot, -dM_evap) - 1
         if cell_id < 0: return
+
+        # Compute the remaining mass to remove
         try:
             dM_cell = dM_evap - M_tot[cell_id+1]
         except IndexError: 
@@ -126,6 +127,7 @@ if __name__ == "__main__":
 
     dA = np.pi * np.diff((disc.R_edge * AU)**2) / Msun
 
+    # Test the removal of gas / dust
     t, M = [], []
     tc = 0
     for ti in times:
