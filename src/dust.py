@@ -160,11 +160,14 @@ class DustGrowthTwoPop(DustyDisc):
         thresh    : Threshold ice fraction for switchng between icy/non icy
                     fragmentation velocity, default=0.1
         a0        : Initial particle size (default = 1e-5, 0.1 micron)
+        f_drift   : Drift fitting factor. Reduce by a factor ~10 to model the 
+                    role of bouncing (default=0.55).
+        f_frag    : Fragmentation boundary fitting factor (default=0.37).
         feedback  : Whether to include feedback from dust on gas
     '''
     def __init__(self, grid, star, eos, eps, Sigma=None,
                  rho_s=1., uf_0=100., uf_ice=1e3, f_ice=1, thresh=0.1,
-                 a0=1e-5, feedback=True):
+                 a0=1e-5, f_drift=0.55, f_frag=0.37, feedback=True):
         super(DustGrowthTwoPop, self).__init__(grid, star, eos,
                                                Sigma, rho_s, feedback)
 
@@ -173,8 +176,8 @@ class DustGrowthTwoPop(DustyDisc):
         self._uf_ice = uf_ice / (AU * Omega0)
 
         # Fitting factors
-        self._ffrag  = 0.37 * (2/(3*np.pi)) 
-        self._fdrift = 0.55 * (2/np.pi)
+        self._ffrag  = f_frag * (2/(3*np.pi)) 
+        self._fdrift = f_drift * (2/np.pi)
         self._fmass  = np.array([0.97, 0.75])
 
         # Initialize the dust distribution
