@@ -345,9 +345,11 @@ class SingleFluidDrift(object):
 
     args:
         diffusion : Diffusion algorithm, default=None
+        settling  : Include settling in the velocity calculation, default=False
     '''
-    def __init__(self, diffusion=None):
+    def __init__(self, diffusion=None, settling=False):
         self._diffuse = diffusion
+        self._settling = settling
 
     def header(self):
         '''Radial drift header'''
@@ -427,12 +429,30 @@ class SingleFluidDrift(object):
         SigD_av = 0.5*(SigmaD[...,1:] + SigmaD[...,:-1])
         a_av    = 0.5*(a    [..., 1:] + a     [...,:-1])
 
-        eps_av = SigD_av / Sig_av
-        eps_g =  1.
+        # Compute the density factors needed for the effect of feedback on
+        # the radial drift velocity.
+        eps_av = 0.
+        eps_g = 1.
+        SigG_av = Sig_av
         if disc.feedback:
+            # By default, use the surface density
+            eps_av = SigD_av / Sig_av
             eps_g = np.maximum(1 - eps_av.sum(0), 1e-300)
+                
+            SigG_av = Sig_av * eps_g
+            # Use the midplane density instead
+            if self._settling:
+                rhoD = disc.midplane_dust_density
+                rhoG = disc.midplane_gas_density
+                rhoD_av = 0.5 * (rhoD[...,1:] + rhoD[...,:-1])
+                rhoG_av = 0.5 * (rhoG    [1:] + rhoG    [:-1])
+                rho_av = rhoD_av.sum(0) + rhoG_av + 1e-300
 
-        St_av = disc.Stokes(Sig_av*eps_g, a_av+1e-300)
+                eps_av = rhoD_av / rho_av
+                eps_g  = np.maximum(rhoG_av / rho_av, 1e-300)
+                
+        # Compute the Stokes number        
+        St_av = disc.Stokes(SigG_av, a_av+1e-300)
 
         # Compute the lambda factors
         #   Use lambda * eps_g instead of lambda to avoid 0/0 when eps_g -> 0.
@@ -485,8 +505,14 @@ class SingleFluidDrift(object):
                 t_k = dust_tracers * eps_k * eps_inv
                 d_tr  += dt*self._fluxes(disc, t_k, dV_k, St_k)
                 
-            a_k[:]   += dt*self._fluxes(disc, a_k, dV_k, St_k)
+            # multiply a_k by the dust-to-gas ratio, so that constant functions
+            # are advected perfectly
+            eps_a = a_k * eps_k
+            eps_a +=  dt*self._fluxes(disc, eps_a, dV_k, St_k)
+            
             eps_k[:] += dt*self._fluxes(disc, eps_k, dV_k, St_k)
+
+            a_k[:] = eps_a / (eps_k + 1e-300)
 
         if dust_tracers is not None:
             dust_tracers[:] += d_tr
@@ -510,6 +536,7 @@ if __name__ == "__main__":
     eos.set_grid(grid)
     Sigma =  (Mdot / (3 * np.pi * eos.nu))*np.exp(-grid.Rc/Rd)
     
+    settling = True
     
     T0 = (2*np.pi)
 
@@ -553,7 +580,7 @@ if __name__ == "__main__":
     # Test the radial drift code
     plt.figure()
     dust = FixedSizeDust(grid, star, eos, 0.01, [0.01, 0.1], Sigma=Sigma)
-    drift = SingleFluidDrift()
+    drift = SingleFluidDrift(settling=settling)
       
     times = np.array([0, 1e2, 1e3, 1e4, 1e5, 1e6, 3e6]) * 2*np.pi
   
