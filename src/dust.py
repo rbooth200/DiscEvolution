@@ -356,8 +356,10 @@ class SingleFluidDrift(object):
         head = ''
         if self._diffuse:
             head += self._diffuse.header() + '\n'
-        head += '# {} diffusion: {}'.format(self.__class__.__name__,
-                                            self._diffuse is not None)
+        head += ('# {} diffusion: {} settling: {}'
+                 ''.format(self.__class__.__name__,
+                           self._diffuse is not None
+                           self._settling))
         return head
         
     def max_timestep(self, disc):
