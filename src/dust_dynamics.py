@@ -12,7 +12,7 @@ import os
 from diffusion import TracerDiffusion
 from dust import SingleFluidDrift
 from ViscousEvolution import ViscousEvolution
-from utils import mkdir_p
+from disc_utils import mkdir_p
 
 class DustDynamicsModel(object):
     '''
