@@ -19,7 +19,7 @@ class DustDynamicsModel(object):
     '''
     def __init__(self, disc,
                  diffusion=False, radial_drift=False, viscous_evo=False,
-                 evaporation=False,
+                 evaporation=False, settling=False,
                  Sc = 1, t0=0):
 
         self._disc = disc
@@ -42,7 +42,7 @@ class DustDynamicsModel(object):
         # include it ourself.
         self._radial_drift = None
         if radial_drift:
-            self._radial_drift = SingleFluidDrift(diffusion)
+            self._radial_drift = SingleFluidDrift(diffusion, settling)
         else:
             self._diffusion = diffusion
 
