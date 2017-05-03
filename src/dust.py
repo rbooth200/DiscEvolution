@@ -94,10 +94,12 @@ class DustyDisc(AccretionDisc):
     @property
     def Hp(self):
         '''Dust scale height'''
-        
-        f = self.Stokes() / self.alpha
-        
-        return self.H * np.sqrt(1 / (1 + 1/f))
+
+        St = self.Stokes()
+        a  = self.alpha
+        eta = 1 - 1. / (2 + 1./St)
+
+        return self.H * np.sqrt(eta * a / (a + St))
 
     def update_ices(self, chem):
         '''Update ice fractions'''
@@ -198,6 +200,8 @@ class DustGrowthTwoPop(DustyDisc):
         self._head = (', uf_0: {}cm s^-1, uf_ice: {}cm s^-1, thresh: {}'
                       ', a0: {}cm'.format(uf_0, uf_ice, thresh, a0))
         
+        self.update(0)
+
     def header(self):
         '''Dust growth header'''
         return super(DustGrowthTwoPop, self).header() + self._head
@@ -264,7 +268,7 @@ class DustGrowthTwoPop(DustyDisc):
         # Size and total gas fraction
         a = self._a[1]        
         eps_tot = self.dust_frac.sum(0)
-            
+        
         afrag_t = self._frag_limit()
         adrift, afrag_d =  self._drift_limit(eps_tot)
         t_grow = self._t_grow(eps_tot)
@@ -358,7 +362,7 @@ class SingleFluidDrift(object):
             head += self._diffuse.header() + '\n'
         head += ('# {} diffusion: {} settling: {}'
                  ''.format(self.__class__.__name__,
-                           self._diffuse is not None
+                           self._diffuse is not None,
                            self._settling))
         return head
         
@@ -518,6 +522,7 @@ class SingleFluidDrift(object):
 
         if dust_tracers is not None:
             dust_tracers[:] += d_tr
+
     
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
