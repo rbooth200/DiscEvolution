@@ -119,9 +119,11 @@ class DustDynamicsModel(object):
             head += self._radial_drift.header() + '\n'
         if self._diffusion:
             head += self._diffusion.header() + '\n'
-        if self._chem:
+        try:
             head += self._chem.header() + '\n'
-
+        except AttributeError:
+            pass
+        
         with open(filename, 'w') as f:
             print>>f, head, '# time: {}yr'.format(self.t/(2*np.pi))
 
