@@ -58,7 +58,6 @@ Contains prescriptions for the growth and migration of planets. Currently does n
 
 
 ## Contact
--------------
 Please report any bugs or issues here on github. 
 
 If you require support using the code, feel free to contact me at richardabooth@gmail.com. If extensive support is required, co-authorship of any subsequent publication will be sought. 
