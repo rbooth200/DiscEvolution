@@ -1,5 +1,4 @@
 # DiscEvolution
--------------
 A python code to model the evolution of dust and gas in protoplanetary discs.
 
 Author: Richard Booth
@@ -10,14 +9,13 @@ The code was originally described in [Booth et al. (2017)](https://arxiv.org/abs
 
 
 ## License
--------------
 Copyright 2017 Richard Booth
 
 This code is free software made available under the GNU GPLv3 License. For details see the LICENSE file.
 
 
 ## Docs
--------------
+
 The code is not intended to be used as a stand alone tool, but includes a set of different modules that can be used to include different physics when modelling the evolution of protoplanetary discs. As such, it contains a series of classes each of which handle one aspect of the disc's evolution, such as viscous evolution or grain growth. An example of one way to combine these modules together can be found in the dust_dynamics.py source file.
 
 In addition to the physics, there are a number of core classes upon which the physics modules are built.
