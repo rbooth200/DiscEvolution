@@ -84,6 +84,14 @@ class ViscousEvolution(object):
         # Compute the viscous update
         return  3. * np.diff(ds) / self._RXdXe
 
+    def viscous_velocity(self, disc):
+        '''Compute the radial velocity due to viscosity'''
+        self._setup_grid(disc.grid)
+        self._init_fluxes(disc)
+
+        RS = disc.Sigma * disc.R
+        return - 3*self._dS[1:-1] / (RS[1:] + RS[:-1])
+
     def max_timestep(self, disc):
         '''Courant limited time-step'''
         grid = disc.grid

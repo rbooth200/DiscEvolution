@@ -412,7 +412,7 @@ class SingleFluidDrift(object):
         flux[...,-1] = np.maximum(0, flux[...,-2]**2 / (flux[...,-3] + 1e-300))
 
         # Do the update
-        deps = - np.diff(flux*grid.Re) / ((Sigma+1e-300)*grid.dRe2)
+        deps = - np.diff(flux*grid.Re) / ((Sigma+1e-300) * 0.5*grid.dRe2)
         if self._diffuse:
             St2 = St_i**2
             Sc = self._diffuse.Sc * (0.5625/(1 + 4*St2) + 0.4375 + 0.25*St2)
@@ -522,6 +522,17 @@ class SingleFluidDrift(object):
 
         if dust_tracers is not None:
             dust_tracers[:] += d_tr
+            
+    def radial_drift_velocity(self, disc):
+        '''Compute the radial drift velocity for the disc'''
+        eps = disc.dust_frac
+        a   = disc.grain_size   
+        eps_inv = 1. / (disc.integ_dust_frac + np.finfo(eps.dtype).tiny)
+
+        # Compute the dust-gas relative velocity
+        DeltaV = self._compute_deltaV(disc)
+        return DeltaV - self._epsDeltaV
+
 
     
 if __name__ == "__main__":
