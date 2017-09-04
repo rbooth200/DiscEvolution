@@ -1,5 +1,5 @@
-from CN_chem import ChemicalAbund, MolecularIceAbund
-from CN_chem import SimpleCOAtomAbund, SimpleCOMolAbund
-from CN_chem import SimpleCOChemOberg,TimeDepCOChemOberg,EquilibriumCOChemOberg
-from CN_chem import SimpleCOChemMadhu,EquilibriumCOChemMadhu
+from CO_chem import ChemicalAbund, MolecularIceAbund
+from CO_chem import SimpleCOAtomAbund, SimpleCOMolAbund
+from CO_chem import SimpleCOChemOberg,TimeDepCOChemOberg,EquilibriumCOChemOberg
+from CO_chem import SimpleCOChemMadhu,EquilibriumCOChemMadhu
 
