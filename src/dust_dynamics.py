@@ -359,7 +359,7 @@ if __name__ == "__main__":
             print 'Time: {} yr'.format(evo.t/(2*np.pi))
             plt.subplot(221)
             l, = plt.loglog(grid.Rc, evo.disc.Sigma_G)
-            plt.loglog(grid.Rc, evo.disc.Sigma_D.sum(0), l.get_color() + '--')
+            plt.loglog(grid.Rc, evo.disc.Sigma_D.sum(0), '--', c=l.get_color())
             plt.xlabel('$R$')
             plt.ylabel('$\Sigma_\mathrm{G, D}$')
             

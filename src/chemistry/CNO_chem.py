@@ -6,15 +6,15 @@ from base_chem import SimpleChemBase, StaticChem, ThermalChem
 from base_chem import TimeDependentChem, EquilibriumChem
 
 ################################################################################
-# Simple CO Chemistry wrappers
+# Simple CNO Chemistry wrappers
 ################################################################################
-class SimpleCOAtomAbund(ChemicalAbund):
-    '''Class to hold the raw atomic abundaces of C/O/Si for the CO chemistry'''
+class SimpleCNOAtomAbund(ChemicalAbund):
+    '''Class to hold the raw atomic abundaces of C/O/Si for the CNO chemistry'''
     def __init__(self, size=0):
-        atom_ids = ['C', 'O', 'Si']
-        masses   = [ 12., 16., 28. ]
+        atom_ids = ['C', 'N', 'O', 'Si']
+        masses   = [ 12., 14., 16., 28. ]
         
-        super(SimpleCOAtomAbund, self).__init__(atom_ids, masses, size)
+        super(SimpleCNOAtomAbund, self).__init__(atom_ids, masses, size)
 
 
     def set_solar_abundances(self, muH=1.28):
@@ -23,31 +23,35 @@ class SimpleCOAtomAbund(ChemicalAbund):
         args:
             muH : mean atomic mass, default = 1.28
         '''
-        self._data[:] = np.outer(np.array([12*2.7e-4, 16*4.9e-4, 28*3.2e-5]),
-                                 np.ones(self.size)) / muH
+        m_abund = np.array([12*2.7e-4, 14*6.8e-5, 16*4.9e-4, 28*3.2e-5])
+        self._data[:] = np.outer(m_abund, np.ones(self.size)) / muH
 
     
-class SimpleCOMolAbund(ChemicalAbund):
+class SimpleCNOMolAbund(ChemicalAbund):
     '''Class that holds the abundances of molecules needed for C/O chemistry'''
     def __init__(self, size=0):
-        mol_ids  = [ 'CO', 'CH4', 'CO2', 'H2O', 'C-grain', 'Si-grain']
-        mol_mass = [  28.,  16.,    44.,  18.,   12.,       100.]
+        mol_ids  = [ 'CO', 'CH4', 'CO2', 'H2O', 'N2', 'NH3', 
+                     'C-grain', 'Si-grain']
+        mol_mass = [  28.,  16.,   44.,   18.,   28.,  17., 
+                      12.,       100.]
 
-        super(SimpleCOMolAbund, self).__init__(mol_ids, mol_mass, size)
+        super(SimpleCNOMolAbund, self).__init__(mol_ids, mol_mass, size)
 
         # Atomic make up of the molecules:
-        self._n_spec = { 'CO'       : { 'C' : 1, 'O' : 1,         },
-                         'CH4'      : { 'C' : 1,                  },
-                         'CO2'      : { 'C' : 1, 'O' : 2,         },
-                         'H2O'      : {          'O' : 1,         },
-                         'C-grain'  : { 'C' : 1,                  },
-                         'Si-grain' : {          'O' : 3, 'Si' : 1},
+        self._n_spec = { 'CO'       : { 'C' : 1,          'O' : 1,         },
+                         'CH4'      : { 'C' : 1,                           },
+                         'CO2'      : { 'C' : 1,          'O' : 2,         },
+                         'H2O'      : {                   'O' : 1,         },
+                         'N2'       : {          'N' : 2,                  },
+                         'NH3'      : {          'N' : 1,                  },
+                         'C-grain'  : { 'C' : 1,                           },
+                         'Si-grain' : {                   'O' : 3, 'Si' : 1},
                          }
         
     def atomic_abundance(self):
         '''Compute the mass abundances of atomic species in the molecules'''
 
-        atomic_abund = SimpleCOAtomAbund(self.data.shape[1])
+        atomic_abund = SimpleCNOAtomAbund(self.data.shape[1])
         for mol in self.species:
             nspec = self._n_spec[mol]
             for atom in nspec:
@@ -55,25 +59,33 @@ class SimpleCOMolAbund(ChemicalAbund):
                 atomic_abund[atom] += n_atom * atomic_abund.mass(atom)
                 
         return atomic_abund
-        
+
+
         
 ###############################################################################
 # Specific Chemical models
 ###############################################################################
-class COChemOberg(object):
+class CNOChemOberg(object):
     '''Chemical ratios from Oberg+ (2011)
-    
+
     args:
+        fNH3 : Fraction of nitrogen in NH_3
         fix_grains : Whether to fix the dust grain abundances when recomputing
                      the molecular abundances
+        fix_NH3    : Whether to fix the nitrogen abundance when recomputing the
+                     molecular abundances
     '''
-    def __init__(self,fix_grains=True):
+    def __init__(self, fNH3=None, fix_grains=True, fix_N=False):
+        if fNH3 is None: fNH3 = 0.07
+        self._fNH3 = fNH3
         self._fix_grains = fix_grains
+        self._fix_N = fix_N
 
     def header(self):
-        '''CO Oberg chem header'''
-        return (super(COChemOberg, self).header() + 
-                ', fix_grains: {}'.format(self._fix_grains))
+        '''CNO Oberg chem header'''
+        return (super(CNOChemOberg, self).header() + 
+                ', f_NH3: {}, fix_grains: {}, fix_N: {}'
+                ''.format(self._fNH3, self._fix_grains, self._fix_N))
     
     def molecular_abundance(self, T, rho, dust_frac,
                             atomic_abund=None, mol_abund=None):
@@ -81,7 +93,7 @@ class COChemOberg(object):
         
         args: 
              T            : array(N)   temperature (K)
-             atomic_abund : atomic abundaces, SimpleCOAtomAbund object
+             atomic_abund : atomic abundaces, SimpleCNOAtomAbund object
         
         returns:
             nmol : array(3, N) molecular mass-densities
@@ -91,6 +103,7 @@ class COChemOberg(object):
             atomic_abund = mol_abund.atomic_abundance()
 
         C  = atomic_abund.number_abund('C')
+        N  = atomic_abund.number_abund('N')
         O  = atomic_abund.number_abund('O')
         Si = atomic_abund.number_abund('Si')
 
@@ -99,7 +112,7 @@ class COChemOberg(object):
         initial_abund = False
         if mol_abund is None:
             initial_abund = True
-            mol_abund = SimpleCOMolAbund(atomic_abund.size)  
+            mol_abund = SimpleCNOMolAbund(atomic_abund.size)  
         else:
             #  Convert to number abundances
             for spec in mol_abund.species:
@@ -116,6 +129,7 @@ class COChemOberg(object):
             C -=   mol_abund['C-grain']
             O -= 3*mol_abund['Si-grain']
 
+
         # From the amount of O available work out how much CO/CO_2 we can
         # have
         fCO2 = 0.15 / (0.65 + 0.15)
@@ -127,26 +141,39 @@ class COChemOberg(object):
         mol_abund['CH4'] = 0
         mol_abund['H2O'] = np.maximum(O, 0)
 
+        # Nitrogen
+        if initial_abund or not self._fix_N:
+            mol_abund['NH3'] = self._fNH3 * N
+            mol_abund['N2'] = 0.5*(N - 1*mol_abund['NH3'])
+        
+
         #  Convert to mass abundances
         for spec in mol_abund.species:
             mol_abund[spec] *= mol_abund.mass(spec)
         
         return mol_abund
 
-class COChemMadhu(object):
+class CNOChemMadhu(object):
     '''Chemical ratios from Madhusudhan+ (2014c)
-    
+ 
     args:
+        fNH3 : Fraction of nitrogen in NH_3
         fix_grains : Whether to fix the dust grain abundances when recomputing
                      the molecular abundances
+        fix_NH3    : Whether to fix the nitrogen abundance when recomputing the
+                     molecular abundances
     '''
-    def __init__(self,fix_grains=True):
+    def __init__(self, fNH3=None, fix_grains=True, fix_N=False):
+        if fNH3 is None: fNH3 = 0.07
+        self._fNH3 = fNH3
         self._fix_grains = fix_grains
+        self._fix_N = fix_N
 
     def header(self):
-        '''CO Madhu chem header'''
-        return (super(COChemMadhu, self).header() + 
-                ', fix_grains: {}'.format(self._fix_grains))
+        '''CNO Madhu chem header'''
+        return (super(CNOChemMadhu, self).header() + 
+                ', f_NH3: {}, fix_grains: {}, fix_N: {}'
+                ''.format(self._fNH3, self._fix_grains, self._fix_N))
 
     def molecular_abundance(self, T, rho, dust_frac,
                             atomic_abund=None, mol_abund=None):
@@ -154,7 +181,7 @@ class COChemMadhu(object):
         
         args: 
              T            : array(N)   temperature (K)
-             atomic_abund : atomic abundaces, SimpleCOAtomAbund object
+             atomic_abund : atomic abundaces, SimpleCNOAtomAbund object
         
         returns:
             nmol : array(3, N) molecular mass-densities
@@ -162,8 +189,9 @@ class COChemMadhu(object):
         assert(xor(atomic_abund is None, mol_abund is None))
         if atomic_abund is None:
             atomic_abund = mol_abund.atomic_abundance()
-            
+
         C  = atomic_abund.number_abund('C')
+        N  = atomic_abund.number_abund('N')
         O  = atomic_abund.number_abund('O')
         Si = atomic_abund.number_abund('Si')
 
@@ -171,12 +199,12 @@ class COChemMadhu(object):
         initial_abund = False
         if mol_abund is None:
             initial_abund = True
-            mol_abund = SimpleCOMolAbund(atomic_abund.size)
+            mol_abund = SimpleCNOMolAbund(atomic_abund.size)
         else:
             #  Convert to number abundances
             for spec in mol_abund.species:
                 mol_abund[spec] = mol_abund.number_abund(spec)
-
+        
         if initial_abund or not self._fix_grains:
             mol_abund['Si-grain'] = Si
             mol_abund['C-grain']  = 0
@@ -184,7 +212,7 @@ class COChemMadhu(object):
         else:
             C -=   mol_abund['C-grain']
             O -= 3*mol_abund['Si-grain']
-            
+
         # Compute the CO2 gas phase fraction (approximately)
         mol_abund['CO2'] = m_tCO2 = 0.1*C*mol_abund.mass('CO2')
         m_sCO2 = self._equilibrium_ice_abund(T, rho, dust_frac, 'CO2',
@@ -201,7 +229,7 @@ class COChemMadhu(object):
         # available
         nCO2 = np.maximum(np.minimum((O - C*(1 - xCO2)) / (1 + xCO2), 0.1*C), 0)
 
-        # Set up the number-density abundaces for the molecules
+        # Set up the number-density abundances for the molecules
         mol_abund['CO']  = (C-nCO2)*(1-xCO2)
         mol_abund['CH4'] = (C-nCO2)*xCO2
         mol_abund['CO2'] = nCO2
@@ -209,6 +237,11 @@ class COChemMadhu(object):
         # Put the remaining oxygen in water
         O -= mol_abund['CO'] + 2*mol_abund['CO2']
         mol_abund['H2O'] = np.maximum(O,0)
+
+        # Nitrogen
+        if initial_abund or not self._fix_N:
+            mol_abund['NH3'] = self._fNH3 * N
+            mol_abund['N2'] = 0.5*(N - 1*mol_abund['NH3'])
 
         #  Convert to mass abundances
         for spec in mol_abund.species:
@@ -220,34 +253,36 @@ class COChemMadhu(object):
 ###############################################################################
 # Combined Models
 ###############################################################################
-class SimpleCOChemOberg(COChemOberg, StaticChem):
-    def __init__(self, **kwargs):
-        COChemOberg.__init__(self)
+class SimpleCNOChemOberg(CNOChemOberg, StaticChem):
+    def __init__(self, fNH3=None, **kwargs):
+        CNOChemOberg.__init__(self, fNH3)
         StaticChem.__init__(self, **kwargs)
 
-class SimpleCOChemMadhu(COChemMadhu, StaticChem):
-    def __init__(self, **kwargs):
-        COChemMadhu.__init__(self)
+class SimpleCNOChemMadhu(CNOChemMadhu, StaticChem):
+    def __init__(self, fNH3=None, **kwargs):
+        CNOChemMadhu.__init__(self, fNH3)
         StaticChem.__init__(self, **kwargs)
 
-class TimeDepCOChemOberg(COChemOberg, TimeDependentChem):
-    def __init__(self, **kwargs):
-        COChemOberg.__init__(self)
+class TimeDepCNOChemOberg(CNOChemOberg, TimeDependentChem):
+    def __init__(self, fNH3=None, **kwargs):
+        CNOChemOberg.__init__(self, fNH3)
         TimeDependentChem.__init__(self, **kwargs)
 
-class EquilibriumCOChemOberg(COChemOberg, EquilibriumChem):
-    def __init__(self, fix_ratios=False, fix_grains=True, **kwargs):
-        COChemOberg.__init__(self, fix_grains)
+class EquilibriumCNOChemOberg(CNOChemOberg, EquilibriumChem):
+    def __init__(self, fNH3=None, fix_ratios=False, fix_grains=True, 
+                 fix_N=False, **kwargs):
+        CNOChemOberg.__init__(self, fNH3, fix_grains, fix_N)
         EquilibriumChem.__init__(self, 
                                  fix_ratios=fix_ratios, 
                                  **kwargs)
 
-class EquilibriumCOChemMadhu(COChemMadhu, EquilibriumChem):
-    def __init__(self, fix_ratios=False, fix_grains=True, **kwargs):
-        COChemMadhu.__init__(self, fix_grains)
+class EquilibriumCNOChemMadhu(CNOChemMadhu, EquilibriumChem):
+    def __init__(self, fNH3=None, fix_ratios=False, fix_grains=True,
+                 fix_N=False, **kwargs):
+        CNOChemMadhu.__init__(self, fNH3,  fix_grains, fix_N)
         EquilibriumChem.__init__(self,
-                                 fix_ratios=fix_ratios, 
-                                 **kwargs)
+                                   fix_ratios=fix_ratios, 
+                                   **kwargs)
 
 ###############################################################################
 # Tests
@@ -259,12 +294,12 @@ if __name__ == "__main__":
     from star import SimpleStar
     from grid import Grid
 
-    for Chem in [ SimpleCOChemMadhu(), SimpleCOChemOberg(),
-                  EquilibriumCOChemMadhu(), EquilibriumCOChemOberg(),]:
+    for Chem in [ SimpleCNOChemMadhu(), SimpleCNOChemOberg(),
+                  EquilibriumCNOChemMadhu(), EquilibriumCNOChemOberg(),]:
 
         T = np.logspace(0.5, 3, 6)
 
-        Xi = SimpleCOAtomAbund(len(T))
+        Xi = SimpleCNOAtomAbund(len(T))
         Xi.set_solar_abundances()
         
         mol = Chem.equilibrium_chem(T, 1e-10, 0.01, Xi)
@@ -275,6 +310,7 @@ if __name__ == "__main__":
         atom  = mol.gas.atomic_abundance()
         atom += mol.ice.atomic_abundance()
         print Chem.__class__.__name__
+        print Chem.header()
         for X in atom:
             print X
             print mol.gas.atomic_abundance()[X] / (atom[X] + 1e-300)
@@ -315,17 +351,17 @@ if __name__ == "__main__":
     n = Sigma / (2.4*m_H)
 
     
-    EQ_chem = SimpleCOChemOberg()
-    TD_chem = TimeDepCOChemOberg(a=1e-5)
+    EQ_chem = SimpleCNOChemOberg()
+    TD_chem = TimeDepCNOChemOberg(a=1e-5)
 
-    X_solar = SimpleCOAtomAbund(n.shape[0])
+    X_solar = SimpleCNOAtomAbund(n.shape[0])
     X_solar.set_solar_abundances()
 
 
     # Simple chemistry of Madhu:
     plt.subplot(211)
-    S_chem  = SimpleCOChemMadhu()
-    EQ_chem = EquilibriumCOChemMadhu()
+    S_chem  = SimpleCNOChemMadhu()
+    EQ_chem = EquilibriumCNOChemMadhu()
 
     S_mol  = S_chem.equilibrium_chem(T, rho, d2g, X_solar)
     EQ_mol = EQ_chem.equilibrium_chem(T, rho, d2g, X_solar)
@@ -333,23 +369,28 @@ if __name__ == "__main__":
     S_atom = S_mol.gas.atomic_abundance()
     EQ_atom = EQ_mol.gas.atomic_abundance()
     plt.semilogx(R, S_atom.number_abund('C')  * 1e4*muH, 'r-')
+    plt.semilogx(R, S_atom.number_abund('N')  * 1e4*muH, 'g-')
     plt.semilogx(R, S_atom.number_abund('O')  * 1e4*muH, 'b-')
     plt.semilogx(R, EQ_atom.number_abund('C') * 1e4*muH, 'r:')
+    plt.semilogx(R, EQ_atom.number_abund('N') * 1e4*muH, 'g:')
     plt.semilogx(R, EQ_atom.number_abund('O') * 1e4*muH, 'b:')
     plt.ylabel(r'$[X/H]\,(\times 10^4)$')
 
     plt.subplot(212)
-    S_chem  = SimpleCOChemOberg()
-    EQ_chem = EquilibriumCOChemOberg()
+    S_chem  = SimpleCNOChemOberg()
+    EQ_chem = EquilibriumCNOChemOberg()
 
     S_mol  = S_chem.equilibrium_chem(T, rho, d2g, X_solar)
     EQ_mol = EQ_chem.equilibrium_chem(T, rho, d2g, X_solar)
     
     S_atom  = S_mol.gas.atomic_abundance()
     EQ_atom = EQ_mol.gas.atomic_abundance()
+
     plt.semilogx(R, S_atom.number_abund('C')  * 1e4*muH, 'r-')
+    plt.semilogx(R, S_atom.number_abund('N')  * 1e4*muH, 'g-')
     plt.semilogx(R, S_atom.number_abund('O')  * 1e4*muH, 'b-')
     plt.semilogx(R, EQ_atom.number_abund('C') * 1e4*muH, 'r:')
+    plt.semilogx(R, EQ_atom.number_abund('N') * 1e4*muH, 'g:')
     plt.semilogx(R, EQ_atom.number_abund('O') * 1e4*muH, 'b:')
     plt.ylabel(r'$[X/H]\,(\times 10^4)$')
     plt.xlabel('$R\,[\mathrm{au}]$')
@@ -378,9 +419,9 @@ if __name__ == "__main__":
         TD_chem.update(dt, T, rho, d2g, chem)
         
         t = ti
-        
+
         l, = plt.semilogx(R, chem.gas['H2O']/mol_solar['H2O'], '-')
-        plt.semilogx(R, chem.ice['H2O']/mol_solar['H2O'],'--', c=l.get_color())
+        plt.semilogx(R, chem.ice['H2O']/mol_solar['H2O'], '--', c=l.get_color())
 
     plt.semilogx(R, EQ_mol.gas['H2O']/mol_solar['H2O'], 'k-')
     plt.semilogx(R, EQ_mol.ice['H2O']/mol_solar['H2O'], 'k:')

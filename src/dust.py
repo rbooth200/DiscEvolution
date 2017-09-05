@@ -400,14 +400,14 @@ class SingleFluidDrift(object):
         # Add boundary cells
         shape_v   = eps_i.shape[:-1] + (eps_i.shape[-1]+1,)
         shape_rho = eps_i.shape[:-1] + (eps_i.shape[-1]+2,)
-
+        
         dV_i = np.empty(shape_v, dtype='f8')
         dV_i[...,1:-1] = deltaV_i - self._epsDeltaV
         dV_i[..., 0] = dV_i[..., 1] 
         dV_i[...,-1] = dV_i[...,-2] 
 
-        Sig = np.zeros(shape_rho, dtype='f8')
-        eps = np.zeros(shape_rho, dtype='f8')
+        Sig = np.zeros(shape_rho[-1], dtype='f8')
+        eps = np.zeros(shape_rho,     dtype='f8')
         Sig[    1:-1] = Sigma
         eps[...,1:-1] = eps_i
         

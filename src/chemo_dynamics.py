@@ -321,8 +321,9 @@ if __name__ == "__main__":
     # Gas fraction for pebble accretion
     pb_gas_f=0.0
 
-
-    planets = True
+    output = False
+    planets = False
+    plot = True
     injection_times = np.arange(0, 3.01e6, 1e5)*T0
     injection_radii = np.logspace(0.5, 2, 16)
 
@@ -330,11 +331,12 @@ if __name__ == "__main__":
                        'pb_gas_acc_f_{}'.format(pb_gas_f),
                        chem_type, eos_type,
                        model['name'], 'Mdot_{}'.format(model['Mdot']))
-    mkdir_p(DIR)
+    if output:
+        mkdir_p(DIR)
 
-    with open(os.path.join(DIR, 'model.dat'), 'w') as f:
-        for k in model:
-            print >> f, k, model[k]
+        with open(os.path.join(DIR, 'model.dat'), 'w') as f:
+            for k in model:
+                print >> f, k, model[k]
     
     # Initialize the disc model
     grid = Grid(R_in, R_out, N_cell, spacing='natural')
@@ -408,8 +410,15 @@ if __name__ == "__main__":
 
 
     # Solve for the evolution
-    print_times  = np.array([0, 1e5, 1e6, 2e6, 3e6]) * T0
-    output_times = np.arange(0, 3e6+1e3, 1e4) * T0
+    if plot:
+        print_times  = np.array([0, 1e5, 1e6, 2e6, 3e6]) * T0
+    else:
+        print_times = []
+        
+    if output:
+        output_times = np.arange(0, 3e6+1e3, 1e4) * T0
+    else:
+        output_times = []
 
     IO = IO_Controller(t_print=print_times, t_save=output_times,
                        t_inject=injection_times)
@@ -450,7 +459,7 @@ if __name__ == "__main__":
             print 'Time: {} yr'.format(evo.t/(2*np.pi))
             plt.subplot(321)
             l, = plt.loglog(grid.Rc, evo.disc.Sigma_G)
-            plt.loglog(grid.Rc, evo.disc.Sigma_D.sum(0), l.get_color() + '--')
+            plt.loglog(grid.Rc, evo.disc.Sigma_D.sum(0), '--', c=l.get_color())
             plt.xlabel('$R$')
             plt.ylabel('$\Sigma_\mathrm{G, D}$')
             
@@ -474,16 +483,16 @@ if __name__ == "__main__":
             gCO.data[:] /= X_solar.data
             sCO.data[:] /= X_solar.data
             c = l.get_color()
-            plt.semilogx(grid.Rc, gCO['C'] , c+ '-', linewidth=1)
-            plt.semilogx(grid.Rc, gCO['O'] , c+ '-', linewidth=2)
-            plt.semilogx(grid.Rc, sCO['C'] , c+ ':', linewidth=1)
-            plt.semilogx(grid.Rc, sCO['O'] , c+ ':', linewidth=2)
+            plt.semilogx(grid.Rc, gCO['C'] , '-',c=c, linewidth=1)
+            plt.semilogx(grid.Rc, gCO['O'] , '-',c=c, linewidth=2)
+            plt.semilogx(grid.Rc, sCO['C'] , ':',c=c, linewidth=1)
+            plt.semilogx(grid.Rc, sCO['O'] , ':',c=c, linewidth=2)
             plt.xlabel('$R\,[\mathrm{au}}$')
             plt.ylabel('$[X]_\mathrm{solar}$')
             
             plt.subplot(326)
-            plt.semilogx(grid.Rc, gCO['C'] / gCO['O'] , c+ '-')
-            plt.semilogx(grid.Rc, sCO['C'] / sCO['O'] , c+ ':')
+            plt.semilogx(grid.Rc, gCO['C'] / gCO['O'] , '-', c=c)
+            plt.semilogx(grid.Rc, sCO['C'] / sCO['O'] , ':', c=c)
             plt.xlabel('$R\,[\mathrm{au}}$')
             plt.ylabel('$[C/O]_\mathrm{solar}$')
 
@@ -491,4 +500,6 @@ if __name__ == "__main__":
 
         IO.pop_times(evo.t)
             
-    #plt.show()
+
+    if plot:
+        plt.show()
