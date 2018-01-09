@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.optimize import newton, brentq
-from constants import GasConst, sig_SB, m_H, AU, Omega0
+from constants import GasConst, sig_SB, m_H, AU, Omega0, G_CGS
 import opacity
 ################################################################################
 # Thermodynamics classes
@@ -120,6 +120,10 @@ class IrradiatedEOS(EOS_Table):
 
     From Nakamoto & Nakagawa (1994), Hueso & Guillot (2005).
 
+    The gravito-turbulent model is the model recommended by Rafikov (2015),
+    except the optical depth function f(tau) from Hueso & Guillot (2005) is 
+    used.
+
     args:
         star    : Stellar properties
         alpha_t : Viscous alpha parameter
@@ -128,11 +132,13 @@ class IrradiatedEOS(EOS_Table):
         gamma   : Ratio of specific heats
         accrete : Whether to include heating due to accretion, 
                   default=True
+        GI      : Include a local model of viscosity due to gravito-turbulence,
+                  default= False
         tol     : Tolerence for change in density before recomputing T, 
                   default=0.01
     '''
     def __init__(self, star, alpha_t, Tc=10, mu=2.4, gamma=1.4,
-                 accrete=True, tol=0.01):
+                 accrete=True, GI=False, tol=0.01):
 
         super(IrradiatedEOS, self).__init__()
 
@@ -154,20 +160,31 @@ class IrradiatedEOS(EOS_Table):
         self._kappa = opacity.Zhu2012
         
         self._T = None
+        self._GI = GI
         self._tol = tol
 
         
     def __H(self, R, T):
         return self._H0 * np.sqrt(T * R*R*R)
+
+    def _T_GI(self, Sigma, Om_k):
+        '''Temperature in gravito-turbulent equilibrium'''
+        Q0 = 1.0
+        cs_Q = np.pi * G_CGS * Sigma * Q0 / Om_k
+        T_Q = (self._mu * cs_Q*cs_Q / GasConst)
         
-    def _thermal_balance(self, Tm, R, Sigma, Om_k):
-        cs = np.sqrt(GasConst * Tm / self._mu)
-        H = cs / Om_k
-        
-        rho = Sigma / (_sqrt2pi * H)
-        tau = 0.5 * Sigma * self._kappa(rho, Tm)
-        H /= AU
-        
+        return T_Q
+
+    def _escape(self, tau):
+        '''Escape probability function
+
+        args:
+            tau = 0.5 Sigma Kappa
+        '''
+        return (0.375*tau + 0.5/tau)
+
+    def _irradiate(self, R, H):
+        '''Heating from irradiation'''
         # External irradiation
         dEdt = self._sigTc4
         
@@ -176,10 +193,29 @@ class IrradiatedEOS(EOS_Table):
         f_flat = (2/(3*np.pi)) * X*X*X
         f_flare = 0.5 * self._dlogHdlogRm1 * (X*X)*(H/R)
         dEdt += sig_SB * self._star.T_eff**4 * (f_flat + f_flare)
+
+        return dEdt
+
+    def _thermal_balance(self, Tm, R, Sigma, Om_k):
+        cs = np.sqrt(GasConst * Tm / self._mu)
+        H = cs / Om_k
+        
+        rho = Sigma / (_sqrt2pi * H)
+        tau = 0.5 * Sigma * self._kappa(rho, Tm)
+        H /= AU
+        
+        # Heating due to irradiation
+        dEdt = self._irradiate(R, H)
+
+        # Add in the heating due to gravito-turbulence
+        if self._GI and self._accrete:
+            sig_TGI4 = sig_SB * self._T_GI(Sigma, Om_k)**4
+            x =  np.maximum(sig_TGI4 - dEdt, 0)
+            dEdt += np.maximum(sig_TGI4 - dEdt, 0)
         
         # Viscous heating:
         heat = 1.125*self._alpha_t*cs*cs * Om_k * Sigma
-        dEdt += heat*(0.375*tau + 0.5/tau)
+        dEdt += heat*self._escape(tau)
 
         return dEdt - sig_SB*Tm**4
 
@@ -191,6 +227,7 @@ class IrradiatedEOS(EOS_Table):
 
         self._Tmin    = np.empty_like(R)
         self._Sig_min = np.empty_like(R)
+        self._Sig_GI  = np.empty_like(R)
         T0, T1 = 1e-5, 2*self._star.T_eff
         for i, R_i in enumerate(R):
             # First compute the temperature without viscous heating
@@ -218,6 +255,12 @@ class IrradiatedEOS(EOS_Table):
             while f_heat(Sig_max) < 0: Sig_max *= 2
 
             self._Sig_min[i] = brentq(f_heat, Sig_min, Sig_max)
+
+            if self._GI:
+                # Find the minimum density at which GI needs to be included
+                def f_GI(Sig):
+                    return self._T_GI(Sig, Om_k) - Tm
+                self._Sig_GI[i] = newton(f_GI, cs2**0.5 * Om_k/(np.pi*G_CGS))
             
         # Reset the alpha viscosity coefficient    
         self._alpha_t = alpha
@@ -251,8 +294,9 @@ class IrradiatedEOS(EOS_Table):
             self._Sigma = np.zeros_like(self._R)
 
         # Set regions with negligible viscous heating to the pure irradiation
-        # temperature
+        # temperature, except if they are dense enough for GI to be relevant.
         i_min = Sigma < self._Sig_min
+        if self._GI: i_min[Sigma > self._Sig_GI] = 0
         self._T[i_min] = self._Tmin[i_min]
         self._Sigma[i_min] = Sigma[i_min]
 
@@ -264,7 +308,7 @@ class IrradiatedEOS(EOS_Table):
             try:
                 T0 = max(self._Tmin[i],1e-5)
                 T1 = 1500
-                if Sig_i < self._Sigma[i]: T1 = self._T[i]
+                #if Sig_i < self._Sigma[i]: T1 = self._T[i]
 
                 Om_k = Omega0*self._star.Omega_k(R_i)
                 Ti = self._solve_equilibrium_T(R_i, Sig_i, Om_k, T0, T1)
@@ -293,10 +337,30 @@ class IrradiatedEOS(EOS_Table):
         return self.__H(R, self._T)
     
     def _f_nu(self, R):
-        return self._alpha_t * self._f_cs(R) * self._f_H(R)
+        return self._f_alpha(R) * self._f_cs(R) * self._f_H(R)
 
     def _f_alpha(self, R):
-        return self._alpha_t
+        alpha_GI = 0
+        if self._GI and self._accrete:
+            cs = np.sqrt(GasConst * self._T / self._mu)
+            Om_k = Omega0 * self._star.Omega_k(R)
+            H = cs / Om_k
+            
+            Sig = self._Sigma
+            rho = Sig / (_sqrt2pi * H)
+
+            kappa = np.array([self._kappa(d, T) for d, T in zip(rho, self._T)])
+            tau = 0.5 * Sig * kappa
+
+            H /= AU
+
+            GI_heat = np.maximum(
+                sig_SB*self._T_GI(Sig, Om_k)**4 - self._irradiate(R, H),
+                0)
+
+            alpha_GI = GI_heat/(1.125*Om_k*Sig*cs*cs * self._escape(tau))
+        
+        return self._alpha_t + alpha_GI
 
     def _f_Pr(self):
         rho = self._Sigma / ((2*np.pi)**0.5 * self.H * AU)
@@ -380,18 +444,20 @@ if __name__ == "__main__":
 
     active  = IrradiatedEOS(star, alpha)
     passive = IrradiatedEOS(star, alpha, accrete=False)
+    GI      = IrradiatedEOS(star, alpha, GI=True)
 
     powerlaw = LocallyIsothermalEOS(star, 1/30., -0.25, alpha)
 
     grid = Grid(0.1, 500, 1000, spacing='log')
     
-    Sigma = 2.2e3 / grid.Rc**1.5
+    Sigma = 2.2e3 / grid.Rc**1
 
-    c  = { 'active' : 'r', 'passive' : 'b', 'isothermal' : 'g' }
+    c  = { 'active' : 'r', 'passive' : 'b', 'isothermal' : 'g', 'GI' : 'k'}
     ls = { 0 : '-', 1 : '--' }
     for i in range(2):
         for eos, name in [[active, 'active'],
                           [passive, 'passive'],
+                          [GI, 'GI'],
                           [powerlaw, 'isothermal']]:
             eos.set_grid(grid)
             eos.update(0, Sigma)
