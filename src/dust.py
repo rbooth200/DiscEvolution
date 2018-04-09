@@ -10,17 +10,17 @@ from constants import *
 from disc import AccretionDisc
 
 class DustyDisc(AccretionDisc):
-    '''Dusty accretion disc. Base class for an accretion disc that also
+    """Dusty accretion disc. Base class for an accretion disc that also
     includes one or more dust species.
-    
+
     args:
         grid     : Disc gridding object
         star     : Stellar object
         eos      : Equation of state
         rho_s    : solid density, default=1
-        feedback : When False, the dust mass is considered to be a negligable 
+        feedback : When False, the dust mass is considered to be a negligable
                    fraction of the total mass.
-    '''
+    """
     def __init__(self, grid, star, eos, Sigma=None, rho_s=1., feedback=True):
 
         super(DustyDisc, self).__init__(grid, star, eos, Sigma)
@@ -32,7 +32,7 @@ class DustyDisc(AccretionDisc):
 
 
     def Stokes(self, Sigma=None, size=None):
-        '''Stokes number of the particle'''
+        """Stokes number of the particle"""
         if size is None:
             size = self.grain_size
         if Sigma is None:
@@ -41,12 +41,12 @@ class DustyDisc(AccretionDisc):
         return self._Kdrag * size / (Sigma + 1e-300)
 
     def mass(self):
-        '''Grain mass'''
+        """Grain mass"""
         return (4*np.pi/3) * self._rho_s * self.grain_size**3 
 
     @property
     def integ_dust_frac(self):
-        '''Total dust to gas ratio, or zero if not including dust feedback'''
+        """Total dust to gas ratio, or zero if not including dust feedback"""
         if self._feedback:
             return self.dust_frac.sum(0)
         else:
@@ -54,22 +54,22 @@ class DustyDisc(AccretionDisc):
 
     @property
     def dust_frac(self):
-        '''Dust mass fraction'''
+        """Dust mass fraction"""
         return self._eps
 
     @property
     def grain_size(self):
-        '''Grain size in cm'''
+        """Grain size in cm"""
         return self._a
 
     @property
     def feedback(self):
-        '''True if drag from the dust on the gas is to be included'''
+        """True if drag from the dust on the gas is to be included"""
         return self._feedback
 
     @property
     def area(self):
-        '''Mean area of grains'''
+        """Mean area of grains"""
         return self._area
 
 
@@ -93,7 +93,7 @@ class DustyDisc(AccretionDisc):
     
     @property
     def Hp(self):
-        '''Dust scale height'''
+        """Dust scale height"""
 
         St = self.Stokes()
         a  = self.alpha
@@ -102,11 +102,11 @@ class DustyDisc(AccretionDisc):
         return self.H * np.sqrt(eta * a / (a + St))
 
     def update_ices(self, chem):
-        '''Update ice fractions'''
+        """Update ice fractions"""
         pass
 
     def header(self):
-        '''Dusty disc header'''
+        """Dusty disc header"""
         head = super(DustyDisc, self).header() + '\n'
         head += '# {} feedback: {}, rho_s: {}g cm^-3'
         return head.format(self.__class__.__name__,
@@ -117,8 +117,8 @@ class DustyDisc(AccretionDisc):
 # Growth model
 ################################################################################
 class FixedSizeDust(DustyDisc):
-    '''Simple model for dust of a fixed size
-    
+    """Simple model for dust of a fixed size
+
     args:
         grid     : Disc gridding object
         star     : Stellar object
@@ -127,7 +127,7 @@ class FixedSizeDust(DustyDisc):
         size     : size, cm (float or 1-d array of sizes)
         rhos     : solid density, default=1 g / cm^3
         feedback : default=True
-    '''
+    """
     def __init__(self, grid, star, eos, eps, size, Sigma=None, rhos=1, feedback=True):
 
         super(FixedSizeDust, self).__init__(grid, star, eos,
@@ -142,12 +142,12 @@ class FixedSizeDust(DustyDisc):
         self._area = np.pi * self._a**2
 
 class DustGrowthTwoPop(DustyDisc):
-    '''Two-population dust growth model of Birnstiel (2011).
+    """Two-population dust growth model of Birnstiel (2011).
 
     This model computes the flux of two dust populations. The smallest size
     particles are assumed to always be well coupled to the gas. For the larger
-    particles we solve their growth up to the most stringent limit set by 
-    radial drift and fragmentation. 
+    particles we solve their growth up to the most stringent limit set by
+    radial drift and fragmentation.
 
     Any dust tracers are assumed to have the same mass distribution as the dust
     particles themselves.
@@ -162,11 +162,11 @@ class DustGrowthTwoPop(DustyDisc):
         thresh    : Threshold ice fraction for switchng between icy/non icy
                     fragmentation velocity, default=0.1
         a0        : Initial particle size (default = 1e-5, 0.1 micron)
-        f_drift   : Drift fitting factor. Reduce by a factor ~10 to model the 
+        f_drift   : Drift fitting factor. Reduce by a factor ~10 to model the
                     role of bouncing (default=0.55).
         f_frag    : Fragmentation boundary fitting factor (default=0.37).
         feedback  : Whether to include feedback from dust on gas
-    '''
+    """
     def __init__(self, grid, star, eos, eps, Sigma=None,
                  rho_s=1., uf_0=100., uf_ice=1e3, f_ice=1, thresh=0.1,
                  a0=1e-5, f_drift=0.55, f_frag=0.37, feedback=True):
@@ -203,11 +203,11 @@ class DustGrowthTwoPop(DustyDisc):
         self.update(0)
 
     def header(self):
-        '''Dust growth header'''
+        """Dust growth header"""
         return super(DustGrowthTwoPop, self).header() + self._head
 
     def _frag_velocity(self, f_ice):
-        '''Fragmentation velocity'''
+        """Fragmentation velocity"""
         # Interplate between the icy/ice free region
         f_ice = np.minimum(f_ice/self._ice_threshold, 1)
         f_ice = f_ice*f_ice*f_ice*(10-f_ice*(15-6*f_ice))
@@ -215,13 +215,13 @@ class DustGrowthTwoPop(DustyDisc):
         return self._uf_0 + (self._uf_ice - self._uf_0) * f_ice
         
     def _frag_limit(self):
-        '''Maximum particle size before fragmentation kicks in'''
+        """Maximum particle size before fragmentation kicks in"""
         af = (self.Sigma_G/(self._rho_s*self.alpha)) * (self._uf/self.cs)**2
         return self._ffrag * af
 
     def a_BT(self, eps_tot=None):
-        '''Size at transition between Brownian motion and turbulence dominated
-        collision velocities'''
+        """Size at transition between Brownian motion and turbulence dominated
+        collision velocities"""
         if eps_tot is None:
             eps_tot = self.integ_dust_frac
 
@@ -230,7 +230,7 @@ class DustGrowthTwoPop(DustyDisc):
         return a0**0.4
         
     def _gammaP(self):
-        '''Dimensionless pressure gradient'''
+        """Dimensionless pressure gradient"""
         P = self.P
         R = self.R
         gamma = np.empty_like(P)
@@ -242,7 +242,7 @@ class DustGrowthTwoPop(DustyDisc):
         return gamma
         
     def _drift_limit(self, eps_tot):
-        '''Maximum size due to drift limit or drift driven fragmentation'''
+        """Maximum size due to drift limit or drift driven fragmentation"""
         gamma = self._gammaP()
         
         Sigma_D = self.Sigma * eps_tot
@@ -263,7 +263,7 @@ class DustGrowthTwoPop(DustyDisc):
         return 1 / (self.Omega_k * eps)
 
     def do_grain_growth(self, dt):
-        '''Apply the grain growth'''
+        """Apply the grain growth"""
 
         # Size and total gas fraction
         a = self._a[1]        
@@ -298,7 +298,7 @@ class DustGrowthTwoPop(DustyDisc):
         #self._area = np.pi * self.a_BT(eps_tot)**2
 
     def update_ices(self, grains):
-        '''Update the grain size due to a change in bulk ice abundance'''
+        """Update the grain size due to a change in bulk ice abundance"""
         eps_new = grains.total_abund
             
         #f = eps_new / (self.integ_dust_frac + 1e-300)
@@ -317,12 +317,12 @@ class DustGrowthTwoPop(DustyDisc):
         self._uf = self._frag_velocity(f_ice)
 
     def initialize_dust_density(self, dust_frac):
-        '''Set the initial dust density'''
+        """Set the initial dust density"""
         self._eps[0] = dust_frac
 
 
     def update(self, dt):
-        '''Do the standard disc update, and apply grain growth'''
+        """Do the standard disc update, and apply grain growth"""
         super(DustGrowthTwoPop, self).update(dt)
         self.do_grain_growth(dt)
 
@@ -330,33 +330,33 @@ class DustGrowthTwoPop(DustyDisc):
 # Radial drift
 ################################################################################
 class SingleFluidDrift(object):
-    '''Radial Drift in the single fluid approximation with the short friction 
+    """Radial Drift in the single fluid approximation with the short friction
     time limit.
 
     This class computes the single-fluid update of the dust fraction,
         d(eps_i)/dt = - (1/Sigma) grad [Sigma eps_i (Delta v_i - eps Delta v)],
-    which is a vertically integrated version of equation (98) of Laibe & Price 
-    (2014). Note that the time-derivative on the LHS is the Lagrangian 
+    which is a vertically integrated version of equation (98) of Laibe & Price
+    (2014). Note that the time-derivative on the LHS is the Lagrangian
     derivative in centre of mass frame. If an Eulerian (fixed) grid is used the
     advection step must be handled seperately.
-    
-    The dust-gas relative velocity, Delta v_i, is calculated following 
+
+    The dust-gas relative velocity, Delta v_i, is calculated following
     Tanaka+ (2005).
 
     Note:
-        This currently neglects the viscous velocity, which can be important 
+        This currently neglects the viscous velocity, which can be important
         for small grains.
 
     args:
         diffusion : Diffusion algorithm, default=None
         settling  : Include settling in the velocity calculation, default=False
-    '''
+    """
     def __init__(self, diffusion=None, settling=False):
         self._diffuse = diffusion
         self._settling = settling
 
     def header(self):
-        '''Radial drift header'''
+        """Radial drift header"""
         head = ''
         if self._diffuse:
             head += self._diffuse.header() + '\n'
@@ -392,7 +392,7 @@ class SingleFluidDrift(object):
         return step
     
     def _fluxes(self, disc, eps_i, deltaV_i, St_i):
-        '''Update a quantity that moves with the gas/dust'''
+        """Update a quantity that moves with the gas/dust"""
 
         Sigma = disc.Sigma
         grid = disc.grid
@@ -429,7 +429,7 @@ class SingleFluidDrift(object):
         return deps
 
     def _compute_deltaV(self, disc):
-        '''Compute the total dust-gas background velocity'''
+        """Compute the total dust-gas background velocity"""
 
         Sigma  = disc.Sigma
         SigmaD = disc.Sigma_D
@@ -497,7 +497,7 @@ class SingleFluidDrift(object):
         return DeltaV
 
     def __call__(self, dt, disc, gas_tracers=None, dust_tracers=None):
-        '''Apply the update for radial drift over time-step dt'''
+        """Apply the update for radial drift over time-step dt"""
         eps = disc.dust_frac
         a   = disc.grain_size   
         eps_inv = 1. / (disc.integ_dust_frac + np.finfo(eps.dtype).tiny)
@@ -531,7 +531,7 @@ class SingleFluidDrift(object):
             dust_tracers[:] += d_tr
             
     def radial_drift_velocity(self, disc):
-        '''Compute the radial drift velocity for the disc'''
+        """Compute the radial drift velocity for the disc"""
         eps = disc.dust_frac
         a   = disc.grain_size   
         eps_inv = 1. / (disc.integ_dust_frac + np.finfo(eps.dtype).tiny)

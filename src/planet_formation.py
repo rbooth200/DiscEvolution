@@ -8,14 +8,14 @@ from constants import *
 # Planet collections class
 ################################################################################
 class Planets(object):
-    '''Data for growing planets.
-    
-    Holds the location, core & envelope mass, and composition of growing 
+    """Data for growing planets.
+
+    Holds the location, core & envelope mass, and composition of growing
     planets.
 
     args:
         Nchem : number of chemical species to track, default = None
-    '''
+    """
     def __init__(self, Nchem=None):
         self.R  = np.array([], dtype='f4')
         self.M_core = np.array([], dtype='f4')
@@ -33,7 +33,7 @@ class Planets(object):
         self._Nchem = Nchem
 
     def add_planet(self, t, R, Mcore, Menv, X_core=None, X_env=None):
-        '''Add a new planet'''
+        """Add a new planet"""
         if self._Nchem:
             self.X_core = np.c_[self.X_core, X_core]
             self.X_env  = np.c_[self.X_env, X_env]
@@ -47,7 +47,7 @@ class Planets(object):
         self._N += 1
 
     def append(self, planets):
-        '''Add a list of planets from another planet object'''
+        """Add a list of planets from another planet object"""
         self.add_planet(planets.t_form, planets.R,
                         planets.M_core, planets.M_env,
                         planets.X_core, planets.X_env)
@@ -58,7 +58,7 @@ class Planets(object):
 
     @property
     def N(self):
-        '''Number of planets'''
+        """Number of planets"""
         return self._N
 
     @property
@@ -66,7 +66,7 @@ class Planets(object):
         return self._Nchem > 0
 
     def __getitem__(self, idx):
-        '''Get a sub-set of the planets'''
+        """Get a sub-set of the planets"""
         sub = Planets(self._Nchem)      
 
         sub.R      = self.R[idx]
@@ -92,9 +92,9 @@ class Planets(object):
 # Accretion
 ################################################################################
 class GasAccretion(object):
-    '''Gas giant accretion model of Bitsch et al (2015). 
-    
-    Combines models from Piso & Youdin (2014) for accretion onto low mass 
+    """Gas giant accretion model of Bitsch et al (2015).
+
+    Combines models from Piso & Youdin (2014) for accretion onto low mass
     envelopes and Machida et al (2010) for accretion onto massive envelopes.
 
     args:
@@ -106,8 +106,8 @@ class GasAccretion(object):
         Piso & Youdin parameters:
            f_py      : accretion rate fitting factor, default=0.2
            kappa_env : envelope opacity [cm^2/g], default=0.06
-           rho_core  : core density [g cm^-3], default=5.5          
-    '''
+           rho_core  : core density [g cm^-3], default=5.5
+    """
     def __init__(self, disc, f_max=0.8,
                  f_py=0.2, kappa_env=0.05, rho_core=5.5):
 
@@ -126,7 +126,7 @@ class GasAccretion(object):
                                               f_max, f_py, kappa_env, rho_core)
         self._head = head
     def header(self):
-        '''Get header details'''
+        """Get header details"""
         return self._head
 
     def set_disc(self, disc):
@@ -134,16 +134,16 @@ class GasAccretion(object):
         self.update()
 
     def computeMdot(self, Rp, M_core, M_env):
-        '''Compute gas accretion rate.
-    
+        """Compute gas accretion rate.
+
         args:
             Rp     : radius, AU
             M_core : Core mass, Mearth
             M_env  : Envelope mass, Mearth
-        
+
         returns:
             Mdot : accretion rate in Mearth per Omega0**-1
-        '''
+        """
         # Cache data:
         Mp = M_core + M_env
         
@@ -176,26 +176,26 @@ class GasAccretion(object):
         return np.minimum(Mdot, self._fmax * 3*np.pi*Sig*nu)
 
     def __call__(self, planets):
-        '''Compute gas accretion onto planets
-    
+        """Compute gas accretion onto planets
+
         args:
              planets : planets object.
-        
+
         returns:
             Mdot : accretion rate in Mearth per Omega0**-1
-        '''
+        """
         return self.computeMdot(planets.R, planets.M_core, planets.M_env)
 
 
     def update(self):
-        '''Update internal quantities after the disc has evolved'''
+        """Update internal quantities after the disc has evolved"""
         pass
     
 class PebbleAccretionHill(object):
-    '''Pebble accretion model of Bitsch+ (2015).
-    
+    """Pebble accretion model of Bitsch+ (2015).
+
     See also, Lambrechts & Johansen (2012), Morbidelli+ (2015)
-    '''
+    """
     def __init__(self, disc):
         self.set_disc(disc)
 
@@ -207,19 +207,19 @@ class PebbleAccretionHill(object):
         self.update()
         
     def M_iso(self, R):
-        '''Pebble isolation mass.'''
+        """Pebble isolation mass."""
         h = self._disc.interp(R, self._disc.H) / R
         return 20. * (h/0.05)**3
 
     def M_transition(self, R):
-        '''Compute lowest mass for the hill accretion branch used by this model.
-        
+        """Compute lowest mass for the hill accretion branch used by this model.
+
         args:
             R : radius, AU
 
         returns:
             M_t : transition mass, Mearth
-        '''
+        """
         h = self._disc.interp(R, self._disc.H) / R
 
         # Use a safe, noise free approximation here:
@@ -233,12 +233,12 @@ class PebbleAccretionHill(object):
         
         
     def computeMdot(self, Rp, Mp):
-        '''Compute the pebble accretion rate
-        
+        """Compute the pebble accretion rate
+
         args :
              Rp : radius of planet in AU
              Mp : planet mass in M_earth
-        '''
+        """
         # Cache local varibales
         disc = self._disc
         star = disc.star
@@ -264,11 +264,11 @@ class PebbleAccretionHill(object):
         return (Mp < self.M_iso(Rp)) * Mdot
 
     def __call__(self, planets):
-        '''Compute pebble accretion rate'''
+        """Compute pebble accretion rate"""
         return self.computeMdot(planets.R, planets.M)
 
     def update(self):
-        '''Update internal quantities after the disc has evolved'''
+        """Update internal quantities after the disc has evolved"""
         
         lgP = spline(np.log(self._disc.R), np.log(self._disc.P))
         self._dlgP = lgP.derivative(1)
@@ -278,16 +278,52 @@ class PebbleAccretionHill(object):
 # Migration
 ################################################################################
 
+def _GK(p):
+    gk0 = 16/25.
+
+    f1 = gk0*p**1.5
+    f2 = 1 - (1-gk0)*p**-(8/3.)
+
+    return np.where(p < 1, f1, f2)
+
+
+def _F(p):
+    return 1 / (1 + (p/1.3)**2)
+
+
+
+
+# Linblad torque
+def _linblad(alpha, beta):
+    return -2.5 - 1.7*beta + 0.1*alpha
+
+# Linear co-rotation torques
+def _cr_baro(alpha, beta):
+    return 0.7 * (1.5 - alpha)
+
+
+def _cr_entr(alpha, beta, gamma):
+    return (2.2 - 1.4/gamma) * (beta - (gamma-1)*alpha)
+
+# Non-linear horse-shoe drag torques
+def _hs_baro(alpha, beta):
+    return 1.1 * (1.5 - alpha)
+
+
+def _hs_entr(alpha, beta, gamma):
+    return 7.9 *(beta - (gamma-1)*alpha) / gamma
+
+
 class TypeIMigration(object):
-    '''Type 1 Migration model of Paardekooper et al (2011)
+    """Type 1 Migration model of Paardekooper et al (2011)
 
     Only implemented for sofenting the default sofetning parameter b/h=0.4
-    
+
     args:
         disc  : accretion disc model
         gamma : ratio of specific heats, default=1.4
         M     : central mass, default = 1
-    '''
+    """
     def __init__(self, disc, gamma=1.4):
         self._gamma = gamma
 
@@ -309,7 +345,7 @@ class TypeIMigration(object):
         self.update()
 
     def update(self):
-        '''Update internal quantities after the disc has evolved'''
+        """Update internal quantities after the disc has evolved"""
         disc = self._disc
         
         lgR = np.log(disc.R)
@@ -320,41 +356,16 @@ class TypeIMigration(object):
         self._dlgSig = _lgSig.derivative(1)
         self._dlgT   = _lgT.derivative(1)
 
-        
-    def _GK(self, p):
-        gk0 = 16/25.
-
-        f1 = gk0*p**1.5
-        f2 = 1 - (1-gk0)*p**-(8/3.)
-
-        return np.where(p < 1, f1, f2)
-
     # Fitting functions
-    def _F(self, p):
-        return 1 / (1 + (p/1.3)**2)
     def _G(self, p):
-        return self._GK(p/self._g0)
+        return _GK(p/self._g0)
     def _K(self, p):
-        return self._GK(p/self._k0)
+        return _GK(p/self._k0)
 
-    # Linblad torque
-    def _linblad(self, alpha, beta):
-        return -2.5 - 1.7*beta + 0.1*alpha
 
-    # Linear co-rotation torques
-    def _cr_baro(self, alpha, beta):
-        return 0.7 * (1.5 - alpha)
-    def _cr_entr(self, alpha, beta, gamma):
-        return (2.2 - 1.4/gamma) * (beta - (gamma-1)*alpha)
-
-    # Non-linear horse-shoe drag torques
-    def _hs_baro(self, alpha, beta):
-        return 1.1 * (1.5 - alpha)
-    def _hs_entr(self, alpha, beta, gamma):
-        return 7.9 *(beta - (gamma-1)*alpha) / gamma
 
     def _gamma_eff(self, Q):
-        '''Effective adiabatic index'''
+        """Effective adiabatic index"""
         Qg = Q*self._gamma
         Qg2 = Qg*Qg
         gm1 = self._gamma-1
@@ -365,11 +376,11 @@ class TypeIMigration(object):
         return 2*Qg / (Qg + 0.5*np.sqrt(f1 + f2))
 
     def gamma_eff_tab(self, Q):
-        '''Effective adiabatic index, tabulated'''
+        """Effective adiabatic index, tabulated"""
         return np.interp(Q, self._Q_tab, self._gamma_eff_tab)
         
     def compute_torque(self, Rp, Mp):
-        '''Compute the torques acting on a planet driving Type I migration'''
+        """Compute the torques acting on a planet driving Type I migration"""
         disc = self._disc
         star = disc.star
         
@@ -405,32 +416,32 @@ class TypeIMigration(object):
         pnu = 2*np.sqrt(k*x*x*x)/3
         pXi = 3*pnu*np.sqrt(Pr)/2
 
-        Fnu, Gnu, Knu = self._F(pnu), self._G(pnu), self._K(pnu)
-        FXi, GXi, KXi = self._F(pXi), self._G(pXi), self._K(pXi)
+        Fnu, Gnu, Knu = _F(pnu), self._G(pnu), self._K(pnu)
+        FXi, GXi, KXi = _F(pXi), self._G(pXi), self._K(pXi)
         
-        torque = (self._linblad(alpha, beta) +
-                  self._hs_baro(alpha, beta)*Fnu*Gnu +
-                  self._cr_baro(alpha, beta)*(1-Knu) +
-                  self._hs_entr(alpha, beta, g_eff)*Fnu*FXi*np.sqrt(Gnu*GXi) +
-                  self._cr_entr(alpha, beta, g_eff)*np.sqrt((1-Knu)*(1-KXi)))
+        torque = (_linblad(alpha, beta) +
+                  _hs_baro(alpha, beta) * Fnu * Gnu +
+                  _cr_baro(alpha, beta) * (1-Knu) +
+                  _hs_entr(alpha, beta, g_eff) * Fnu * FXi * np.sqrt(Gnu*GXi) +
+                  _cr_entr(alpha, beta, g_eff) * np.sqrt((1-Knu)*(1-KXi)))
 
 
         return norm*torque
 
     def migration_rate(self, Rp, Mp):
-        '''Migration rate, dRdt, of the planet'''
+        """Migration rate, dRdt, of the planet"""
         J = Mp*Rp*self._disc.star.v_k(Rp)
         return 2 * (Rp/J) * self.compute_torque(Rp, Mp)
     
     def __call__(self, planets):
-        '''Migration rate, dRdt, of the planet'''
+        """Migration rate, dRdt, of the planet"""
         return self.migration_rate(planets.R, planets.M)
     
 
     
 class TypeIIMigration(object):
-    '''Giant planet migration. Uses relation of Baruteau et al (2014)    
-    '''
+    """Giant planet migration. Uses relation of Baruteau et al (2014)
+    """
     def __init__(self, disc):
         self._disc = disc
 
@@ -442,7 +453,7 @@ class TypeIIMigration(object):
         self.update()
 
     def migration_rate(self, Rp, Mp):
-        '''Migration rate, dR/dt, of the planet'''
+        """Migration rate, dR/dt, of the planet"""
         disc = self._disc
         
         Sigma = disc.interp(Rp, disc.Sigma)
@@ -455,11 +466,11 @@ class TypeIIMigration(object):
         return - Rp / t_mig
         
     def __call__(self, planets):
-        '''Migration rate, dRdt, of the planet'''
+        """Migration rate, dRdt, of the planet"""
         return self.migration_rate(planets.R, planets.M)
 
     def update(self):
-        '''Update internal quantities after the disc has evolved'''
+        """Update internal quantities after the disc has evolved"""
         pass
 
 ################################################################################
@@ -467,13 +478,13 @@ class TypeIIMigration(object):
 ################################################################################
     
 class CridaMigration(object):
-    '''Migration by Type I and Type II with a switch based on the Crida &
+    """Migration by Type I and Type II with a switch based on the Crida &
     Morbidelli (2007) gap depth criterion.
 
     args:
         disc  : accretion disc model
         gamma : ratio of specific heats, default=1.4
-    '''
+    """
     def __init__(self, disc, gamma=1.4):
         self._typeI  = TypeIMigration(disc, gamma=gamma)
         self._typeII = TypeIIMigration(disc)
@@ -492,7 +503,7 @@ class CridaMigration(object):
 
 
     def migration_rate(self, Rp, Mp):
-        '''Compute migration rate'''
+        """Compute migration rate"""
         disc = self._disc
         star = disc.star
         
@@ -515,30 +526,30 @@ class CridaMigration(object):
 
 
     def __call__(self, planets):
-        '''Compute migration rate'''
+        """Compute migration rate"""
         return self.migration_rate(planets.R, planets.M)
 
     def update(self):
-        '''Update internal quantities after the disc has evolved'''
+        """Update internal quantities after the disc has evolved"""
         self._typeI.update()
         self._typeII.update()
         
     
         
 class Bitsch2015Model(object):
-    '''Pebble accretion + Gas accretion planet formation model based on
-    Bisch et al (2015). 
-    
+    """Pebble accretion + Gas accretion planet formation model based on
+    Bisch et al (2015).
+
     The model is composed of the Hill branch pebble accretion along with
     gas envelope accretion.
 
     args:
         disc     : accretion disc model
-        pb_gas_f : fraction of pebble accretion rate that arrives as gas, 
+        pb_gas_f : fraction of pebble accretion rate that arrives as gas,
                    default=0.1
         migrate  : Whether to include migration, default=True
         **kwargs : arguments passed to GasAccretion object
-    '''
+    """
     def __init__(self, disc, pb_gas_f=0.1, migrate=True, **kwargs):
 
         self._f_gas = pb_gas_f
@@ -552,7 +563,7 @@ class Bitsch2015Model(object):
             self._migrate = CridaMigration(disc)
 
     def header(self):
-        '''header'''
+        """header"""
         head ='# {} pb_gas_f: {}, migrate: {}\n'.format(self.__class__.__name__,
                                                         self._f_gas,
                                                         bool(self._migrate))
@@ -562,7 +573,7 @@ class Bitsch2015Model(object):
         return head
             
     def set_disc(self, disc):
-        '''Set up the current disc model'''
+        """Set up the current disc model"""
         self._gas_acc.set_disc(r, Sigma_G, eos)
         self._peb_acc.set_disc(r, Sigma_G, Sigma_p, St, eos)
 
@@ -572,20 +583,20 @@ class Bitsch2015Model(object):
         self._disc = disc
             
     def update(self):
-        '''Update internal quantities after the disc has evolved'''
+        """Update internal quantities after the disc has evolved"""
         self._gas_acc.update()
         self._peb_acc.update()
         if self._migrate:
             self._migrate.update()
         
     def insert_new_planet(self, t, R, planets):
-        '''Set the initial mass of the planets
+        """Set the initial mass of the planets
 
         args:
             t : current time
             R : AU, formation locations
             planets : planets object to add planets to
-        '''
+        """
         M0 = self._peb_acc.M_transition(R)
 
         Mc, Me = M0 * (1-self._f_gas), M0*self._f_gas
@@ -614,12 +625,12 @@ class Bitsch2015Model(object):
         return np.array(Xs), np.array(Xg)
 
     def integrate(self, dt, planets):
-        '''Update the planet masses and radii:
+        """Update the planet masses and radii:
 
         args:
             dt      : Time to integrate for
             planets : Planets container
-        '''
+        """
         if planets.N == 0: return
         self.update()
         
@@ -705,7 +716,7 @@ class Bitsch2015Model(object):
         
 
     def dump(self, filename, time, planets):
-        '''Write out the planet info'''
+        """Write out the planet info"""
 
         # First get the header info.
         with open(filename, 'w') as f:

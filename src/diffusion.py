@@ -7,24 +7,25 @@
 ################################################################################
 import numpy as np
 class TracerDiffusion(object):
-    '''Diffusion of trace species in a turbulent background.
+    """Diffusion of trace species in a turbulent background.
     args:
         Sc : Schmidt number, ratio of momentum diffusivity to mass diffusivity,
              default=1.
         limit : Whether to limit the diffusive velocity to the sound speed,
                 default=False.
-    '''
+    """
     def __init__(self, Sc=1, limit=False):
         self._Sc = Sc
         self._limit = limit
 
     def header(self):
-        '''Tracer diffusion header'''
+        """Tracer diffusion header"""
         return '# {} Sc: {}, flux_limit: {}'.format(self.__class__.__name__,
                                                     self.Sc, self._limit)
     
-    def _diffusive_flux(self, disc, eps_i, Sc):
-        '''Compute the diffusive flux for a tracer
+    @staticmethod
+    def _diffusive_flux(disc, eps_i, Sc):
+        """Compute the diffusive flux for a tracer
         args:
             disc  : accretion disc object
             eps_i : Concentration of species that is diffusing
@@ -32,7 +33,7 @@ class TracerDiffusion(object):
 
         returns:
             flux_diffuse : diffusive flux at edges (between cells only)
-        '''
+        """
         D = disc.nu / Sc
         Sigma_G = disc.Sigma_G
         
@@ -44,7 +45,7 @@ class TracerDiffusion(object):
         return - DSig * np.diff(eps_i) / disc.grid.dRc
 
     def __call__(self, disc, eps_i, Sc=None):
-        '''Compute the rate of change of the surface density due to diffusion.
+        """Compute the rate of change of the surface density due to diffusion.
 
         args:
             disc  : Disc object
@@ -53,7 +54,7 @@ class TracerDiffusion(object):
 
         returns:
             dSigma_i/dt : Rate of change of density of tracer
-        '''
+        """
         if Sc is None: Sc = self.Sc
 
         grid = disc.grid
@@ -129,7 +130,7 @@ if __name__ == "__main__":
         print 'Nstep: {}'.format(n)
         print 'Time: {} yr'.format(t/(2*np.pi))
         l, = plt.loglog(grid.Rc, Sigma*eps[0])
-        l, = plt.loglog(grid.Rc, Sigma*eps[1], l.get_color()+'--')
+        l, = plt.loglog(grid.Rc, Sigma*eps[1], c=l.get_color(), ls='--')
 
     plt.loglog(grid.Rc, 0.01*Sigma, 'k:')
     plt.xlabel('$R$')

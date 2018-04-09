@@ -6,11 +6,11 @@ import opacity
 # Thermodynamics classes
 ################################################################################
 class EOS_Table(object):
-    '''Base class for equation of state evaluated at certain locations.
-    
+    """Base class for equation of state evaluated at certain locations.
+
     Stores pre-computed temperatures, viscosities etc. Derived classes need to
     provide the funcitons called by set_grid.
-    '''
+    """
     def __init__(self):
         self._gamma = 1.0
         self._mu    = 2.4
@@ -51,17 +51,17 @@ class EOS_Table(object):
         return self._mu
 
     def update(self, dt, Sigma,star=None):
-        '''Update the eos'''
+        """Update the eos"""
         pass
 
     def header(self):
-        '''Print eos header'''
+        """Print eos header"""
         head = '# {} gamma: {}, mu: {}'
         return head.format(self.__class__.__name__,
                            self.gamma, self.mu)
     
 class LocallyIsothermalEOS(EOS_Table):
-    '''Simple locally isothermal power law equation of state:
+    """Simple locally isothermal power law equation of state:
 
     args:
         cs0     : sound-speed at 1AU
@@ -69,7 +69,7 @@ class LocallyIsothermalEOS(EOS_Table):
         alpha_t : turbulent alpha parameter
         star    : stellar properties
         mu      : mean molecular weight, default=2.4
-    '''
+    """
     def __init__(self, star, cs0, q, alpha_t, mu=2.4):
         super(LocallyIsothermalEOS, self).__init__()
         
@@ -101,7 +101,7 @@ class LocallyIsothermalEOS(EOS_Table):
         return np.zeros_like(self._R)
 
     def header(self):
-        '''LocallyIsothermalEOS header string'''
+        """LocallyIsothermalEOS header string"""
         head = super(LocallyIsothermalEOS, self).header()
         head += ', cs0: {}, q: {}, alpha: {}'
         return head.format(self._cs0, self._q, self._alpha_t)
@@ -116,7 +116,7 @@ class LocallyIsothermalEOS(EOS_Table):
 
 _sqrt2pi = np.sqrt(2*np.pi)
 class IrradiatedEOS(EOS_Table):
-    '''Model for an active irradiated disc. 
+    """Model for an active irradiated disc.
 
     From Nakamoto & Nakagawa (1994), Hueso & Guillot (2005).
 
@@ -126,11 +126,11 @@ class IrradiatedEOS(EOS_Table):
         Tc      : External irradiation temperature (nebular), default=10
         mu      : Mean molecular weight, default = 2.4
         gamma   : Ratio of specific heats
-        accrete : Whether to include heating due to accretion, 
+        accrete : Whether to include heating due to accretion,
                   default=True
-        tol     : Tolerence for change in density before recomputing T, 
+        tol     : Tolerence for change in density before recomputing T,
                   default=0.01
-    '''
+    """
     def __init__(self, star, alpha_t, Tc=10, mu=2.4, gamma=1.4,
                  accrete=True, tol=0.01):
 
@@ -184,8 +184,8 @@ class IrradiatedEOS(EOS_Table):
         return dEdt - sig_SB*Tm**4
 
     def _compute_critical_density(self, R):
-        '''Compute the minimum surface density for a significant contribution
-        to the heating rate by viscosity'''
+        """Compute the minimum surface density for a significant contribution
+        to the heating rate by viscosity"""
         # Save the alpha viscosity coefficient
         alpha, self._alpha_t = self._alpha_t, 0
 
@@ -229,10 +229,10 @@ class IrradiatedEOS(EOS_Table):
         return brentq(self._thermal_balance, T0, T1, args=(R,Sigma,Om_k))
 
     def update(self, dt, Sigma, star=None, update_all=False):
-        '''Compute the equilibrium temperature, given the surface density 
+        """Compute the equilibrium temperature, given the surface density
         args:
             Sigma : array surface density in c.g.s
-        '''
+        """
         if star:
             if any([self._star.M != star.M,
                     self._star.Rs != star.Rs,
@@ -319,7 +319,7 @@ class IrradiatedEOS(EOS_Table):
         return self._star
 
     def header(self):
-        '''IrradiatedEOS header'''
+        """IrradiatedEOS header"""
         head = super(IrradiatedEOS, self).header()
         head += ', opacity: {}, T_extern: {}K, accrete: {}, alpha: {}'
         return head.format(self._kappa.__class__.__name__,

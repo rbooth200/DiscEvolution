@@ -9,7 +9,7 @@
 import numpy as np
 
 class Grid(object):
-    '''Construct a simple 1D grid with different spacings'''
+    """Construct a simple 1D grid with different spacings"""
     def __init__(self, R0, R1, N, spacing='log'):
 
         if spacing == 'log':
@@ -32,7 +32,7 @@ class Grid(object):
         self._spacing = spacing
             
     def _setup_log(self, R0, R1, N):
-        '''Setup a gird in log-spacing'''
+        """Setup a gird in log-spacing"""
         self._Re = np.logspace(np.log10(R0), np.log10(R1), N+1, dtype='f8')
         self._Rc = np.sqrt(self._Re[1:] * self._Re[:-1])
 
@@ -45,7 +45,7 @@ class Grid(object):
         self._Rce = Rce
 
     def _setup_powerlaw(self, R0, R1, N, alpha):
-        '''Setup a power law grid'''
+        """Setup a power law grid"""
         alpha = float(alpha)
         alpha1 = 1/alpha
         Rehalf = np.linspace(R0**alpha, R1**alpha, N+1, dtype='f8')
@@ -70,7 +70,7 @@ class Grid(object):
         self._dRce2 = np.diff(self._Rce**2)
 
     def header(self):
-        '''Write grid info header'''
+        """Write grid info header"""
         head = '# {} R0: {}, R1: {}, N: {}, spacing: {}'
         return head.format(self.__class__.__name__,
                            self._R0, self._R1, self.Ncells, self._spacing)
@@ -110,28 +110,28 @@ class Grid(object):
         return self._N
 
     def interp_centre(self, R, data):
-        '''Interpolate data to new radii
-        
+        """Interpolate data to new radii
+
         args:
             R    : new radii
             data : data defined at grid centres
-        '''
+        """
         return np.interp(R, self.Rc, data)
 
 
     def interp_edges(self, R, data):
-        '''Interpolate data to new radii
-        
+        """Interpolate data to new radii
+
         args:
             R    : new radii
             data : data defined at grid edges
-        '''
+        """
         return np.interp(R, self.Re, data)
 
 
     @staticmethod
     def from_string(string):
-        '''Read a Grid from a string'''
+        """Read a Grid from a string"""
         string = string.replace('# Grid', '').strip()
         kwargs = {}
         args = [None, None, None]

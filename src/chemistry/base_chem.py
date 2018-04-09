@@ -6,7 +6,7 @@ from constants import *
 # Wrapper for chemistry data
 ################################################################################
 class ChemicalAbund(object):
-    '''Simple wrapper class to hold chemical species data.
+    """Simple wrapper class to hold chemical species data.
 
     Holds the mass abundance (g) of the chemical species relative to Hydrogen.
 
@@ -14,7 +14,7 @@ class ChemicalAbund(object):
         species : list, maps species name to location in data array
         masses  : array, molecular masses in atomic mass units
         size    : Number of data points to hold chemistry for
-    '''
+    """
     def __init__(self, species, masses,size=0):
         if len(masses) != len(species):
             raise AttributeError("Number of masses must match the number of"
@@ -47,7 +47,7 @@ class ChemicalAbund(object):
         return copy.deepcopy(self)
             
     def number_abund(self, k):
-        '''Number abundance of species k, n_k= rho_k / m_k'''
+        """Number abundance of species k, n_k= rho_k / m_k"""
         return self[k]/self.mass(k)
 
     @property
@@ -55,21 +55,21 @@ class ChemicalAbund(object):
         return self._data.sum(0)
     
     def set_number_abund(self, k, n_k):
-        '''Set the mass abundance from the number abundance'''
+        """Set the mass abundance from the number abundance"""
         self[k] = n_k * self.mass(k)
 
     def to_array(self):
-        '''Get the raw data'''
+        """Get the raw data"""
         return self.data
 
     def from_array(self, data):
-        '''Set the raw data'''
+        """Set the raw data"""
         if data.shape[0] == self.Nspec:
             raise AttributeError("Error: shape must be [Nspec, *]")
         self._data = data
 
     def resize(self, n):
-        '''Resize the data array, keeping any elements that we already have'''
+        """Resize the data array, keeping any elements that we already have"""
         dn = n - self.size
         if dn < 0:
             self._data = self._data[:,:n].copy()
@@ -78,24 +78,24 @@ class ChemicalAbund(object):
                                          np.empty([self.Nspec,dn], dtype='f8')])
 
     def append(self, other):
-        '''Append chemistry data from another container'''
+        """Append chemistry data from another container"""
         if self.names != other.names:
             raise  AttributeError("Chemical species must be the same")
 
         self._data = np.append(self._data, other.data)
             
     def mass(self, k):
-        '''Mass of species in atomic mass units'''
+        """Mass of species in atomic mass units"""
         return self._mass[self._indexes[k]]
 
     @property
     def masses(self):
-        '''Masses of all species in amu'''
+        """Masses of all species in amu"""
         return self._mass
 
     @property
     def names(self):
-        '''Names of the species in order'''
+        """Names of the species in order"""
         return self._names
 
     @property
@@ -104,7 +104,7 @@ class ChemicalAbund(object):
 
     @property
     def species(self):
-        '''Names of the chemical species held.'''
+        """Names of the chemical species held."""
         return self._indexes.keys()
 
     @property
@@ -120,7 +120,7 @@ class ChemicalAbund(object):
 # Wrapper for combined gas/ice phase data
 ################################################################################
 class MolecularIceAbund(object):
-    '''Wrapper for holding the fraction of species on/off the grains'''
+    """Wrapper for holding the fraction of species on/off the grains"""
     def __init__(self, gas=None, ice=None):
         if type(gas) != type(ice):
             raise AttributeError("Both gas and ice must be of the same type")
@@ -128,11 +128,11 @@ class MolecularIceAbund(object):
         self.ice = ice
 
     def mass(self, k):
-        '''Get the molecular mass in amu'''
+        """Get the molecular mass in amu"""
         return self.gas.mass(k)
 
     def __iter__(self):
-        '''Iterate over species names'''
+        """Iterate over species names"""
         return iter(self.gas)
     
         
@@ -141,16 +141,16 @@ class MolecularIceAbund(object):
 # Simple models of time-independent C/N/O chemistry
 ################################################################################
 class SimpleChemBase(object):
-    '''Tabulated time independent C/O and O/H chemistry.
+    """Tabulated time independent C/O and O/H chemistry.
 
     This model works with the atomic abundances for C, O and Si, computing
     molecular abundances for CO, CH4, CO2, H20, N2, NH3, C-grains and Silicate
     grains.
 
     args:
-        fix_ratios : if True molecular ratios will be assumed to be constant 
+        fix_ratios : if True molecular ratios will be assumed to be constant
                      when the ice / gas fractions are calculated
-    '''
+    """
     def __init__(self, fix_ratios=True):
 
         self._fix_ratios=fix_ratios
@@ -168,12 +168,12 @@ class SimpleChemBase(object):
                           }
 
     def header(self):
-        '''Header string'''
+        """Header string"""
         return ('# {} fix_ratios: {}'.format(self.__class__.__name__, 
                                              self._fix_ratios))
 
     def equilibrium_chem(self, T, rho, dust_frac, abund):
-        '''Compute the equilibrium chemistry'''
+        """Compute the equilibrium chemistry"""
 
         ice = self.molecular_abundance(T, rho, dust_frac, abund)
         gas = ice.copy()
@@ -209,26 +209,26 @@ class SimpleChemBase(object):
 
             
 class StaticChem(SimpleChemBase):
-    '''Tabulated time independent C/O and O/H chemistry.
+    """Tabulated time independent C/O and O/H chemistry.
 
     This model works with the atomic abundances for C, O and Si, computing
     molecular abundances for CO, CH4, CO2, H20, N2, NH3, C-grains and Silicate
     grains.
 
     args:
-        fix_ratios : if True molecular ratios will be assumed to be constant 
+        fix_ratios : if True molecular ratios will be assumed to be constant
                      when the ice / gas fractions are calculated
-    '''
+    """
     def __init__(self, fix_ratios=True):
         super(StaticChem, self).__init__(fix_ratios)
     
     def _equilibrium_ice_abund(self, T, rho, dust_frac, species, mol_abund):
-        '''Equilibrium ice fracion'''
+        """Equilibrium ice fracion"""
         return mol_abund[species] * (T < self._T_cond[species])
 
 
 class ThermalChem(object):
-    '''Computes grain thermal adsorption/desorption rates. 
+    """Computes grain thermal adsorption/desorption rates.
 
     Mixin class, to be used with TimeDependentChem and EquilibriumChem.
 
@@ -239,7 +239,7 @@ class ThermalChem(object):
         f_bind  : Fraction of grain covered by binding sites.   default = 1
         f_stick : Sticking probability.                         default = 1
         muH     : Mean Atomic weight, in m_H.                   default = 1.28
-    '''
+    """
     def __init__(self, sig_b=1.5e15, rho_s=1., a=1e-5,
                  f_bind=1.0, f_stick=1.0, mu=1.28):
         self._Tbind = { 
@@ -280,15 +280,15 @@ class ThermalChem(object):
         self._head = head.format(sig_b, rho_s, a, f_bind, f_stick, mu)
 
     def header(self):
-        '''Time dependent chem header'''
+        """Time dependent chem header"""
         return super(ThermalChem, self).header() + ', {}'.format(self._head)
                      
     def _nu_i(self, Tbind, m_mol):
-        '''Desorbtion rate per ice molecule'''
+        """Desorbtion rate per ice molecule"""
         return self._nu0 * np.sqrt(Tbind/m_mol) 
 
     def _v_therm(self, T, m_mol):
-        '''Thermal velocity of the species in the gas'''
+        """Thermal velocity of the species in the gas"""
         return self._v0 * np.sqrt(T/m_mol)
 
     def _equilibrium_ice_abund(self, T, rho, dust_frac, spec, tot_abund):
@@ -301,7 +301,7 @@ class ThermalChem(object):
         mu = self._mu
 
         n = rho / (mu*m_H)
-        X_t = tot_abund[spec] * mu / (m_mol)
+        X_t = tot_abund[spec] * mu / m_mol
 
         # Adsorption & desorption rate per molecule
         Sa = self._f_ads * self._v_therm(T, m_mol)  * dust_frac * n
@@ -335,7 +335,7 @@ class ThermalChem(object):
         n = rho / (mu*m_H)
 
         m_t = abund.gas[spec] + abund.ice[spec]
-        X_t = m_t * mu / (m_mol)
+        X_t = m_t * mu / m_mol
 
         X_s = (abund.ice[spec] / m_mol)
         X_max = self._etaNbind * dust_frac
@@ -381,22 +381,22 @@ class ThermalChem(object):
 
 
 class TimeDependentChem(ThermalChem,SimpleChemBase):
-    '''Time dependent model of molecular absorbtion/desorption due to thermal 
+    """Time dependent model of molecular absorbtion/desorption due to thermal
     processes.
-    '''
+    """
     def __init__(self, **kwargs):
         ThermalChem.__init__(self, **kwargs)
         SimpleChemBase.__init__(self)
 
     def update(self, dt, T, rho, dust_frac, chem):
-        '''Update the gas/ice abundances'''
+        """Update the gas/ice abundances"""
         for spec in chem:
             self._update_ice_balance(dt, T, rho, dust_frac, spec, chem)
 
         
 class EquilibriumChem(ThermalChem,SimpleChemBase):
-    '''Equilibrium chemistry, computed as equilibrium of time dependent model.
-    '''
+    """Equilibrium chemistry, computed as equilibrium of time dependent model.
+    """
     def __init__(self, fix_ratios=True, fix_grains=True, **kwargs):
         ThermalChem.__init__(self, **kwargs)
         SimpleChemBase.__init__(self, fix_ratios)

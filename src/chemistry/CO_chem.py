@@ -9,7 +9,7 @@ from base_chem import TimeDependentChem, EquilibriumChem
 # Simple CO Chemistry wrappers
 ################################################################################
 class SimpleCOAtomAbund(ChemicalAbund):
-    '''Class to hold the raw atomic abundaces of C/O/Si for the CO chemistry'''
+    """Class to hold the raw atomic abundaces of C/O/Si for the CO chemistry"""
     def __init__(self, size=0):
         atom_ids = ['C', 'O', 'Si']
         masses   = [ 12., 16., 28. ]
@@ -18,17 +18,17 @@ class SimpleCOAtomAbund(ChemicalAbund):
 
 
     def set_solar_abundances(self, muH=1.28):
-        '''Solar mass fractions of C, O and Si.
-        
+        """Solar mass fractions of C, O and Si.
+
         args:
             muH : mean atomic mass, default = 1.28
-        '''
+        """
         self._data[:] = np.outer(np.array([12*2.7e-4, 16*4.9e-4, 28*3.2e-5]),
                                  np.ones(self.size)) / muH
 
     
 class SimpleCOMolAbund(ChemicalAbund):
-    '''Class that holds the abundances of molecules needed for C/O chemistry'''
+    """Class that holds the abundances of molecules needed for C/O chemistry"""
     def __init__(self, size=0):
         mol_ids  = [ 'CO', 'CH4', 'CO2', 'H2O', 'C-grain', 'Si-grain']
         mol_mass = [  28.,  16.,    44.,  18.,   12.,       100.]
@@ -45,7 +45,7 @@ class SimpleCOMolAbund(ChemicalAbund):
                          }
         
     def atomic_abundance(self):
-        '''Compute the mass abundances of atomic species in the molecules'''
+        """Compute the mass abundances of atomic species in the molecules"""
 
         atomic_abund = SimpleCOAtomAbund(self.data.shape[1])
         for mol in self.species:
@@ -61,31 +61,31 @@ class SimpleCOMolAbund(ChemicalAbund):
 # Specific Chemical models
 ###############################################################################
 class COChemOberg(object):
-    '''Chemical ratios from Oberg+ (2011)
-    
+    """Chemical ratios from Oberg+ (2011)
+
     args:
         fix_grains : Whether to fix the dust grain abundances when recomputing
                      the molecular abundances
-    '''
+    """
     def __init__(self,fix_grains=True):
         self._fix_grains = fix_grains
 
     def header(self):
-        '''CO Oberg chem header'''
+        """CO Oberg chem header"""
         return (super(COChemOberg, self).header() + 
                 ', fix_grains: {}'.format(self._fix_grains))
     
     def molecular_abundance(self, T, rho, dust_frac,
                             atomic_abund=None, mol_abund=None):
-        '''Compute the fractions of species present given total abundances
-        
-        args: 
+        """Compute the fractions of species present given total abundances
+
+        args:
              T            : array(N)   temperature (K)
              atomic_abund : atomic abundaces, SimpleCOAtomAbund object
-        
+
         returns:
             nmol : array(3, N) molecular mass-densities
-        '''
+        """
         assert(xor(atomic_abund is None, mol_abund is None))
         if atomic_abund is None:
             atomic_abund = mol_abund.atomic_abundance()
@@ -134,31 +134,31 @@ class COChemOberg(object):
         return mol_abund
 
 class COChemMadhu(object):
-    '''Chemical ratios from Madhusudhan+ (2014c)
-    
+    """Chemical ratios from Madhusudhan+ (2014c)
+
     args:
         fix_grains : Whether to fix the dust grain abundances when recomputing
                      the molecular abundances
-    '''
+    """
     def __init__(self,fix_grains=True):
         self._fix_grains = fix_grains
 
     def header(self):
-        '''CO Madhu chem header'''
+        """CO Madhu chem header"""
         return (super(COChemMadhu, self).header() + 
                 ', fix_grains: {}'.format(self._fix_grains))
 
     def molecular_abundance(self, T, rho, dust_frac,
                             atomic_abund=None, mol_abund=None):
-        '''Compute the fractions of species present given total abundances
-        
-        args: 
+        """Compute the fractions of species present given total abundances
+
+        args:
              T            : array(N)   temperature (K)
              atomic_abund : atomic abundaces, SimpleCOAtomAbund object
-        
+
         returns:
             nmol : array(3, N) molecular mass-densities
-        '''
+        """
         assert(xor(atomic_abund is None, mol_abund is None))
         if atomic_abund is None:
             atomic_abund = mol_abund.atomic_abundance()

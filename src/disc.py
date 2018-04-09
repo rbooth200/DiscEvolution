@@ -23,7 +23,7 @@ class AccretionDisc(object):
 
 
     def header(self):
-        '''Write header information about the disc'''
+        """Write header information about the disc"""
         head  = ''
         head += self._grid.header() + '\n'
         head += self._star.header() + '\n'
@@ -36,12 +36,12 @@ class AccretionDisc(object):
 
     @property
     def R(self):
-        '''Cell centre radii'''
+        """Cell centre radii"""
         return self._grid.Rc
 
     @property
     def R_edge(self):
-        '''Cell edge radii'''
+        """Cell edge radii"""
         return self._grid.Re
 
     @property
@@ -50,22 +50,22 @@ class AccretionDisc(object):
 
     @property
     def Sigma(self):
-        '''Surface density'''
+        """Surface density"""
         return self._Sigma
 
     @property
     def Sigma_G(self):
-        '''Gas surface density'''
+        """Gas surface density"""
         return self.Sigma 
 
     @property
     def cs(self):
-        '''Sound speed'''
+        """Sound speed"""
         return self._eos.cs
 
     @property
     def T(self):
-        '''Temperature'''
+        """Temperature"""
         return self._eos.T
 
     @property
@@ -74,7 +74,7 @@ class AccretionDisc(object):
     
     @property
     def H(self):
-        '''Scale-height'''
+        """Scale-height"""
         return self._eos.H
 
     @property
@@ -103,12 +103,12 @@ class AccretionDisc(object):
     
     @property
     def Re(self):
-        '''Reynolds number'''
+        """Reynolds number"""
         return (self.alpha*self.Sigma_G*sig_H2) / (2*self._eos.mu*m_H)
 
     @property
     def Pr(self):
-        '''Prandtl number'''
+        """Prandtl number"""
         return self._eos.Pr
 
     @property
@@ -119,17 +119,17 @@ class AccretionDisc(object):
         self._Sigma[:] = Sigma
 
     def update(self, dt):
-        '''Update the disc properites and age'''
+        """Update the disc properites and age"""
 
         new_age = self._star.age + dt/(2*np.pi)
         self._star.evolve(new_age)
         self._eos.update(dt, self.Sigma, self._star)
 
     def interp(self, R, data):
-        '''Interpolate disc data to new radii
-        
+        """Interpolate disc data to new radii
+
         args:
             R    : new radii
             data : data defined at grid locations
-        '''
+        """
         return self.grid.interp_centre(R, data)
