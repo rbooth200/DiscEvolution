@@ -25,8 +25,8 @@ class Planets(object):
         self._N = 0
 
         if Nchem:
-            self.X_core = np.array([[] for i in range(Nchem)], dtype='f4')
-            self.X_env  = np.array([[] for i in range(Nchem)], dtype='f4')
+            self.X_core = np.array([[] for _ in range(Nchem)], dtype='f4')
+            self.X_env  = np.array([[] for _ in range(Nchem)], dtype='f4')
         else:
             self.X_core = None
             self.X_env  = None
@@ -298,20 +298,26 @@ def _linblad(alpha, beta):
     return -2.5 - 1.7*beta + 0.1*alpha
 
 # Linear co-rotation torques
-def _cr_baro(alpha, beta):
+def _cr_baro(alpha):
     return 0.7 * (1.5 - alpha)
-
 
 def _cr_entr(alpha, beta, gamma):
     return (2.2 - 1.4/gamma) * (beta - (gamma-1)*alpha)
 
 # Non-linear horse-shoe drag torques
-def _hs_baro(alpha, beta):
+def _hs_baro(alpha):
     return 1.1 * (1.5 - alpha)
-
 
 def _hs_entr(alpha, beta, gamma):
     return 7.9 *(beta - (gamma-1)*alpha) / gamma
+
+_k0 = np.sqrt(28 / (45 * np.pi))
+def _K(p):
+    return _GK(p/_k0)
+
+_g0 = np.sqrt(8 / (45 * np.pi))
+def _G(p):
+    return _GK(p/_g0)
 
 
 class TypeIMigration(object):
@@ -326,9 +332,6 @@ class TypeIMigration(object):
     """
     def __init__(self, disc, gamma=1.4):
         self._gamma = gamma
-
-        self._g0 = np.sqrt(8/(45*np.pi))
-        self._k0 = np.sqrt(28/(45*np.pi))
 
         #Tabulate gamma_eff to avoid underflow/overflow
         self._Q_tab = np.logspace(-2, 2, 100)
@@ -357,12 +360,6 @@ class TypeIMigration(object):
         self._dlgT   = _lgT.derivative(1)
 
     # Fitting functions
-    def _G(self, p):
-        return _GK(p/self._g0)
-    def _K(self, p):
-        return _GK(p/self._k0)
-
-
 
     def _gamma_eff(self, Q):
         """Effective adiabatic index"""
@@ -416,12 +413,12 @@ class TypeIMigration(object):
         pnu = 2*np.sqrt(k*x*x*x)/3
         pXi = 3*pnu*np.sqrt(Pr)/2
 
-        Fnu, Gnu, Knu = _F(pnu), self._G(pnu), self._K(pnu)
-        FXi, GXi, KXi = _F(pXi), self._G(pXi), self._K(pXi)
+        Fnu, Gnu, Knu = _F(pnu), _G(pnu), _K(pnu)
+        FXi, GXi, KXi = _F(pXi), _G(pXi), _K(pXi)
         
         torque = (_linblad(alpha, beta) +
-                  _hs_baro(alpha, beta) * Fnu * Gnu +
-                  _cr_baro(alpha, beta) * (1-Knu) +
+                  _hs_baro(alpha) * Fnu * Gnu +
+                  _cr_baro(alpha) * (1 - Knu) +
                   _hs_entr(alpha, beta, g_eff) * Fnu * FXi * np.sqrt(Gnu*GXi) +
                   _cr_entr(alpha, beta, g_eff) * np.sqrt((1-Knu)*(1-KXi)))
 
@@ -653,7 +650,7 @@ class Bitsch2015Model(object):
 
         N = planets.N
         Rmin = self._disc.R[0]
-        def f_integ(t, y):
+        def f_integ(_, y):
             R_p    = y[   :  N]
             M_core = y[N  :2*N]
             M_env  = y[2*N:3*N]
@@ -697,11 +694,6 @@ class Bitsch2015Model(object):
 
         # Compute the fraction of the core / envelope that was accreted in
         # solids
-
-        R_p    = integ.y[:N]
-        M_core = integ.y[N:2*N]
-        M_env  = integ.y[2*N:3*N]
-        
 
         planets.R = integ.y[:N]
         planets.M_core = integ.y[N:2*N]
@@ -807,9 +799,9 @@ if __name__ == "__main__":
         planets.R[:] = Ri
         Ri = Ri * np.ones_like(M_p)
         l, = plt.loglog(M_p, -Ri/migCrida(planets)/t0)
-        plt.loglog(M_p, -Ri/migI(planets)/t0, l.get_color()+'--')
-        plt.loglog(M_p,  Ri/migI(planets)/t0, l.get_color()+'-.')
-        plt.loglog(M_p, -Ri/migII(planets)/t0, l.get_color()+':')
+        plt.loglog(M_p, -Ri/migI(planets)/t0,  c=l.get_color(), ls='--')
+        plt.loglog(M_p,  Ri/migI(planets)/t0,  c=l.get_color(), ls='-.')
+        plt.loglog(M_p, -Ri/migII(planets)/t0, c=l.get_color(), ls=':')
 
     plt.xlabel('$M\,[M_\oplus]$')
     plt.ylabel('$t_\mathrm{mig}\,[yr]$')
@@ -820,9 +812,9 @@ if __name__ == "__main__":
     for Mi in [1, 3, 10, 30]:
         planets.M_core[:] = Mi
         l, =plt.loglog(Rp, -Rp/migCrida(planets)/t0)
-        plt.loglog(Rp, -Rp/migI(planets)/t0, l.get_color()+'--')
-        plt.loglog(Rp,  Rp/migI(planets)/t0, l.get_color()+'-.')
-        plt.loglog(Rp, -Rp/migII(planets)/t0, l.get_color()+':')
+        plt.loglog(Rp, -Rp/migI(planets)/t0,  c=l.get_color(), ls='--')
+        plt.loglog(Rp,  Rp/migI(planets)/t0,  c=l.get_color(), ls='-.')
+        plt.loglog(Rp, -Rp/migII(planets)/t0, c=l.get_color(), ls=':')
     plt.xlabel('$R\,[AU]$')
     plt.ylabel('$t_\mathrm{mig}\,[yr]$')
     #######
@@ -846,7 +838,7 @@ if __name__ == "__main__":
         planets.R[:] = Ri
         l, = plt.loglog(M_p, M_p/PebAcc(planets)/t0)
         plt.loglog(M_p, M_p/GasAcc(planets)/t0,
-                   l.get_color()+'--')
+                   c=l.get_color(), ls='--')
 
     plt.xlabel('$M\,[M_\oplus]$')
     plt.ylabel('$t_\mathrm{grow}\,[yr]$')
