@@ -115,11 +115,12 @@ class ViscousEvolution(object):
         self._setup_grid(disc.grid)
         self._init_fluxes(disc)
 
-        Sigma_new = disc.Sigma + dt * self._fluxes()
+        f = self._fluxes() ;
+        Sigma_new = disc.Sigma + dt * f
 
         for t in tracers:
             if t is None: pass
-            t[:] += dt * self._tracer_fluxes(t) / (Sigma_new + 1e-300)
+            t[:] += dt*(self._tracer_fluxes(t) - t*f) / (Sigma_new + 1e-300)
 
         disc.Sigma[:] = Sigma_new
 
