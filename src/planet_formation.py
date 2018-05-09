@@ -255,11 +255,11 @@ class PebbleAccretionHill(object):
         Sig_p /= Mearth / AU**2
         
         # Accretion rate in the limit Hp << rH
-        Mdot = 2*np.maximum(rH*rH, r_eff*r_eff) * Om_k*Sig_p
+        Mdot = 2*np.minimum(rH*rH, r_eff*r_eff) * Om_k*Sig_p
 
         # 3D correction for Hp >~ r_H:
         # Replaces Sigma_p -> np.pi * rho_p * r_eff
-        Mdot *= np.maximum(1, r_eff *(np.pi/8)**0.5 / Hp)
+        Mdot *= np.minimum(1, r_eff *(np.pi/8)**0.5 / Hp)
 
         return (Mp < self.M_iso(Rp)) * Mdot
 
