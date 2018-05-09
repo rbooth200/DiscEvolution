@@ -28,7 +28,7 @@ class DustDynamicsModel(object):
 
         self._visc = None
         if viscous_evo:
-            bound = 'power-law'
+            bound = 'power_law'
             # Power law extrapolation fails with zero-density, use simple
             # boundary condition instead
             if evaporation:

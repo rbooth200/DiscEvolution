@@ -162,6 +162,7 @@ class DustGrowthTwoPop(DustyDisc):
         thresh    : Threshold ice fraction for switchng between icy/non icy
                     fragmentation velocity, default=0.1
         a0        : Initial particle size (default = 1e-5, 0.1 micron)
+        amin      : Minimum particle size (default = 0.0)
         f_drift   : Drift fitting factor. Reduce by a factor ~10 to model the
                     role of bouncing (default=0.55).
         f_frag    : Fragmentation boundary fitting factor (default=0.37).
@@ -169,7 +170,7 @@ class DustGrowthTwoPop(DustyDisc):
     """
     def __init__(self, grid, star, eos, eps, Sigma=None,
                  rho_s=1., uf_0=100., uf_ice=1e3, f_ice=1, thresh=0.1,
-                 a0=1e-5, f_drift=0.55, f_frag=0.37, feedback=True):
+                 a0=1e-5, amin=0., f_drift=0.55, f_frag=0.37, feedback=True):
         super(DustGrowthTwoPop, self).__init__(grid, star, eos,
                                                Sigma, rho_s, feedback)
 
@@ -190,9 +191,11 @@ class DustGrowthTwoPop(DustyDisc):
         self._a     = np.empty([2, Ncells], dtype='f8')
         self._eps[0] = eps
         self._eps[1] = 0
-        self._a[0]   = 0
+        self._a[0]   = amin
         self._a[1]   = a0
 
+        self._amin = amin 
+        
         self._ice_threshold = thresh
         self._uf = self._frag_velocity(f_ice)
         self._area = np.pi * a0*a0
@@ -284,7 +287,7 @@ class DustGrowthTwoPop(DustyDisc):
         # amin = a + np.minimum(0, afrag-a)*np.expm1(-dt/t_grow)
         # ignore empty cells:
         ids = eps_tot > 0
-        self._a[1, ids] = amax[ids]
+        self._a[1, ids] = np.maximum(amax[ids], self._amin)
 
         # Update the mass-fractions in each population
         fm   = self._fmass[1*(afrag < adrift)]
