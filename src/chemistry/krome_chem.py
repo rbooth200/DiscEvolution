@@ -20,15 +20,10 @@ _krome.lib.krome_get_mass(_krome_masses)
 _krome_masses /= _krome.krome_p_mass
 
 # Gas / Ice species
-_krome_ices = np.array([n.endswith('_DUST') for n in _krome_names])
-_krome_ice_names = _krome_names.copy()
-_krome_ice_names[_krome_ices] = map(lambda x:x[:-5], _krome_names[_krome_ices])
-_krome_ice_indexes = \
-    dict([(_krome_ice_names[i],i) for i in range(_nmols) if _krome_ices[i]])
+_krome_ice = np.array([n.endswith('_DUST') for n in _krome_names])
+_krome_gas = ~_krome_ice
+_krome_ice_names = np.array(map(lambda x:x[:-5], _krome_names[_krome_ice]))
 
-_krome_gas = ~_krome_ices
-_krome_gas_indexes = \
-    dict([(_krome_names[i],i) for i in range(_nmols) if _krome_gas[i]])
 
 class KromeAbund(ChemicalAbund):
     """Wrapper for chemical species used by the KROME package.
@@ -40,65 +35,38 @@ class KromeAbund(ChemicalAbund):
         super(KromeAbund, self).__init__(_krome_names, _krome_masses, size)
 
 
-class KromeAbundProxy(ChemicalAbund):
-    """Proxy reference for a sub-set of species in a full set of abundances
-
+class KromeIceAbund(ChemicalAbund):
+    """Wrapper for ice phase chemical species used by the KROME package.
+ 
     args:
-        parent  : parent object that we will reference the data of.
-        species : indices of the species to reference.
-        names   : names to use internally. If None, we default names.
+        size : Number of data points to hold
     """
-    def __init__(self, parent, species, names, indexes=None):
-        masses = _krome_masses
-        super(KromeAbundProxy, self).__init__(names, masses,indexes=indexes)
+    def __init__(self, size=0):
+        super(KromeIceAbund, self).__init__(_krome_ice_names,
+                                            _krome_masses[_krome_ice],
+                                            size)
 
-        self._data = parent.to_array()
-
-    # Delete modifiers
-    def from_array(self, _):
-        raise AttributeError("from_array is deleted in KromeAbundProxy")
-    def resize(self, _):
-        raise AttributeError("resize is deleted in KromeAbundProxy")
-    def append(self, _):
-        raise AttributeError("append is deleted in KromeAbundProxy")
-
-class KromeIceAbundProxy(KromeAbundProxy):
-    """Proxy class which gives reference to the ice species
-    
+class KromeGasAbund(ChemicalAbund):
+    """Wrapper for gas phase chemical species used by the KROME package.
+ 
     args:
-        parent  : parent object that we will reference the data of.
+        size : Number of data points to hold
     """
-    def __init__(self, parent):
-        super(KromeIceAbundProxy, self).__init__(parent,
-                                                 _krome_ices, _krome_ice_names,
-                                                 indexes=_krome_ice_indexes)
-        
-
-class KromeGasAbundProxy(KromeAbundProxy):
-    """Proxy class which gives reference to the gas species
-    
-    args:
-        parent  : parent object that we will reference the data of.
-    """
-    def __init__(self, parent):
-        super(KromeGasAbundProxy, self).__init__(parent,
-                                                 _krome_gas, _krome_names,
-                                                 indexes=_krome_gas_indexes)
-        
-
+    def __init__(self, size=0):
+        super(KromeGasAbund, self).__init__(_krome_names[_krome_gas],
+                                            _krome_masses[_krome_gas],
+                                            size)
 ################################################################################
 # Wrapper for combined gas/ice phase data
 ################################################################################
-class KromeMolecularIceAbund(KromeAbund):
-    """Wrapper for seperating gas/ice species"""
-    def __init__(self, size=0):
-        super(KromeMolecularIceAbund, self).__init__(size)
+class KromeMolecularIceAbund(object):
+    """Wrapper for holding the fraction of species on/off the grains"""
+    def __init__(self, gas=None, ice=None):
+        self.gas = gas
+        self.ice = ice    
+        
 
-        self.gas = KromeGasAbundProxy(self)
-        self.ice = KromeIceAbundProxy(self)
-
-
-
+        
 ################################################################################
 # Wrapper for KROME Chemistry solver
 ################################################################################
@@ -122,13 +90,23 @@ class KromeChem(object):
         # Convert dt to seconds:
         dt *= _krome.krome_seconds_per_year/(2*np.pi)
 
-        m = chem.masses
+        m_gas = chem.gas.masses
+        m_ice = chem.ice.masses
+
+        n = np.empty(len(m_gas) + len(m_ice), dtype='f8')
         
-        chem_data = chem.to_array().T
+        gas_data = chem.gas.data.T
+        ice_data = chem.ice.data.T
         for i in range(len(T)):
             Ti, rho_i, eps_i = T[i], rho[i], dust_frac[i]
 
-            n = (chem_data[i] / m) * (rho_i / _krome.krome_p_mass)
+            nH = rho_i / _krome.krome_p_mass
+            
+            n_gas = (gas_data[i] / m_gas) * nH
+            n_ice = (ice_data[i] / m_ice) * nH
+
+            n[_krome_gas] = n_gas
+            n[_krome_ice] = n_ice
             
             _krome.lib.krome_init_dust_distribution(n, eps_i,
                                                     self._amin, self._amax,
@@ -136,7 +114,8 @@ class KromeChem(object):
             _krome.lib.krome_set_tdust(Ti)
             _krome.lib.krome(n, byref(Ti), byref(dt))
 
-            chem_data[i] = n * m / (rho_i / _krome.krome_p_mass)
+            gas_data[i] = n[_krome_gas] * m_gas / nH
+            ice_data[i] = n[_krome_ice] * m_ice / nH
 
             
 
@@ -176,10 +155,13 @@ if __name__ == "__main__":
     T = eos.T
     dust_frac = np.ones_like(Sigma) * d2g
 
-    abund = KromeMolecularIceAbund(Ncell)
+    gas = KromeGasAbund(Ncell)
+    ice = KromeIceAbund(Ncell)
 
-    abund.gas['CO'] = CO_frac*abund.mass('CO')
-    abund.ice['CO'] = 1e-20
+    abund = KromeMolecularIceAbund(gas,ice)
+    
+    abund.gas['CO'] = CO_frac*gas.mass('CO')
+    abund.ice['CO'] = 0.
     
     times = np.array([1e0, 1e2, 1e4, 1e6])*2*np.pi
 
@@ -211,7 +193,8 @@ if __name__ == "__main__":
         
         l, = plt.loglog(R, abund.gas.number_abund('CO'), ls='-',
                         label=str(round(t/(2*np.pi),2)) + 'yr')
-        plt.loglog(R, abund.ice.number_abund('CO'), ls='--', c=l.get_color())
+        plt.loglog(R, abund.ice.number_abund('CO'), ls='--',
+                   c=l.get_color())
 
     plt.legend()
     plt.show()
