@@ -14,16 +14,20 @@ class ChemicalAbund(object):
         species : list, maps species name to location in data array
         masses  : array, molecular masses in atomic mass units
         size    : Number of data points to hold chemistry for
+        indexes : Specify own indexes
     """
-    def __init__(self, species, masses,size=0):
+    def __init__(self, species, masses,size=0,indexes=None):
         if len(masses) != len(species):
             raise AttributeError("Number of masses must match the number of"
                                  "species")
 
-        self._indexes = dict([(name, i) for i, name in enumerate(species)])
+        if indexes is not None:
+            self._indexes = indexes
+        else:
+            self._indexes = dict([(name, i) for i, name in enumerate(species)])
         self._names   = species
         self._mass    = masses
-        self._Nspec = len(species)
+        self._Nspec = len(self._names)
 
         self._data = np.zeros([self.Nspec, size], dtype='f8')
 
@@ -36,7 +40,9 @@ class ChemicalAbund(object):
     def __iadd__(self, other):
         if self.names != other.names:
             raise AttributeError("Chemical species must be the same")
-        self._data += other._data
+        for name in self.names:
+            self._data[name] += other._daata[name]
+            
         return self
 
     def __iter__(self):
