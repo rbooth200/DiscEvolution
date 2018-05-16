@@ -17,6 +17,7 @@ _nmols = _krome.krome_nmols
 _krome_names = np.array(_krome.krome_names[:_nmols])
 _krome_masses = np.empty(_nmols, dtype='f8')
 _krome.lib.krome_get_mass(_krome_masses)
+_krome_masses /= _krome.krome_p_mass
 
 # Gas / Ice species
 _krome_ices = np.array([n.endswith('_DUST') for n in _krome_names])
@@ -180,9 +181,27 @@ if __name__ == "__main__":
     abund.gas['CO'] = CO_frac*abund.mass('CO')
     abund.ice['CO'] = 1e-20
     
-    times = np.array([1e2, 1e3, 1e4, 1e5, 1e6])*2*np.pi
+    times = np.array([1e0, 1e2, 1e4, 1e6])*2*np.pi
 
     KC = KromeChem()
+
+    plt.subplot(311)
+    plt.loglog(R, Sigma)
+    plt.xlabel('R [au]')
+    plt.ylabel('Sigma [g cm^-2]')
+
+    plt.subplot(312)
+    plt.loglog(R, T)
+    plt.xlabel('R [au]')
+    plt.ylabel('T [K]')
+
+    plt.subplot(313)
+    plt.xlabel('R [au]')
+    plt.ylabel('X_i')
+
+    l, = plt.loglog(R, abund.gas.number_abund('CO'), ls='-',
+                    label=str(0.) + 'yr')
+    plt.loglog(R, abund.ice.number_abund('CO'), ls='--', c=l.get_color())
     
     t = 0.
     for ti in times:
