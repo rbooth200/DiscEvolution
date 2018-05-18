@@ -247,6 +247,7 @@ if __name__ == "__main__":
     from constants import Msun, AU, Omega0
     from photoevaporation import FixedExternalEvaportation
 
+    np.seterr(all='ignore')
     np.seterr(invalid='raise')
 
     models = {}
@@ -280,7 +281,7 @@ if __name__ == "__main__":
     R_in = 0.1
     R_out = 500
 
-    N_cell = 1000
+    N_cell = 250
 
     T0 = 2 * np.pi
 
@@ -288,7 +289,7 @@ if __name__ == "__main__":
     Mdot /= AU ** 2
 
     eos_type = 'irradiated'
-    eos_type = 'isothermal'
+    #eos_type = 'isothermal'
 
     DIR = os.path.join('temp', eos_type,
                        model['name'], 'Mdot_{}'.format(model['Mdot']))

@@ -1,6 +1,6 @@
 import numpy as np
-from scipy.optimize import newton, brentq
-from constants import GasConst, sig_SB, m_H, AU, Omega0
+from brent import brentq
+from constants import GasConst, sig_SB, m_H, AU, Omega0, k_B
 import opacity
 ################################################################################
 # Thermodynamics classes
@@ -124,16 +124,14 @@ class IrradiatedEOS(EOS_Table):
         star    : Stellar properties
         alpha_t : Viscous alpha parameter
         Tc      : External irradiation temperature (nebular), default=10
+        Tmax    : Maximum temperature allowed in the disc, default=1500
         mu      : Mean molecular weight, default = 2.4
         gamma   : Ratio of specific heats
         accrete : Whether to include heating due to accretion,
                   default=True
-        tol     : Tolerence for change in density before recomputing T,
-                  default=0.01
     """
-    def __init__(self, star, alpha_t, Tc=10, mu=2.4, gamma=1.4,
-                 accrete=True, tol=0.01):
-
+    def __init__(self, star, alpha_t, Tc=10, Tmax=1500., mu=2.4, gamma=1.4,
+                 accrete=True, tol=None): # tol is no longer used
         super(IrradiatedEOS, self).__init__()
 
         self._star = star
@@ -143,9 +141,7 @@ class IrradiatedEOS(EOS_Table):
         self._alpha_t = alpha_t
         
         self._Tc = Tc
-        self._sigTc4 = sig_SB*Tc**4
-
-        self._H0 = (Omega0**-1/AU) * (GasConst / (mu*star.M))**0.5
+        self._Tmax = Tmax
         self._mu = mu
 
         self._accrete = accrete
@@ -154,138 +150,93 @@ class IrradiatedEOS(EOS_Table):
         self._kappa = opacity.Zhu2012
         
         self._T = None
-        self._tol = tol
 
-        
-    def __H(self, R, T):
-        return self._H0 * np.sqrt(T * R*R*R)
-        
-    def _thermal_balance(self, Tm, R, Sigma, Om_k):
-        cs = np.sqrt(GasConst * Tm / self._mu)
-        H = cs / Om_k
-        
-        rho = Sigma / (_sqrt2pi * H)
-        tau = 0.5 * Sigma * self._kappa(rho, Tm)
-        H /= AU
-        
-        # External irradiation
-        dEdt = self._sigTc4
-        
-        # Compute the heating from stellar irradiation
-        X = (self._star.Rau/R)
-        f_flat = (2/(3*np.pi)) * X*X*X
-        f_flare = 0.5 * self._dlogHdlogRm1 * (X*X)*(H/R)
-        dEdt += sig_SB * self._star.T_eff**4 * (f_flat + f_flare)
-        
-        # Viscous heating:
-        heat = 1.125*self._alpha_t*cs*cs * Om_k * Sigma
-        dEdt += heat*(0.375*tau + 0.5/tau)
+        self._compute_constants()
 
-        return dEdt - sig_SB*Tm**4
+    def _compute_constants(self):
+        self._sigTc4 = sig_SB*self._Tc**4
+        self._H0 = (Omega0**-1/AU) * (GasConst / (self._mu*self._star.M))**0.5
 
-    def _compute_critical_density(self, R):
-        """Compute the minimum surface density for a significant contribution
-        to the heating rate by viscosity"""
-        # Save the alpha viscosity coefficient
-        alpha, self._alpha_t = self._alpha_t, 0
 
-        self._Tmin    = np.empty_like(R)
-        self._Sig_min = np.empty_like(R)
-        T0, T1 = 1e-5, 2*self._star.T_eff
-        for i, R_i in enumerate(R):
-            # First compute the temperature without viscous heating
-            Om_k = Omega0*self._star.Omega_k(R_i)
-            self._Tmin[i] = Tm = self._solve_equilibrium_T(R_i, 1e-10,
-                                                           Om_k, T0, T1)
-
-            if not self._accrete: continue
-
-            # Now compute the minimum surface density
-            cs2 = (GasConst * Tm / self._mu)
-            heat = 1.125* alpha *cs2 * Omega0*self._star.Omega_k(R_i)
-            H = self.__H(R_i, Tm) * (2*np.pi)**0.5 * AU
-            def f_heat(Sig):
-                tau = 0.5 * Sig * self._kappa(Sig/H, Tm)
-                return heat*(0.375*tau + 0.5/tau)*Sig - self._tol*sig_SB*Tm**4
-            # Bound the temparatures
-            Sig_min = 0.1 * self._tol * sig_SB * Tm**4 / heat
-            # Sometimes the viscous heating rate is always important, even in
-            # the optically thin limit
-            if f_heat(Sig_min) > 0: 
-                self._Sig_min[i] = 0
-                continue
-            Sig_max = 10*Sig_min
-            while f_heat(Sig_max) < 0: Sig_max *= 2
-
-            self._Sig_min[i] = brentq(f_heat, Sig_min, Sig_max)
-            
-        # Reset the alpha viscosity coefficient    
-        self._alpha_t = alpha
-
-        # Unset temperature array to force recompute of temperature:
-        self._T = None
-        
-    def _solve_equilibrium_T(self, R, Sigma, Om_k, T0, T1):
-        return brentq(self._thermal_balance, T0, T1, args=(R,Sigma,Om_k))
-
-    def update(self, dt, Sigma, star=None, update_all=False):
-        """Compute the equilibrium temperature, given the surface density
-        args:
-            Sigma : array surface density in c.g.s
-        """
+    def update(self, dt, Sigma, star=None):
         if star:
-            if any([self._star.M != star.M,
-                    self._star.Rs != star.Rs,
-                    self._star.T_eff != star.T_eff]):
-                self._compute_critical_density(self._R)
-            self._star = star            
-        # No need to iterate if accretion is not included
+            self._star = star
+            self._compute_constants()
+        star = self._star
+            
+        # Temperature/gensity independent quantities:
+        R = self._R
+        Om_k = Omega0 * star.Omega_k(R)
+
+        X = star.Rau/R
+        f_flat  = (2/(3*np.pi)) * X**3
+        f_flare = 0.5 * self._dlogHdlogRm1 * X**2
+        
+        # Heat capacity
+        mu = self._mu
+        #C_V = (k_B / (self._gamma - 1)) * (1 / (mu * m_H))
+        
+        alpha = self._alpha_t
         if not self._accrete:
-            self._T = self._Tmin
-            self._Sigma = Sigma
-            self._set_arrays()
-            return
-        
-        if self._T is None:
-            self._T = np.empty_like(self._R)
-            self._Sigma = np.zeros_like(self._R)
+            alpha = 0.
 
-        # Set regions with negligible viscous heating to the pure irradiation
-        # temperature
-        i_min = Sigma < self._Sig_min
-        self._T[i_min] = self._Tmin[i_min]
-        self._Sigma[i_min] = Sigma[i_min]
+        # Local references 
+        max_heat = sig_SB * (self._Tmax*self._Tmax)*(self._Tmax*self._Tmax)
+        star_heat = sig_SB * star.T_eff**4
+        sqrt2pi = np.sqrt(2*np.pi)            
+        def balance(Tm):
+            '''Thermal balance'''
+            cs = np.sqrt(GasConst * Tm / mu)
+            H = cs / Om_k
 
-        # Update those in need of a new temperature
-        need_update = (abs(Sigma-self._Sigma) > self._tol*Sigma) | update_all
-        ids = np.where((~i_min) & need_update)[0]
-        for i in ids:
-            R_i, Sig_i = self._R[i], Sigma[i]
-            try:
-                T0 = max(self._Tmin[i],1e-5)
-                T1 = 1500
-                if Sig_i < self._Sigma[i]: T1 = self._T[i]
+            kappa = self._kappa(Sigma / (sqrt2pi * H), Tm)
+            tau = 0.5 * Sigma * kappa
+            H /= AU
 
-                Om_k = Omega0*self._star.Omega_k(R_i)
-                Ti = self._solve_equilibrium_T(R_i, Sig_i, Om_k, T0, T1)
-            except ValueError:
-                Ti = 1500
+            # External irradiation
+            dEdt = self._sigTc4
+            
+            # Compute the heating from stellar irradiation
+            dEdt += star_heat * (f_flat + f_flare * (H/R))
 
-            self._T[i] = min(Ti, 1500)
-            self._Sigma[i] = Sig_i
+            # Viscous Heating
+            visc_heat = 1.125*alpha*cs*cs * Om_k
+            dEdt += visc_heat*(0.375*tau*Sigma + 1./kappa)
+            
+            # Prevent heating above the temperature cap:
+            dEdt = np.minimum(dEdt, max_heat)
 
+            # Cooling
+            Tm2 = Tm*Tm
+            dEdt -= sig_SB * Tm2*Tm2
+
+            # Change in temperature
+            return (dEdt/Omega0) # / (C_V*Sigma)
+
+        # Solve the balance using brent's method (needs ~ 20 iterations)
+        T0 = self._Tc
+        T1 = self._Tmax
+        if self._T is not None:
+            dedt = balance(self._T)
+            T0 = np.where(dedt > 0, self._T, T0)
+            T1 = np.where(dedt < 0, self._T, T1)
+
+        self._T =  brentq(balance, T0, T1)
+        self._Sigma = Sigma
         self._set_arrays()
-        
+
+
     def set_grid(self, grid):
         self._R = grid.Rc
         self._T = None
-        self._compute_critical_density(self._R)
 
     def _set_arrays(self):
         super(IrradiatedEOS,self)._set_arrays()
         self._Pr = self._f_Pr()
+    
+    def __H(self, R, T):
+        return self._H0 * np.sqrt(T * R*R*R)
 
-        
     def _f_cs(self, R):
         return self._H0 * self._T**0.5
 
@@ -300,7 +251,7 @@ class IrradiatedEOS(EOS_Table):
 
     def _f_Pr(self):
         rho = self._Sigma / ((2*np.pi)**0.5 * self.H * AU)
-        kappa = np.array([self._kappa(d, T) for d, T in zip(rho, self._T)])
+        kappa = self._kappa(rho, self._T)
         tau = 0.5 * self._Sigma * kappa
         f_esc = 1 + 2/(3*tau*tau)
         Pr_1 =  2.25 * self._gamma * (self._gamma - 1) * f_esc
@@ -322,8 +273,10 @@ class IrradiatedEOS(EOS_Table):
         """IrradiatedEOS header"""
         head = super(IrradiatedEOS, self).header()
         head += ', opacity: {}, T_extern: {}K, accrete: {}, alpha: {}'
+        head += ', Tmax: {}K'
         return head.format(self._kappa.__class__.__name__,
-                           self._Tc, self._accrete, self._alpha_t)
+                           self._Tc, self._accrete, self._alpha_t,
+                           self._Tmax)
 
     @staticmethod
     def from_file(filename):
