@@ -1,6 +1,13 @@
+from __future__ import print_function
+
+__all__ = [ "KromeAbund", "KromeIceAbund", "KromeGasAbund",
+            "KromeMolecularIceAbund", "KromeChem" ]
+
+# Locate the KROME library code
 import sys, os
 KROME_PATH = os.environ["KROME_PATH"]
 sys.path.append(KROME_PATH)
+
 import numpy as np
 import ctypes
 
