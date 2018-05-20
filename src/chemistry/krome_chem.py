@@ -5,7 +5,7 @@ sys.path.append(KROME_PATH)
 import numpy as np
 import ctypes
 
-from base_chem import ChemicalAbund
+from .base_chem import ChemicalAbund
 from pykrome import PyKROME
 
 # Alias for ctypes by reference
@@ -121,10 +121,10 @@ class KromeChem(object):
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    from eos import LocallyIsothermalEOS
-    from star import SimpleStar
-    from grid import Grid
-    from constants import Msun, AU
+    from ..eos import LocallyIsothermalEOS
+    from ..star import SimpleStar
+    from ..grid import Grid
+    from ..constants import Msun, AU
 
     Ncell = 1000
 

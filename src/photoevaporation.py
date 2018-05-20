@@ -6,7 +6,7 @@
 # Models for photo-evaporation of a disc
 ###############################################################################
 import numpy as np
-from constants import AU, Msun
+from .constants import AU, Msun
 
 
 class ExternalPhotoevaporationBase(object):
@@ -100,10 +100,10 @@ class FixedExternalEvaportation(ExternalPhotoevaporationBase):
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    from grid import Grid
-    from eos import LocallyIsothermalEOS
-    from star import SimpleStar
-    from dust import FixedSizeDust
+    from .grid import Grid
+    from .eos import LocallyIsothermalEOS
+    from .star import SimpleStar
+    from .dust import FixedSizeDust
 
     # Set up accretion disc properties
     Mdot = 1e-8

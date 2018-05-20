@@ -7,6 +7,7 @@
 ################################################################################
 from __future__ import print_function
 import numpy as np
+
 class TracerDiffusion(object):
     """Diffusion of trace species in a turbulent background.
     args:
@@ -82,11 +83,11 @@ class TracerDiffusion(object):
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    from grid import Grid
-    from eos import LocallyIsothermalEOS
-    from star import SimpleStar
-    from disc import AccretionDisc
-    from constants import Msun, AU
+    from .grid import Grid
+    from .eos import LocallyIsothermalEOS
+    from .star import SimpleStar
+    from .disc import AccretionDisc
+    from .constants import Msun, AU
 
     Mdot  = 1e-8
     alpha = 1e-3
