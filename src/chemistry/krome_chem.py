@@ -1,6 +1,5 @@
-import sys 
-sys.path.append('../')
-KROME_PATH = '/home/rich/Working_Copies/krome_ilee/build'
+import sys, os
+KROME_PATH = os.environ["KROME_PATH"]
 sys.path.append(KROME_PATH)
 import numpy as np
 import ctypes
