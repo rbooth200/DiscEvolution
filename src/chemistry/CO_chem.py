@@ -1,14 +1,10 @@
 from __future__ import print_function
-from __future__ import print_function
-from __future__ import print_function
-from __future__ import print_function
-from __future__ import print_function
 from operator import xor
 import numpy as np
-from constants import *
-from base_chem import ChemicalAbund, MolecularIceAbund
-from base_chem import SimpleChemBase, StaticChem, ThermalChem
-from base_chem import TimeDependentChem, EquilibriumChem
+from ..constants import *
+from .base_chem import ChemicalAbund, MolecularIceAbund
+from .base_chem import SimpleChemBase, StaticChem, ThermalChem
+from .base_chem import TimeDependentChem, EquilibriumChem
 
 ################################################################################
 # Simple CO Chemistry wrappers
@@ -260,9 +256,9 @@ class EquilibriumCOChemMadhu(COChemMadhu, EquilibriumChem):
     
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    from eos import LocallyIsothermalEOS
-    from star import SimpleStar
-    from grid import Grid
+    from ..eos import LocallyIsothermalEOS
+    from ..star import SimpleStar
+    from ..grid import Grid
 
     for Chem in [ SimpleCOChemMadhu(), SimpleCOChemOberg(),
                   EquilibriumCOChemMadhu(), EquilibriumCOChemOberg(),]:

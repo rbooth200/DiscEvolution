@@ -9,7 +9,7 @@
 #
 ################################################################################
 import numpy as np
-from constants import AU, sig_H2, m_H
+from .constants import AU, sig_H2, m_H
 
 class AccretionDisc(object):
 

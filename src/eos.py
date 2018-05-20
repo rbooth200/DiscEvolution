@@ -1,8 +1,8 @@
 from __future__ import print_function
 import numpy as np
-from brent import brentq
-from constants import GasConst, sig_SB, m_H, AU, Omega0, k_B
-import opacity
+from .brent import brentq
+from .constants import GasConst, sig_SB, AU, Omega0
+from . import opacity
 ################################################################################
 # Thermodynamics classes
 ################################################################################

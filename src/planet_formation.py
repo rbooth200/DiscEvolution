@@ -3,7 +3,7 @@ import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline as ispline
 from scipy.interpolate import UnivariateSpline as spline
 from scipy.integrate import ode
-from constants import *
+from .constants import *
 
 ################################################################################
 # Planet collections class
@@ -739,10 +739,10 @@ class Bitsch2015Model(object):
             
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    from eos import LocallyIsothermalEOS, IrradiatedEOS
-    from star import SimpleStar
-    from grid import Grid
-    from dust import FixedSizeDust
+    from .eos import LocallyIsothermalEOS, IrradiatedEOS
+    from .star import SimpleStar
+    from .grid import Grid
+    from .dust import FixedSizeDust
 
     GM = 1.
     cs0 = (1/30.) 

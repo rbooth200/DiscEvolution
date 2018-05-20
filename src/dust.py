@@ -7,8 +7,8 @@
 ################################################################################
 from __future__ import print_function
 import numpy as np
-from constants import *
-from disc import AccretionDisc
+from .constants import *
+from .disc import AccretionDisc
 
 class DustyDisc(AccretionDisc):
     """Dusty accretion disc. Base class for an accretion disc that also
@@ -529,9 +529,9 @@ class SingleFluidDrift(object):
     
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    from grid import Grid
-    from eos import LocallyIsothermalEOS
-    from star import SimpleStar
+    from .grid import Grid
+    from .eos import LocallyIsothermalEOS
+    from .star import SimpleStar
     
     Mdot = 1e-8
     alpha = 1e-3

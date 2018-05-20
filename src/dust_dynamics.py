@@ -10,10 +10,10 @@ from __future__ import print_function
 import numpy as np
 import os
 
-from diffusion import TracerDiffusion
-from dust import SingleFluidDrift
-from ViscousEvolution import ViscousEvolution
-from disc_utils import mkdir_p
+from .diffusion import TracerDiffusion
+from .dust import SingleFluidDrift
+from .viscous_evolution import ViscousEvolution
+from .disc_utils import mkdir_p
 
 
 class DustDynamicsModel(object):
@@ -241,12 +241,12 @@ class IO_Controller(object):
 if __name__ == "__main__":
     import sys
     import matplotlib.pyplot as plt
-    from grid import Grid
-    from eos import LocallyIsothermalEOS, IrradiatedEOS
-    from star import SimpleStar
-    from dust import DustGrowthTwoPop
-    from constants import Msun, AU, Omega0
-    from photoevaporation import FixedExternalEvaportation
+    from .grid import Grid
+    from .eos import LocallyIsothermalEOS, IrradiatedEOS
+    from .star import SimpleStar
+    from .dust import DustGrowthTwoPop
+    from .constants import Msun, AU
+    from .photoevaporation import FixedExternalEvaportation
 
     np.seterr(all='ignore')
     np.seterr(invalid='raise')

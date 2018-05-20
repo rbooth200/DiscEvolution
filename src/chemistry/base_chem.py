@@ -1,6 +1,6 @@
 import copy
 import numpy as np
-from constants import *
+from ..constants import *
 
 ################################################################################
 # Wrapper for chemistry data
