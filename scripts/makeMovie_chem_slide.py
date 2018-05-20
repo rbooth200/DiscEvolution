@@ -1,3 +1,4 @@
+from __future__ import print_function
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -101,12 +102,12 @@ if __name__ ==  "__main__":
         pass
 
     params = {}
-    print 'Model params:'
+    print('Model params:')
     for line in open(os.path.join(DIR, 'model.dat')):
-        print '\t', line.strip()
+        print('\t', line.strip())
         k, val = line.strip().split()
         params[k] = val
-    print
+    print()
     
     reader = DiscReader(DIR, 'disc')
     time = []

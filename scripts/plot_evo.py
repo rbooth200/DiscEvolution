@@ -1,3 +1,4 @@
+from __future__ import print_function
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -23,11 +24,11 @@ if __name__ ==  "__main__":
         DIR = sys.argv[1]
     except IndexError:
         pass
-      
-    print 'Model params:'
+
+    print('Model params:')
     for l in open(os.path.join(DIR, 'model.dat')):
-        print '\t', l.strip()
-    print
+        print('\t', l.strip())
+    print()
  
     reader = DiscReader(DIR, 'disc')
     time = []

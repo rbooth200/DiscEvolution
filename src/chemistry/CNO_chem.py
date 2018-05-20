@@ -1,3 +1,9 @@
+from __future__ import print_function
+from __future__ import print_function
+from __future__ import print_function
+from __future__ import print_function
+from __future__ import print_function
+from __future__ import print_function
 from operator import xor
 import numpy as np
 from constants import *
@@ -315,14 +321,14 @@ if __name__ == "__main__":
 
         atom = mol.gas.atomic_abundance()
         atom += mol.ice.atomic_abundance()
-        print Chem.__class__.__name__
-        print Chem.header()
+        print(Chem.__class__.__name__)
+        print(Chem.header())
         for X in atom:
-            print X
-            print mol.gas.atomic_abundance()[X] / (atom[X] + 1e-300)
-            print mol.ice.atomic_abundance()[X] / (atom[X] + 1e-300)
+            print(X)
+            print(mol.gas.atomic_abundance()[X] / (atom[X] + 1e-300))
+            print(mol.ice.atomic_abundance()[X] / (atom[X] + 1e-300))
             assert (np.allclose(Xi[X], atom[X], rtol=1e-12))
-        print
+        print()
 
     # Compare equilibrium chem with equilibrium of TD chem:
 

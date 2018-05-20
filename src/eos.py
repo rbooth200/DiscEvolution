@@ -1,3 +1,4 @@
+from __future__ import print_function
 import numpy as np
 from brent import brentq
 from constants import GasConst, sig_SB, m_H, AU, Omega0, k_B
@@ -185,7 +186,7 @@ class IrradiatedEOS(EOS_Table):
         star_heat = sig_SB * star.T_eff**4
         sqrt2pi = np.sqrt(2*np.pi)            
         def balance(Tm):
-            '''Thermal balance'''
+            """Thermal balance"""
             cs = np.sqrt(GasConst * Tm / mu)
             H = cs / Om_k
 

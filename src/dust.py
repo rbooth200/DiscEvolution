@@ -5,6 +5,7 @@
 #
 # Classes extending accretion disc objects to include dust models.
 ################################################################################
+from __future__ import print_function
 import numpy as np
 from constants import *
 from disc import AccretionDisc
@@ -374,25 +375,6 @@ class SingleFluidDrift(object):
         
         dV = abs(self._compute_deltaV(disc))
         return 0.5 * (disc.grid.dRc / dV).min()
-
-
-        eps_tot = 0
-        if disc.feedback:
-            eps_tot = disc.dust_frac.sum(0)
-
-        grid  = disc.grid
-        Sigma = disc.Sigma*(1-eps_tot)
-        Om_k  = disc.Omega_k
-        cs2   = disc.cs**2
-        for a, eps in zip(disc.grain_size, disc.dust_frac):
-            if not all((0 <= eps) & ( eps <= 1)):
-                print eps
-            assert(all((0 <= eps) & ( eps <= 1)))        
-
-            ts = disc.Stokes(Sigma, a) / Om_k
-            step = min(step,
-                       0.25 * (grid.dRe2 / (eps*(1-eps_tot)*ts*cs2)).min())
-        return step
     
     def _fluxes(self, disc, eps_i, deltaV_i, St_i):
         """Update a quantity that moves with the gas/dust"""
@@ -574,8 +556,11 @@ if __name__ == "__main__":
     ices = {'H2O' : 0.9*d2g*(eos.T < 150), 'grains' : 0.1*d2g}
 
     class ices(dict):
-        def __init__(self, init={}):
+        def __init__(self, init=None):
+            if init is None: init = {}
             dict.__init__(self, init)
+
+
     I = np.ones_like(eos.T)
     ices = ices({'H2O' : 0.9*d2g*(eos.T < 150), 'grains' : 0.1*d2g*I})
     ices.total_abund = np.atleast_2d([ices[x] for x in ices]).sum(0)
@@ -624,13 +609,12 @@ if __name__ == "__main__":
             n += 1
 
             if (n % 1000) == 0:
-                print 'Nstep: {}'.format(n)
-                print 'Time: {} yr'.format(t/(2*np.pi))
-                print 'dt: {} yr'.format(dt / (2*np.pi))
+                print('Nstep: {}'.format(n))
+                print('Time: {} yr'.format(t / (2 * np.pi)))
+                print('dt: {} yr'.format(dt / (2 * np.pi)))
 
-
-        print 'Nstep: {}'.format(n)
-        print 'Time: {} yr'.format(t/(2*np.pi))
+        print('Nstep: {}'.format(n))
+        print('Time: {} yr'.format(t / (2 * np.pi)))
         l, = plt.loglog(grid.Rc, dust.Sigma_D[1])
         plt.loglog(grid.Rc, dust.Sigma_D[0], '-.', c=l.get_color())
         

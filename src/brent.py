@@ -42,8 +42,8 @@ def brentq(f, xa, xb, xtol=1e-7, rtol=1e-7, max_iter=100,
                         converge in max_iter steps. Otherwise return the best
                         guess.
     """
-    xpre = xa;  xcur = xb;
-    xblk = 0.0; fblk = 0.0;  spre = 0.0; scur = 0.0; sbis = 0.0
+    xpre = xa;  xcur = xb
+    xblk = 0.0; fblk = 0.0;  spre = 0.0; scur = 0.0
 
     fpre = f(xpre)
     fcur = f(xcur)
@@ -65,7 +65,7 @@ def brentq(f, xa, xb, xtol=1e-7, rtol=1e-7, max_iter=100,
     fcur = np.where(done, 0, fcur)
     fblk = np.where(done, 0, fblk)
 
-    for i in range(max_iter):
+    for _ in range(max_iter):
         args = (fpre*fcur < 0)
         xblk = np.where(args, xpre,        xblk)
         fblk = np.where(args, fpre,        fblk)
@@ -94,8 +94,8 @@ def brentq(f, xa, xb, xtol=1e-7, rtol=1e-7, max_iter=100,
 
         # Extrapolate / interpolate:
         with np.errstate(invalid='ignore'):
-            dpre = (fpre - fcur + 1e-300)/(xpre - xcur + 1e-300);
-            dblk = (fblk - fcur + 1e-300)/(xblk - xcur + 1e-300);
+            dpre = (fpre - fcur + 1e-300)/(xpre - xcur + 1e-300)
+            dblk = (fblk - fcur + 1e-300)/(xblk - xcur + 1e-300)
             stry = np.where(xpre == xblk, 
                             -fcur/dpre,                        # Interpolate
                             -fcur*(fblk*dblk - fpre*dpre) /    # Extrapolate
@@ -110,8 +110,8 @@ def brentq(f, xa, xb, xtol=1e-7, rtol=1e-7, max_iter=100,
 
         xcur = xcur + np.where((np.abs(scur) > tol) | done, scur, 
                                np.where(sbis > 0, tol, -tol))
-        fcur = f(xcur) ;
-    
+        fcur = f(xcur)
+
     if raise_failure:
         raise RuntimeError("Iteration failed to converge")
     else:

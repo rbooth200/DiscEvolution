@@ -5,6 +5,7 @@
 #
 # Contains classes for solving the viscous evolution equations.
 ################################################################################
+from __future__ import print_function
 import numpy as np
 
 
@@ -77,7 +78,7 @@ class ViscousEvolution(object):
         shape = tracers.shape[:-1] + (tracers.shape[-1] + 2,)
         s = np.zeros(shape, dtype='f8')
         s[..., 1:-1] = tracers
-        s[..., 0] = s[..., 1];
+        s[..., 0] = s[..., 1]
         s[..., -1] = s[..., -2]
 
         # Upwind the tracer density 
@@ -115,7 +116,7 @@ class ViscousEvolution(object):
         self._setup_grid(disc.grid)
         self._init_fluxes(disc)
 
-        f = self._fluxes() ;
+        f = self._fluxes()
         Sigma_new = disc.Sigma + dt * f
 
         for t in tracers:
@@ -199,9 +200,9 @@ if __name__ == "__main__":
             n += 1
 
             if (n % 1000) == 0:
-                print 'Nstep: {}'.format(n)
-                print 'Time: {} yr'.format(t / (2 * np.pi))
-                print 'dt: {} yr'.format(dt / (2 * np.pi))
+                print('Nstep: {}'.format(n))
+                print('Time: {} yr'.format(t / (2 * np.pi)))
+                print('dt: {} yr'.format(dt / (2 * np.pi)))
 
         l, = plt.loglog(grid.Rc, disc.Sigma / AU ** 2)
         l, = plt.loglog(grid.Rc, sol(grid.Rc, t) / AU ** 2, l.get_color() + '--')

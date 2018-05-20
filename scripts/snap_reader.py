@@ -14,7 +14,7 @@ class DiscSnap(object):
 
 
     def read(self, filename):
-        '''Read disc data from file'''
+        """Read disc data from file"""
         # read the header
         head = ''
         vars  = False
@@ -98,7 +98,7 @@ class PlanetSnap(object):
 
 
     def read(self, filename):
-        '''Read disc data from file'''
+        """Read disc data from file"""
         # read the header
         head = ''
         vars  = False
@@ -186,17 +186,17 @@ class Reader(object):
 
                     
 class DiscReader(Reader):
-    '''Read disc snaphshots from file'''
+    """Read disc snaphshots from file"""
     def __init__(self, DIR, base='disc'):
         super(DiscReader, self).__init__(DiscSnap, DIR, base)
 
 class PlanetReader(Reader):
-    '''Read disc snaphshots from file'''
+    """Read disc snaphshots from file"""
     def __init__(self, DIR, base='planets'):
         super(PlanetReader, self).__init__(PlanetSnap, DIR, base)
 
     def compute_planet_evo(self):
-        '''Compute the time evolution of each planet'''
+        """Compute the time evolution of each planet"""
         planets = []
         times = []
         Np = 0
