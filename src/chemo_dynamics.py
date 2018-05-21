@@ -139,7 +139,7 @@ class ChemoDynamicsModel(object):
             head += self._chem.header() + '\n'
 
         with open(filename, 'w') as f:
-            print(head, '# time: {}yr'.format(self.t / (2 * np.pi)))
+            f.write(head, '# time: {}yr\n'.format(self.t / (2 * np.pi)))
 
             # Construct the list of variables that we are going to print
             Ncell = self.disc.Ncells
@@ -165,21 +165,21 @@ class ChemoDynamicsModel(object):
             except AttributeError:
                 pass
 
-            print(head)
+            f.write(head+'\n')
 
             R, Sig, T = self.disc.R, self.disc.Sigma, self.disc.T
             for i in range(Ncell):
-                print(R[i], Sig[i], T[i])
+                f.write('{} {} {}'.format(R[i], Sig[i], T[i]))
                 for j in range(Ndust):
-                    print(self.disc.dust_frac[j, i])
+                    f.write(' {}'.format(self.disc.dust_frac[j, i]))
                 for j in range(Ndust):
-                    print(self.disc.grain_size[j, i])
+                    f.write(' {}',format(self.disc.grain_size[j, i]))
                 if chem:
                     for k in chem.gas:
-                        print(chem.gas[k][i])
+                        f.write(' {}'.format(chem.gas[k][i]))
                     for k in chem.ice:
-                        print(chem.ice[k][i])
-                print()
+                        f.write(' {}'.format(chem.ice[k][i]))
+                f.write('\n')
 
 
 class IO_Controller(object):
