@@ -205,7 +205,8 @@ if __name__ == "__main__":
                 print('dt: {} yr'.format(dt / (2 * np.pi)))
 
         l, = plt.loglog(grid.Rc, disc.Sigma / AU ** 2)
-        l, = plt.loglog(grid.Rc, sol(grid.Rc, t) / AU ** 2, l.get_color() + '--')
+        l, = plt.loglog(grid.Rc, sol(grid.Rc, t) / AU ** 2,
+                        c=l.get_color(), ls='--')
 
     plt.xlabel('$R\,[\mathrm{au}]$')
     plt.ylabel('$\Sigma\,[\mathrm{g\,cm}]^{-2}$')

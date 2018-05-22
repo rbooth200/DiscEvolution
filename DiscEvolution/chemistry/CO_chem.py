@@ -260,29 +260,6 @@ if __name__ == "__main__":
     from ..star import SimpleStar
     from ..grid import Grid
 
-    for Chem in [ SimpleCOChemMadhu(), SimpleCOChemOberg(),
-                  EquilibriumCOChemMadhu(), EquilibriumCOChemOberg(),]:
-
-        T = np.logspace(0.5, 3, 6)
-
-        Xi = SimpleCOAtomAbund(len(T))
-        Xi.set_solar_abundances()
-        
-        mol = Chem.equilibrium_chem(T, 1e-10, 0.01, Xi)
-        
-        T *= 3
-        Chem.update(0, T, 1e-10, 0.01, mol)
-
-        atom  = mol.gas.atomic_abundance()
-        atom += mol.ice.atomic_abundance()
-        print(Chem.__class__.__name__)
-        for X in atom:
-            print(X)
-            print(mol.gas.atomic_abundance()[X] / (atom[X] + 1e-300))
-            print(mol.ice.atomic_abundance()[X] / (atom[X] + 1e-300))
-            assert(np.allclose(Xi[X], atom[X], rtol=1e-12))
-        print()
-
     # Compare equilibrium chem with equilibrium of TD chem:
 
     # DISC model
