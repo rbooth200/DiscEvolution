@@ -3,20 +3,28 @@ A python code to model the evolution of dust and gas in protoplanetary discs.
 
 Author: Richard Booth
 
-This code contains a set of modules to simulate the viscous evolution of protoplanetary discs over Myr time scales. This includes modules to compute the viscous evolution, grain growth, radial drift, thermal structure, transport of volatiles and planet formation. 
+This code contains a set of modules to simulate the viscous evolution of protoplanetary discs over Myr
+time scales. This includes modules to compute the viscous evolution, grain growth, radial drift,
+thermal structure, transport of volatiles and planet formation. 
 
-The code was originally described in [Booth et al. (2017)](https://arxiv.org/abs/1705.03305). If you use this code in your research, please cite this paper along with any supporting papers describing additional modules that you use. 
+The code was originally described in [Booth et al. (2017)](https://arxiv.org/abs/1705.03305). If you
+use this code in your research, please cite this paper along with any supporting papers describing
+additional modules that you use. 
 
 
 ## License
-Copyright 2017 Richard Booth
+Copyright 2017-2018 Richard Booth
 
-This code is free software made available under the GNU GPLv3 License. For details see the LICENSE file.
+This code is free software made available under the GNU GPLv3 License. For details see the LICENSE
+file.
 
 
 ## Docs
 
-The code is not intended to be used as a stand alone tool, but includes a set of different modules that can be used to include different physics when modelling the evolution of protoplanetary discs. As such, it contains a series of classes each of which handle one aspect of the disc's evolution, such as viscous evolution or grain growth. An example of one way to combine these modules together can be found in the dust_dynamics.py source file.
+The code is not intended to be used as a stand alone tool, but includes a set of different modules 
+that can be used to include different physics when modelling the evolution of protoplanetary discs.
+As such, it contains a series of classes each of which handle one aspect of the disc's evolution, 
+such as viscous evolution or grain growth. A driver class for running a model, along with an example model can be found in the driver module. Further examples can be found in the scripts directory.
 
 In addition to the physics, there are a number of core classes upon which the physics modules are built.
 
