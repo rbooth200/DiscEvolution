@@ -199,7 +199,7 @@ def dump_ASCII(filename, disc, time, header=None):
             for j in range(Ndust):
                 f.write(' {}'.format(disc.dust_frac[j, i]))
             for j in range(Ndust):
-                f.write(' {}',format(disc.grain_size[j, i]))
+                f.write(' {}'.format(disc.grain_size[j, i]))
             if chem:
                 for k in chem.gas:
                     f.write(' {}'.format(chem.gas[k][i]))

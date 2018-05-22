@@ -143,7 +143,7 @@ class DiscEvolutionDriver(object):
         head = ''
         if self._gas:
             head += self._gas.ASCII_header() + '\n'
-        if self._radial_drift:
+        if self._dust:
             head += self._dust.ASCII_header() + '\n'
         if self._diffusion:
             head += self._diffusion.ASCII_header() + '\n'
@@ -180,8 +180,8 @@ if __name__ == "__main__":
 
     yr = 2*np.pi
 
-    output_dir = None
-    output_times = []
+    output_dir = 'test_DiscEvo'
+    output_times = np.arange(0, 4) * 1e6 * yr
     plot_times = np.array([0, 1e4, 1e5, 5e5, 1e6, 3e6])*yr
 
 
@@ -244,7 +244,10 @@ if __name__ == "__main__":
                 print('dt: {} yr'.format(dt / yr))
 
         if IO.check_event(evo.t, 'save'):
-            raise ValueError('Save not implemented')
+            from .disc_utils import mkdir_p
+            mkdir_p(output_dir)
+            snap_name = 'disc_{:04d}.dat'.format(IO.event_number('save'))
+            evo.dump_ASCII(os.path.join(output_dir, snap_name))
 
         if IO.check_event(evo.t, 'plot'):
             err_state = np.seterr(all='warn')
