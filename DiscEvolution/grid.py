@@ -70,7 +70,7 @@ class Grid(object):
         self._dRc2  = np.diff(self._Rc**2)
         self._dRce2 = np.diff(self._Rce**2)
 
-    def header(self):
+    def ASCII_header(self):
         """Write grid info header"""
         head = '# {} R0: {}, R1: {}, N: {}, spacing: {}'
         return head.format(self.__class__.__name__,

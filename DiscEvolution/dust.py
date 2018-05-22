@@ -106,9 +106,9 @@ class DustyDisc(AccretionDisc):
         """Update ice fractions"""
         pass
 
-    def header(self):
+    def ASCII_header(self):
         """Dusty disc header"""
-        head = super(DustyDisc, self).header() + '\n'
+        head = super(DustyDisc, self).ASCII_header() + '\n'
         head += '# {} feedback: {}, rho_s: {}g cm^-3'
         return head.format(self.__class__.__name__,
                            self.feedback, self._rho_s)
@@ -206,9 +206,9 @@ class DustGrowthTwoPop(DustyDisc):
         
         self.update(0)
 
-    def header(self):
+    def ASCII_header(self):
         """Dust growth header"""
-        return super(DustGrowthTwoPop, self).header() + self._head
+        return super(DustGrowthTwoPop, self).ASCII_header() + self._head
 
     def _frag_velocity(self, f_ice):
         """Fragmentation velocity"""
@@ -359,11 +359,11 @@ class SingleFluidDrift(object):
         self._diffuse = diffusion
         self._settling = settling
 
-    def header(self):
+    def ASCII_header(self):
         """Radial drift header"""
         head = ''
         if self._diffuse:
-            head += self._diffuse.header() + '\n'
+            head += self._diffuse.ASCII_header() + '\n'
         head += ('# {} diffusion: {} settling: {}'
                  ''.format(self.__class__.__name__,
                            self._diffuse is not None,

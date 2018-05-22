@@ -90,7 +90,7 @@ class StarBase(object):
         """Stellar age"""
         return self._age
 
-    def header(self):
+    def ASCII_header(self):
         """Print stellar type header"""
         head = '# {} M: {}Msun, R: {}Rsun, T: {}K, age: {}yr'
         return head.format(self.__class__.__name__,

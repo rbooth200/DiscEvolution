@@ -55,7 +55,7 @@ class EOS_Table(object):
         """Update the eos"""
         pass
 
-    def header(self):
+    def ASCII_header(self):
         """Print eos header"""
         head = '# {} gamma: {}, mu: {}'
         return head.format(self.__class__.__name__,
@@ -101,9 +101,9 @@ class LocallyIsothermalEOS(EOS_Table):
     def Pr(self):
         return np.zeros_like(self._R)
 
-    def header(self):
+    def ASCII_header(self):
         """LocallyIsothermalEOS header string"""
-        head = super(LocallyIsothermalEOS, self).header()
+        head = super(LocallyIsothermalEOS, self).ASCII_header()
         head += ', cs0: {}, q: {}, alpha: {}'
         return head.format(self._cs0, self._q, self._alpha_t)
 
@@ -270,9 +270,9 @@ class IrradiatedEOS(EOS_Table):
     def star(self):
         return self._star
 
-    def header(self):
+    def ASCII_header(self):
         """IrradiatedEOS header"""
-        head = super(IrradiatedEOS, self).header()
+        head = super(IrradiatedEOS, self).ASCII_header()
         head += ', opacity: {}, T_extern: {}K, accrete: {}, alpha: {}'
         head += ', Tmax: {}K'
         return head.format(self._kappa.__class__.__name__,

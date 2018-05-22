@@ -32,7 +32,7 @@ class ViscousEvolution(object):
         self._tol = tol
         self._bound = boundary
 
-    def header(self):
+    def ASCII_header(self):
         """header"""
         return '# {} tol: {}'.format(self.__class__.__name__, self._tol)
 

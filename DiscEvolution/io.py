@@ -8,8 +8,11 @@
 from __future__ import print_function
 import numpy as np
 
-__all__ = [ "Event_Controller" ]
+__all__ = [ "Event_Controller", "dump_ASCII" ]
 
+###############################################################################
+# I/O Controller
+###############################################################################
 class Event_Controller(object):
     """Handles booking keeping for events that occur at the specified times.
 
@@ -138,7 +141,71 @@ def _test_event_controller():
         EC.pop_events(i)        
 
     assert(EC.finished())
+
+
+################################################################################
+# Write data to an ASCII file
+################################################################################
+def dump_ASCII(filename, disc, time, header=None):
+    """Write an ASCII dump of the disc data.
+
+    args:
+        filename : name of the new dump file
+        disc     : disc object
+        time     : current time (in Omega0)
+        header   : Additional header data to write (default = None)
+    """
+
+    head = disc.ASCII_header() + '\n'
+    if header is not None:
+        head += header
+        if not head.endswith('\n'):
+            head += '\n'
+
+    with open(filename, 'w') as f:
+        f.write(head)
+        f.write('# time: {}yr\n'.format(time / (2 * np.pi)))
+
+        # Construct the list of variables that we are going to print
+        Ncell = disc.Ncells
         
+        Ndust = 0
+        try:
+            Ndust = disc.dust_frac.shape[0]
+        except AttributeError:
+            pass
+
+        head = '# R Sigma T'
+        for i in range(Ndust):
+            head += ' epsilon[{}]'.format(i)
+        for i in range(Ndust):
+            head += ' a[{}]'.format(i)
+            
+        chem = None
+        try:
+            chem = disc.chem
+            for k in chem.gas:
+                head += ' {}'.format(k)
+            for k in chem.ice:
+                head += ' s{}'.format(k)
+        except AttributeError:
+            pass
+
+        f.write(head+'\n')
+        
+        R, Sig, T = disc.R, disc.Sigma, disc.T
+        for i in range(Ncell):
+            f.write('{} {} {}'.format(R[i], Sig[i], T[i]))
+            for j in range(Ndust):
+                f.write(' {}'.format(disc.dust_frac[j, i]))
+            for j in range(Ndust):
+                f.write(' {}',format(disc.grain_size[j, i]))
+            if chem:
+                for k in chem.gas:
+                    f.write(' {}'.format(chem.gas[k][i]))
+                for k in chem.ice:
+                    f.write(' {}'.format(chem.ice[k][i]))
+                f.write('\n')
 
 if __name__ == "__main__":
 

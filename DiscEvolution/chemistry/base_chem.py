@@ -168,8 +168,8 @@ class SimpleChemBase(object):
                           'Si-grain' : 1500,
                           }
 
-    def header(self):
-        """Header string"""
+    def ASCII_header(self):
+        """ASCII_header string"""
         return ('# {} fix_ratios: {}'.format(self.__class__.__name__, 
                                              self._fix_ratios))
 
@@ -280,9 +280,9 @@ class ThermalChem(object):
                 'f_bind: {}, f_stick: {}, muH: {}')
         self._head = head.format(sig_b, rho_s, a, f_bind, f_stick, mu)
 
-    def header(self):
+    def ASCII_header(self):
         """Time dependent chem header"""
-        return super(ThermalChem, self).header() + ', {}'.format(self._head)
+        return super(ThermalChem, self).ASCII_header() + ', {}'.format(self._head)
                      
     def _nu_i(self, Tbind, m_mol):
         """Desorbtion rate per ice molecule"""

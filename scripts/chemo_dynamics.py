@@ -1,4 +1,4 @@
-# dust_dynamics.py
+# chemo_dynamics.py
 #
 # Author: R. Booth
 # Date: 17 - Nov - 2016
@@ -10,32 +10,27 @@ from __future__ import print_function
 import numpy as np
 import os
 
-from .diffusion import TracerDiffusion
-from .dust import SingleFluidDrift
-from .viscous_evolution import ViscousEvolution
-from .disc_utils import mkdir_p
+
+from DiscEvolution.diffusion import TracerDiffusion
+from DiscEvolution.dust import SingleFluidDrift
+from DiscEvolution.viscous_evolution import ViscousEvolution
+from DiscEvolution.disc_utils import mkdir_p
 
 
-class DustDynamicsModel(object):
+class ChemoDynamicsModel(object):
     """
     """
 
-    def __init__(self, disc,
+    def __init__(self, disc, chem=None,
                  diffusion=False, radial_drift=False, viscous_evo=False,
-                 evaporation=False, settling=False,
                  Sc=1, t0=0):
 
         self._disc = disc
+        self._chem = chem
 
         self._visc = None
         if viscous_evo:
-            bound = 'power_law'
-            # Power law extrapolation fails with zero-density, use simple
-            # boundary condition instead
-            if evaporation:
-                bound = 'Zero'
-
-            self._visc = ViscousEvolution(boundary=bound)
+            self._visc = ViscousEvolution()
 
         self._diffusion = None
         if diffusion:
@@ -45,13 +40,9 @@ class DustDynamicsModel(object):
         # include it ourself.
         self._radial_drift = None
         if radial_drift:
-            self._radial_drift = SingleFluidDrift(diffusion, settling)
+            self._radial_drift = SingleFluidDrift(diffusion)
         else:
             self._diffusion = diffusion
-
-        self._evaporation = False
-        if evaporation:
-            self._evaporation = evaporation
 
         self._t = t0
 
@@ -73,27 +64,51 @@ class DustDynamicsModel(object):
 
         disc = self._disc
 
+        gas_chem, ice_chem = None, None
+        try:
+            gas_chem = disc.chem.gas.data
+            ice_chem = disc.chem.ice.data
+        except AttributeError:
+            pass
+
         # Do Advection-diffusion update
         if self._visc:
             dust = None
-            size = None
             try:
                 dust = disc.dust_frac
-                size = disc.grain_size
             except AttributeError:
                 pass
-            self._visc(dt, disc, [dust, size])
+            self._visc(dt, disc, [dust, gas_chem, ice_chem])
 
         if self._radial_drift:
-            self._radial_drift(dt, disc)
+            self._radial_drift(dt, disc,
+                               gas_tracers=gas_chem,
+                               dust_tracers=ice_chem)
+
+        if self._diffusion:
+            if gas_chem is not None:
+                gas_chem[:] += dt * self._diffusion(disc, gas_chem)
+            if ice_chem is not None:
+                ice_chem[:] += dt * self._diffusion(disc, ice_chem)
 
         # Pin the values to >= 0:
         disc.Sigma[:] = np.maximum(disc.Sigma, 0)
         disc.dust_frac[:] = np.maximum(disc.dust_frac, 0)
+        if self._chem:
+            disc.chem.gas.data[:] = np.maximum(disc.chem.gas.data, 0)
+            disc.chem.ice.data[:] = np.maximum(disc.chem.ice.data, 0)
 
-        # Apply any photo-evaporation:
-        if self._evaporation:
-            self._evaporation(disc, dt)
+        # Chemistry
+        if self._chem:
+            rho = disc.midplane_gas_density
+            eps = disc.dust_frac.sum(0)
+            T = disc.T
+
+            self._chem.update(dt, T, rho, eps, disc.chem)
+
+            # If we have dust, we should update it now the ice fraction has
+            # changed
+            disc.update_ices(disc.chem.ice)
 
         # Now we should update the auxillary properties, do grain growth etc
         disc.update(dt)
@@ -239,31 +254,43 @@ class IO_Controller(object):
 if __name__ == "__main__":
     import sys
     import matplotlib.pyplot as plt
-    from .grid import Grid
-    from .eos import LocallyIsothermalEOS, IrradiatedEOS
-    from .star import SimpleStar
-    from .dust import DustGrowthTwoPop
-    from .constants import Msun, AU
-    from .photoevaporation import FixedExternalEvaportation
+    from DiscEvolution.grid import Grid
+    from DiscEvolution.eos import LocallyIsothermalEOS, IrradiatedEOS
+    from DiscEvolution.star import SimpleStar
+    from DiscEvolution.dust import DustGrowthTwoPop
+    from DiscEvolution.chemistry import (TimeDepCOChemOberg,
+        EquilibriumCOChemOberg, EquilibriumCOChemMadhu,
+        SimpleCOAtomAbund)
+    from DiscEvolution.constants import Msun, AU
+    from DiscEvolution.planet_formation import Planets, Bitsch2015Model
 
-    np.seterr(all='ignore')
     np.seterr(invalid='raise')
 
     models = {}
     N = 1
-    for Mdot in [1e-8, 1e-9]:
-        alpha = 1e-3
-        for Rc in [50, 100, 200]:
+    for chem in ['TimeDep', 'NoReact', 'Madhu', 'Oberg']:
+        for Mdot in [1e-8, 1e-9]:
+            alpha = 1e-3
+            for Rc in [50, 100, 200]:
+                model = {'alpha': alpha, 'R_d': Rc,
+                         'Mdot': Mdot, 'chem': chem,
+                         'name': 'Rc_{}'.format(Rc)}
+                models['{}'.format(N)] = model
+                N += 1
+            Rc = 100
+            for alpha in [5e-4, 1e-3, 5e-3, 1e-2]:
+                model = {'alpha': alpha, 'R_d': Rc,
+                         'Mdot': Mdot, 'chem': chem,
+                         'name': 'alpha_{}'.format(alpha)}
+                models['{}'.format(N)] = model
+                N += 1
+
+            # Add a large, viscous model
+            Rc = 200
+            alpha = 0.01
             model = {'alpha': alpha, 'R_d': Rc,
-                     'Mdot': Mdot,
-                     'name': 'Rc_{}'.format(Rc)}
-            models['{}'.format(N)] = model
-            N += 1
-        Rc = 100
-        for alpha in [5e-4, 1e-3, 5e-3, 1e-2]:
-            model = {'alpha': alpha, 'R_d': Rc,
-                     'Mdot': Mdot,
-                     'name': 'alpha_{}'.format(alpha)}
+                     'Mdot': Mdot, 'chem': chem,
+                     'name': 'Rc_{}_alpha_{}'.format(Rc, alpha)}
             models['{}'.format(N)] = model
             N += 1
 
@@ -276,11 +303,12 @@ if __name__ == "__main__":
     Mdot = model['Mdot']
     alpha = model['alpha']
     Rd = model['R_d']
+    chem_type = model['chem']
 
-    R_in = 0.1
+    R_in = 0.5
     R_out = 500
 
-    N_cell = 250
+    N_cell = 1000
 
     T0 = 2 * np.pi
 
@@ -288,15 +316,27 @@ if __name__ == "__main__":
     Mdot /= AU ** 2
 
     eos_type = 'irradiated'
-    #eos_type = 'isothermal'
+    # eos_type = 'isothermal'
 
-    DIR = os.path.join('temp', eos_type,
+    # Gas fraction for pebble accretion
+    pb_gas_f = 0.0
+
+    output = False
+    planets = False
+    plot = True
+    injection_times = np.arange(0, 3.01e6, 1e5) * T0
+    injection_radii = np.logspace(0.5, 2, 16)
+
+    DIR = os.path.join('planets',
+                       'pb_gas_acc_f_{}'.format(pb_gas_f),
+                       chem_type, eos_type,
                        model['name'], 'Mdot_{}'.format(model['Mdot']))
-    mkdir_p(DIR)
+    if output:
+        mkdir_p(DIR)
 
-    with open(os.path.join(DIR, 'model.dat'), 'w') as f:
-        for k in model:
-            print(k, model[k])
+        with open(os.path.join(DIR, 'model.dat'), 'w') as f:
+            for k in model:
+                print(k, model[k])
 
     # Initialize the disc model
     grid = Grid(R_in, R_out, N_cell, spacing='natural')
@@ -311,28 +351,70 @@ if __name__ == "__main__":
         eos.set_grid(grid)
         eos.update(0, Sigma)
 
-        # Now do a new guess for the surface density and initial eos.
+        # Do a new guess for the surface density and initial eos.
         Sigma = (Mdot / (3 * np.pi * eos.nu)) * np.exp(-grid.Rc / Rd)
 
         eos = IrradiatedEOS(star, alpha, tol=1e-3)
         eos.set_grid(grid)
+        # Iterate to constant Mdot
+        for i in range(100):
+            eos.update(0, Sigma)
+            Sigma = 0.5 * (Sigma +
+                           (Mdot / (3 * np.pi * eos.nu)) * np.exp(-grid.Rc / Rd))
         eos.update(0, Sigma)
 
     # Initialize the complete disc object
     disc = DustGrowthTwoPop(grid, star, eos, 0.01, Sigma=Sigma, feedback=True)
 
-    # Setup the dust-dynamical model
-    evo = DustDynamicsModel(disc,
-                            viscous_evo=True,
-                            radial_drift=True,
-                            diffusion=True,
-                            evaporation=FixedExternalEvaportation(Mdot=1e-8))
+    # Initialize the chemistry
+    if chem_type == 'TimeDep':
+        chemical_model = TimeDepCOChemOberg(a=1e-5)
+    elif chem_type == 'Madhu':
+        chemical_model = EquilibriumCOChemMadhu(fix_ratios=False, a=1e-5)
+    elif chem_type == 'Oberg':
+        chemical_model = EquilibriumCOChemOberg(fix_ratios=False, a=1e-5)
+    elif chem_type == 'NoReact':
+        chemical_model = EquilibriumCOChemOberg(fix_ratios=True, a=1e-5)
+
+    # Initial abundances:
+    X_solar = SimpleCOAtomAbund(N_cell)
+    X_solar.set_solar_abundances()
+
+    # Iterate as the ice fraction changes the dust-to-gas ratio
+    for i in range(10):
+        chem = chemical_model.equilibrium_chem(disc.T,
+                                               disc.midplane_gas_density,
+                                               disc.dust_frac.sum(0),
+                                               X_solar)
+        disc.initialize_dust_density(chem.ice.total_abund)
+    disc.chem = chem
+
+    # Setup the chemo-dynamical model
+    evo = ChemoDynamicsModel(disc, chem=chemical_model,
+                             viscous_evo=True,
+                             radial_drift=True,
+                             diffusion=True)
+
+    # Setup any planets
+    if planets:
+        planets = Planets(Nchem=6)
+        planet_model = Bitsch2015Model(disc, pb_gas_f=pb_gas_f)
+    else:
+        injection_times = []
 
     # Solve for the evolution
-    print_times = np.array([0, 1e5, 5e5, 1e6, 3e6]) * T0
-    output_times = np.arange(0, 3e6 + 1e3, 1e4) * T0
+    if plot:
+        print_times = np.array([0, 1e5, 1e6, 2e6, 3e6]) * T0
+    else:
+        print_times = []
 
-    IO = IO_Controller(t_print=print_times, t_save=output_times)
+    if output:
+        output_times = np.arange(0, 3e6 + 1e3, 1e4) * T0
+    else:
+        output_times = []
+
+    IO = IO_Controller(t_print=print_times, t_save=output_times,
+                       t_inject=injection_times)
 
     n = 0
     while not IO.finished:
@@ -340,41 +422,73 @@ if __name__ == "__main__":
         while evo.t < ti:
             dt = evo(ti)
 
+            if planets:
+                planet_model.integrate(dt, planets)
+
             n += 1
             if (n % 1000) == 0:
                 print('Nstep: {}'.format(n))
                 print('Time: {} yr'.format(evo.t / (2 * np.pi)))
                 print('dt: {} yr'.format(dt / (2 * np.pi)))
 
-        if IO.need_save(evo.t) and False:
+        if planets and IO.need_injection(evo.t):
+            for Ri in injection_radii:
+                planet_model.insert_new_planet(evo.t, Ri, planets)
+
+        if IO.need_save(evo.t):
             evo.dump(os.path.join(DIR, 'disc_{:04d}.dat'.format(IO.nsave)))
+
+            if planets:
+                planet_file = os.path.join(DIR,
+                                           'planets_{:04}.dat'.format(IO.nsave))
+                planet_model.dump(planet_file, evo.t, planets)
 
         if IO.need_print(evo.t):
             err_state = np.seterr(all='warn')
 
             print('Nstep: {}'.format(n))
             print('Time: {} yr'.format(evo.t / (2 * np.pi)))
-            plt.subplot(221)
+            plt.subplot(321)
             l, = plt.loglog(grid.Rc, evo.disc.Sigma_G)
             plt.loglog(grid.Rc, evo.disc.Sigma_D.sum(0), '--', c=l.get_color())
             plt.xlabel('$R$')
             plt.ylabel('$\Sigma_\mathrm{G, D}$')
 
-            plt.subplot(222)
+            plt.subplot(322)
             l, = plt.loglog(grid.Rc, evo.disc.dust_frac.sum(0))
             plt.xlabel('$R$')
             plt.ylabel('$\epsilon$')
-            plt.subplot(223)
+            plt.subplot(323)
             l, = plt.loglog(grid.Rc, evo.disc.Stokes()[1])
             plt.xlabel('$R$')
             plt.ylabel('$St$')
-            plt.subplot(224)
+            plt.subplot(324)
             l, = plt.loglog(grid.Rc, evo.disc.grain_size[1])
             plt.xlabel('$R$')
             plt.ylabel('$a\,[\mathrm{cm}]$')
+
+            plt.subplot(325)
+            gCO = evo.disc.chem.gas.atomic_abundance()
+            sCO = evo.disc.chem.ice.atomic_abundance()
+            gCO.data[:] /= X_solar.data
+            sCO.data[:] /= X_solar.data
+            c = l.get_color()
+            plt.semilogx(grid.Rc, gCO['C'], '-', c=c, linewidth=1)
+            plt.semilogx(grid.Rc, gCO['O'], '-', c=c, linewidth=2)
+            plt.semilogx(grid.Rc, sCO['C'], ':', c=c, linewidth=1)
+            plt.semilogx(grid.Rc, sCO['O'], ':', c=c, linewidth=2)
+            plt.xlabel('$R\,[\mathrm{au}}$')
+            plt.ylabel('$[X]_\mathrm{solar}$')
+
+            plt.subplot(326)
+            plt.semilogx(grid.Rc, gCO['C'] / gCO['O'], '-', c=c)
+            plt.semilogx(grid.Rc, sCO['C'] / sCO['O'], ':', c=c)
+            plt.xlabel('$R\,[\mathrm{au}}$')
+            plt.ylabel('$[C/O]_\mathrm{solar}$')
 
             np.seterr(**err_state)
 
         IO.pop_times(evo.t)
 
-    plt.show()
+    if plot:
+        plt.show()

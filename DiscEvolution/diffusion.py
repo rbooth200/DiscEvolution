@@ -20,7 +20,7 @@ class TracerDiffusion(object):
         self._Sc = Sc
         self._limit = limit
 
-    def header(self):
+    def ASCII_header(self):
         """Tracer diffusion header"""
         return '# {} Sc: {}, flux_limit: {}'.format(self.__class__.__name__,
                                                     self.Sc, self._limit)

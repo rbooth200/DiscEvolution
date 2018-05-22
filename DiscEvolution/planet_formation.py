@@ -126,7 +126,7 @@ class GasAccretion(object):
                 'rho_core: {}g cm^-3').format(self.__class__.__name__,
                                               f_max, f_py, kappa_env, rho_core)
         self._head = head
-    def header(self):
+    def ASCII_header(self):
         """Get header details"""
         return self._head
 
@@ -200,7 +200,7 @@ class PebbleAccretionHill(object):
     def __init__(self, disc):
         self.set_disc(disc)
 
-    def header(self):
+    def ASCII_header(self):
         return '# {}'.format(self.__class__.__name__)
         
     def set_disc(self, disc):
@@ -340,7 +340,7 @@ class TypeIMigration(object):
 
         self.set_disc(disc)
 
-    def header(self):
+    def ASCII_header(self):
         return '# {} gamma: {}'.format(self.__class__.__name__,
                                        self._gamma)
         
@@ -443,7 +443,7 @@ class TypeIIMigration(object):
     def __init__(self, disc):
         self._disc = disc
 
-    def header(self):
+    def ASCII_header(self):
         return '# {}'.format(self.__class__.__name__)
 
     def set_disc(self, disc):
@@ -488,10 +488,10 @@ class CridaMigration(object):
         self._typeII = TypeIIMigration(disc)
         self._disc = disc
 
-    def header(self):
+    def ASCII_header(self):
         head = '# {} \n#\t{}\n#\t{}'.format(self.__class__.__name__,
-                                            self._typeI.header()[1:],
-                                            self._typeII.header()[1:])
+                                            self._typeI.ASCII_header()[1:],
+                                            self._typeII.ASCII_header()[1:])
         return head
     def set_disc(self, disc):
         self._typeI.set_disc(disc)
@@ -560,14 +560,14 @@ class Bitsch2015Model(object):
         if migrate:
             self._migrate = CridaMigration(disc)
 
-    def header(self):
+    def ASCII_header(self):
         """header"""
         head ='# {} pb_gas_f: {}, migrate: {}\n'.format(self.__class__.__name__,
                                                         self._f_gas,
                                                         bool(self._migrate))
-        head += self._gas_acc.header() + '\n' + self._peb_acc.header()
+        head += self._gas_acc.ASCII_header() + '\n' + self._peb_acc.ASCII_header()
         if self._migrate:
-            head += '\n' + self._migrate.header()
+            head += '\n' + self._migrate.ASCII_header()
         return head
             
     def set_disc(self, disc):
@@ -713,7 +713,7 @@ class Bitsch2015Model(object):
 
         # First get the header info.
         with open(filename, 'w') as f:
-            head = self.header()
+            head = self.ASCII_header()
             f.write(head+'\n')
             print('# time: {}yr\n'.format(time / (2 * np.pi)))
 

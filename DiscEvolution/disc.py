@@ -22,12 +22,12 @@ class AccretionDisc(object):
         self._Sigma = Sigma
 
 
-    def header(self):
+    def ASCII_header(self):
         """Write header information about the disc"""
         head  = ''
-        head += self._grid.header() + '\n'
-        head += self._star.header() + '\n'
-        head += self._eos.header() 
+        head += self._grid.ASCII_header() + '\n'
+        head += self._star.ASCII_header() + '\n'
+        head += self._eos.ASCII_header()
         return head
 
     @property

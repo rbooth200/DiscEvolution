@@ -71,9 +71,9 @@ class COChemOberg(object):
     def __init__(self,fix_grains=True):
         self._fix_grains = fix_grains
 
-    def header(self):
+    def ASCII_header(self):
         """CO Oberg chem header"""
-        return (super(COChemOberg, self).header() + 
+        return (super(COChemOberg, self).ASCII_header() +
                 ', fix_grains: {}'.format(self._fix_grains))
     
     def molecular_abundance(self, T, rho, dust_frac,
@@ -144,9 +144,9 @@ class COChemMadhu(object):
     def __init__(self,fix_grains=True):
         self._fix_grains = fix_grains
 
-    def header(self):
+    def ASCII_header(self):
         """CO Madhu chem header"""
-        return (super(COChemMadhu, self).header() + 
+        return (super(COChemMadhu, self).ASCII_header() +
                 ', fix_grains: {}'.format(self._fix_grains))
 
     def molecular_abundance(self, T, rho, dust_frac,

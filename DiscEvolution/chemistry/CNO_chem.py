@@ -84,9 +84,9 @@ class CNOChemOberg(object):
         self._fix_grains = fix_grains
         self._fix_N = fix_N
 
-    def header(self):
+    def ASCII_header(self):
         """CNO Oberg chem header"""
-        return (super(CNOChemOberg, self).header() +
+        return (super(CNOChemOberg, self).ASCII_header() +
                 ', f_NH3: {}, fix_grains: {}, fix_N: {}'
                 ''.format(self._fNH3, self._fix_grains, self._fix_N))
 
@@ -171,9 +171,9 @@ class CNOChemMadhu(object):
         self._fix_grains = fix_grains
         self._fix_N = fix_N
 
-    def header(self):
+    def ASCII_header(self):
         """CNO Madhu chem header"""
-        return (super(CNOChemMadhu, self).header() +
+        return (super(CNOChemMadhu, self).ASCII_header() +
                 ', f_NH3: {}, fix_grains: {}, fix_N: {}'
                 ''.format(self._fNH3, self._fix_grains, self._fix_N))
 
@@ -317,7 +317,7 @@ if __name__ == "__main__":
         atom = mol.gas.atomic_abundance()
         atom += mol.ice.atomic_abundance()
         print(Chem.__class__.__name__)
-        print(Chem.header())
+        print(Chem.ASCII_header())
         for X in atom:
             print(X)
             print(mol.gas.atomic_abundance()[X] / (atom[X] + 1e-300))
