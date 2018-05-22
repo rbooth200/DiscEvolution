@@ -714,8 +714,8 @@ class Bitsch2015Model(object):
         # First get the header info.
         with open(filename, 'w') as f:
             head = self.header()
-            print(head)
-            print('# time: {}yr'.format(time / (2 * np.pi)))
+            f.write(head+'\n')
+            print('# time: {}yr\n'.format(time / (2 * np.pi)))
 
             head = '# R M_core M_env t_form'
             if planets.chem:
@@ -724,16 +724,17 @@ class Bitsch2015Model(object):
                     head += ' c{}'.format(k)
                 for k in chem.ice:
                     head += ' e{}'.format(k)
-            print(head)
+            f.write(head+'\n')
 
             for p in planets:
-                print(p.R, p.M_core, p.M_env, p.t_form / (2 * np.pi))
+                f.write('{} {} {} {}'.format(p.R, p.M_core, p.M_env, 
+                                             p.t_form / (2 * np.pi)))
                 if planets.chem:
                     for Xi in p.X_core:
-                        print(Xi)
+                        f.write(' {}'.format(Xi))
                     for Xi in p.X_env:
-                        print(Xi)
-                print()
+                        f.write(' {}'.format(Xi))
+                f.write('\n')
                         
 
             
