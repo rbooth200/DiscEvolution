@@ -6,6 +6,7 @@
 # Input/Ouput routines
 ###############################################################################
 from __future__ import print_function
+from six import string_types
 import numpy as np
 
 __all__ = [ "Event_Controller", "dump_ASCII" ]
@@ -113,16 +114,25 @@ def dump_ASCII(filename, disc, time, header=None):
     """Write an ASCII dump of the disc data.
 
     args:
-        filename : name of the new dump file
+        filename : string
+            Name of the new dump file
         disc     : disc object
-        time     : current time (in Omega0)
-        header   : Additional header data to write (default = None)
+            disc that will be saved to disc.
+        time     : float 
+            current time (in Omega0)
+        header   : string, list of strings, or None
+            Additional header data to write 
     """
-
-    head = disc.ASCII_header() + '\n'
     if header is not None:
-        head += header
-        if not head.endswith('\n'):
+        header = []
+    if isinstance(header, string_types):
+        header = [header,]
+
+    # Construct the header
+    head = disc.ASCII_header() + '\n'
+    for h in header:
+        head += h
+        if not h.endswith('\n'):
             head += '\n'
 
     with open(filename, 'w') as f:
