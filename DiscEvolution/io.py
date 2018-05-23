@@ -9,8 +9,7 @@ from __future__ import print_function
 from six import string_types
 import numpy as np
 
-__all__ = [ "Event_Controller", "dump_ASCII" ]
-
+__all__ = [ "Event_Controller", "dump_ASCII", "dump_hdf5"]
 ###############################################################################
 # I/O Controller
 ###############################################################################
@@ -117,13 +116,13 @@ def dump_ASCII(filename, disc, time, header=None):
         filename : string
             Name of the new dump file
         disc     : disc object
-            disc that will be saved to disc.
+            Disc that will be saved to disc.
         time     : float 
-            current time (in Omega0)
+            Current time (in Omega0)
         header   : string, list of strings, or None
             Additional header data to write 
     """
-    if header is not None:
+    if header is None:
         header = []
     if isinstance(header, string_types):
         header = [header,]
@@ -180,3 +179,26 @@ def dump_ASCII(filename, disc, time, header=None):
                     f.write(' {}'.format(chem.ice[k][i]))
                 f.write('\n')
 
+################################################################################
+# Write data using HDF5
+################################################################################
+def dump_hdf5(filename, disc, time, header=None):
+    """Write disc data to file.
+
+    args:
+        filename : string
+            Name of the new dump file
+        disc     : disc object
+            Disc that will be saved to disc.
+        time     : float 
+            Current time (in Omega0)
+        header   : string, list of strings, or None
+            Additional header data to write. Each item should be a single 
+    """
+    try:
+        import h5py  # Here to avoid forcing h5py depedency
+    except ImportError:
+        # Raise own more useful message
+        msg = ("{}.{} {}".format("DiscEvolution.io", "dump_hdf5",
+                                 "requires h5py, which could not be found."))
+        raise ImportError(msg)
