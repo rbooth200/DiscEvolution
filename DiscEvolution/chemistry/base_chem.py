@@ -173,6 +173,10 @@ class SimpleChemBase(object):
         return ('# {} fix_ratios: {}'.format(self.__class__.__name__, 
                                              self._fix_ratios))
 
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        return self.__class__.__name__, { "fix_ratios" : self._fix_ratios }
+
     def equilibrium_chem(self, T, rho, dust_frac, abund):
         """Compute the equilibrium chemistry"""
 
@@ -276,13 +280,24 @@ class ThermalChem(object):
         self._mu = mu
 
         
-        head = ('sig_b: {}cm^-2, rho_s: {}g cm^-1, a: {} cm, '
+        head = ('sig_b: {} cm^-2, rho_s: {} g cm^-1, a: {} cm, '
                 'f_bind: {}, f_stick: {}, muH: {}')
         self._head = head.format(sig_b, rho_s, a, f_bind, f_stick, mu)
 
     def ASCII_header(self):
         """Time dependent chem header"""
-        return super(ThermalChem, self).ASCII_header() + ', {}'.format(self._head)
+        return (super(ThermalChem, self).ASCII_header() +
+                ', {}'.format(self._head))
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        __, head = super(ThermalChem, self).HDF5_attributes()
+
+        def fmt(item): return [x.strip() for x in item.split(":")]
+
+        head.update(dict([ fmt(item) for item in self._head.split(',') ]))
+
+        return self.__class__.__name__, head
                      
     def _nu_i(self, Tbind, m_mol):
         """Desorbtion rate per ice molecule"""

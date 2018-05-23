@@ -36,6 +36,12 @@ class ViscousEvolution(object):
         """header"""
         return '# {} tol: {}'.format(self.__class__.__name__, self._tol)
 
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        return self.__class__.__name__, { "tol" : str(self._tol)}
+
+
+
     def _setup_grid(self, grid):
         """Compute the grid factors"""
         self._X = 2 * np.sqrt(grid.Rc)

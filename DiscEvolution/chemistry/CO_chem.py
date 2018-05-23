@@ -75,7 +75,14 @@ class COChemOberg(object):
         """CO Oberg chem header"""
         return (super(COChemOberg, self).ASCII_header() +
                 ', fix_grains: {}'.format(self._fix_grains))
-    
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        __, header = super(COChemOberg, self).HDF5_attributes()
+        header['fix_grains'] = "{}".format(self._fix_grains)
+
+        return self.__class__.__name__, header
+
     def molecular_abundance(self, T, rho, dust_frac,
                             atomic_abund=None, mol_abund=None):
         """Compute the fractions of species present given total abundances
@@ -148,6 +155,13 @@ class COChemMadhu(object):
         """CO Madhu chem header"""
         return (super(COChemMadhu, self).ASCII_header() +
                 ', fix_grains: {}'.format(self._fix_grains))
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        _, header = super(COChemMadhu, self).HDF5_attributes()
+        header['fix_grains'] = "{}".format(self._fix_grains)
+
+        return self.__class__.__name__, header
 
     def molecular_abundance(self, T, rho, dust_frac,
                             atomic_abund=None, mol_abund=None):

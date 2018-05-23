@@ -96,6 +96,15 @@ class StarBase(object):
         return head.format(self.__class__.__name__,
                            self.M, self.Rs, self.T_eff, self.age)
 
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        return self.__class__.__name__, { "M"   : "{} Msun".format(self.M),
+                                          "R"   : "{} Rsun".format(self._Rs),
+                                           "T"   : "{} K".format(self.T_eff),
+                                           "age" : "{} yr".format(self.age),
+                                        }
+
+
 # A simple non-evolving star class
 class SimpleStar(StarBase):
     """Simple non-evolving star."""

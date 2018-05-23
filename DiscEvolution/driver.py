@@ -153,6 +153,15 @@ class DiscEvolutionDriver(object):
         # Write it all to disc
         io.dump_ASCII(filename, disc, self.t, head)
 
+    def dump_hdf5(self, filename):
+        """Write the current state in HDF5 format, with header information"""
+        headers = []
+        if self._gas:       headers.append(self._gas.HDF5_attributes())
+        if self._dust:      headers.append(self._dust.HDF5_attributes())
+        if self._diffusion: headers.append(self._diffusion.HDF5_attributes())
+        if self._chemistry: headers.append(self._chemistry.HDF5_attributes())
+
+        io.dump_hdf5(filename, disc, self.t, headers)
 
 
 if __name__ == "__main__":
@@ -246,8 +255,12 @@ if __name__ == "__main__":
         if IO.check_event(evo.t, 'save'):
             from .disc_utils import mkdir_p
             mkdir_p(output_dir)
+
             snap_name = 'disc_{:04d}.dat'.format(IO.event_number('save'))
             evo.dump_ASCII(os.path.join(output_dir, snap_name))
+
+            snap_name = 'disc_{:04d}.h5'.format(IO.event_number('save'))
+            evo.dump_hdf5(os.path.join(output_dir, snap_name))
 
         if IO.check_event(evo.t, 'plot'):
             err_state = np.seterr(all='warn')

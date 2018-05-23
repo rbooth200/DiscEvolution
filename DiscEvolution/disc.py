@@ -30,6 +30,12 @@ class AccretionDisc(object):
         head += self._eos.ASCII_header()
         return head
 
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        return self.__class__.__name__, dict([ self._grid.HDF5_attributes(),
+                                               self._star.HDF5_attributes(),
+                                               self._eos.HDF5_attributes() ])
+
     @property
     def star(self):
         return self._star

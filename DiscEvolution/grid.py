@@ -75,6 +75,15 @@ class Grid(object):
         head = '# {} R0: {}, R1: {}, N: {}, spacing: {}'
         return head.format(self.__class__.__name__,
                            self._R0, self._R1, self.Ncells, self._spacing)
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        def fmt(x):  return "{}".format(x)
+        return self.__class__.__name__, { "R0" : fmt(self._R0),
+                                          "R1" : fmt(self._R1),
+                                          "N"  : fmt(self.Ncells),
+                                          "spacing" : fmt(self._spacing),
+                                          }
         
     @property
     def Rc(self):

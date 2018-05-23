@@ -90,6 +90,15 @@ class CNOChemOberg(object):
                 ', f_NH3: {}, fix_grains: {}, fix_N: {}'
                 ''.format(self._fNH3, self._fix_grains, self._fix_N))
 
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        __, header = super(CNOChemOberg, self).HDF5_attributes()
+        header['f_NH3'] = '{}'.format(self._fNH3)
+        header['fix_grains'] = "{}".format(self._fix_grains)
+        header['fix_N'] = "{}".format(self._fix_N)
+
+        return self.__class__.__name__, header
+
     def molecular_abundance(self, T, rho, dust_frac,
                             atomic_abund=None, mol_abund=None):
         """Compute the fractions of species present given total abundances
@@ -176,6 +185,15 @@ class CNOChemMadhu(object):
         return (super(CNOChemMadhu, self).ASCII_header() +
                 ', f_NH3: {}, fix_grains: {}, fix_N: {}'
                 ''.format(self._fNH3, self._fix_grains, self._fix_N))
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        __, header = super(CNOChemMadhu, self).HDF5_attributes()
+        header['f_NH3'] = '{}'.format(self._fNH3)
+        header['fix_grains'] = "{}".format(self._fix_grains)
+        header['fix_N'] = "{}".format(self._fix_N)
+
+        return self.__class__.__name__, header
 
     def molecular_abundance(self, T, rho, dust_frac,
                             atomic_abund=None, mol_abund=None):

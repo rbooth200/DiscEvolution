@@ -113,7 +113,16 @@ class DustyDisc(AccretionDisc):
         return head.format(self.__class__.__name__,
                            self.feedback, self._rho_s)
 
-        
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        _, head = super(DustyDisc, self).HDF5_attributes()
+
+        head["feedback"] = "{}".format(bool(self.feedback))
+        head["rho_s"] = "{} g cm^-3".format(self._rho_s)
+
+        return self.__class__.__name__, head
+
+
 ################################################################################
 # Growth model
 ################################################################################
@@ -203,12 +212,23 @@ class DustGrowthTwoPop(DustyDisc):
 
         self._head = (', uf_0: {}cm s^-1, uf_ice: {}cm s^-1, thresh: {}'
                       ', a0: {}cm'.format(uf_0, uf_ice, thresh, a0))
-        
+
+
         self.update(0)
 
     def ASCII_header(self):
         """Dust growth header"""
         return super(DustGrowthTwoPop, self).ASCII_header() + self._head
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        name, head = super(DustGrowthTwoPop, self).HDF5_attributes()
+
+        tmp = dict([x.strip().split(":") for x in self._head.split(",") if x])
+
+        head.update(tmp)
+
+        return self.__class__.__name__, head
 
     def _frag_velocity(self, f_ice):
         """Fragmentation velocity"""
@@ -369,7 +389,16 @@ class SingleFluidDrift(object):
                            self._diffuse is not None,
                            self._settling))
         return head
-        
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        head = { "diffusion" : "{}".format(self._diffuse is not None),
+                 "settling"  : "{}".format(self._settling)
+                 }
+        if self._diffuse is not None:
+            head.update(dict([self._diffuse.HDF5_attributes()]))
+        return self.__class__.__name__ , head
+
     def max_timestep(self, disc):
         step = np.inf
         

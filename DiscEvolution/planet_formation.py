@@ -4,6 +4,7 @@ from scipy.interpolate import InterpolatedUnivariateSpline as ispline
 from scipy.interpolate import UnivariateSpline as spline
 from scipy.integrate import ode
 from .constants import *
+from .disc_utils import make_ASCII_header
 
 ################################################################################
 # Planet collections class
@@ -122,12 +123,19 @@ class GasAccretion(object):
         # Convert Mearth / M_yr to M_E Omega0**-1
         self._fPiso *= 1e-6 / (2*np.pi)
 
-        head = ('# {} f_max: {}, f_py: {}, kappa_env: {}cm^2 g^-1, '
-                'rho_core: {}g cm^-3').format(self.__class__.__name__,
-                                              f_max, f_py, kappa_env, rho_core)
-        self._head = head
+        head = {"f_max"     : "{}".format(f_max),
+                "f_py"      : "{}".format(f_py),
+                "kappa_env" : "{} cm^2 g^-1".format(kappa_env),
+                "rho_core"  : "{} g cm^-1".format(rho_core),
+                }
+        self._head = (self.__class__.__name__, head)
+
     def ASCII_header(self):
         """Get header details"""
+        return make_ASCII_header(self.HDF5_attributes())
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
         return self._head
 
     def set_disc(self, disc):
@@ -201,8 +209,13 @@ class PebbleAccretionHill(object):
         self.set_disc(disc)
 
     def ASCII_header(self):
+        """Get header details"""
         return '# {}'.format(self.__class__.__name__)
-        
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        return self.__class__.__name__, {}
+
     def set_disc(self, disc):
         self._disc = disc
         self.update()
@@ -343,7 +356,10 @@ class TypeIMigration(object):
     def ASCII_header(self):
         return '# {} gamma: {}'.format(self.__class__.__name__,
                                        self._gamma)
-        
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        return self.__class__.__name__, { "gamma" : "{}".format(self._gamma) }
+
     def set_disc(self, disc):
         self._disc = disc
         self.update()
@@ -444,7 +460,12 @@ class TypeIIMigration(object):
         self._disc = disc
 
     def ASCII_header(self):
+        """Generate ASCII header string"""
         return '# {}'.format(self.__class__.__name__)
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        return self.__class__.__name__, {}
 
     def set_disc(self, disc):
         self._disc = disc
@@ -493,6 +514,12 @@ class CridaMigration(object):
                                             self._typeI.ASCII_header()[1:],
                                             self._typeII.ASCII_header()[1:])
         return head
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        return self.__class__.__name__, dict([self._typeI.HDF5_attributes(),
+                                              self._typeII.HDF5_attributes()])
+
     def set_disc(self, disc):
         self._typeI.set_disc(disc)
         self._typeII.set_disc(disc)
@@ -569,7 +596,18 @@ class Bitsch2015Model(object):
         if self._migrate:
             head += '\n' + self._migrate.ASCII_header()
         return head
-            
+
+        def HDF5_attributes(self):
+            """Class information for HDF5 headers"""
+            head = dict([("pb_gas_f",  "{}".format(self._f_gas)),
+                         ("migrate", "{}".format(self._migrate)),
+                         self._gas_acc.HDF5_attributes(),
+                         self._peb_acc.HDF5_attirbutes()])
+            if self._migrate:
+                head.update(dict(self._migrate.HDF5_attributes()))
+
+            return self.__class__.__name__, head
+
     def set_disc(self, disc):
         """Set up the current disc model"""
         self._gas_acc.set_disc(r, Sigma_G, eos)

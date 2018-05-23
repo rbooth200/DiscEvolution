@@ -60,6 +60,12 @@ class EOS_Table(object):
         head = '# {} gamma: {}, mu: {}'
         return head.format(self.__class__.__name__,
                            self.gamma, self.mu)
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        def fmt(x):  return "{}".format(x)
+        return self.__class__.__name__, { "gamma" : fmt(self.gamma),
+                                          "mu" : fmt(self.mu) }
     
 class LocallyIsothermalEOS(EOS_Table):
     """Simple locally isothermal power law equation of state:
@@ -106,6 +112,14 @@ class LocallyIsothermalEOS(EOS_Table):
         head = super(LocallyIsothermalEOS, self).ASCII_header()
         head += ', cs0: {}, q: {}, alpha: {}'
         return head.format(self._cs0, self._q, self._alpha_t)
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        name, head = super(LocallyIsothermalEOS, self).HDF5_attributes()
+        head["cs0"]   = "{}".format(self._cs0)
+        head["q"]     = "{}".format(self._q)
+        head["alpha"] = "{}".format(self._alpha_t)
+        return name, head
 
     @staticmethod
     def from_file(filename):
@@ -278,6 +292,18 @@ class IrradiatedEOS(EOS_Table):
         return head.format(self._kappa.__class__.__name__,
                            self._Tc, self._accrete, self._alpha_t,
                            self._Tmax)
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        name, head = super(IrradiatedEOS, self).HDF5_attributes()
+
+        head["opacity"]  = self._kappa.__class__.__name__
+        head["T_extern"] = "{} K".format(self._Tc)
+        head["accrete"]  = "{}".format(bool(self._accrete))
+        head["alpha"]    = "{}".format(self._alpha_t)
+        head["Tmax"]     = "{} K".format(self._Tmax)
+
+        return name, head
 
     @staticmethod
     def from_file(filename):

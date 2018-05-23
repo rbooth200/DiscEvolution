@@ -7,7 +7,10 @@
 ###############################################################################
 from __future__ import print_function
 from six import string_types
+import collections
 import numpy as np
+
+from . import constants
 
 __all__ = [ "Event_Controller", "dump_ASCII", "dump_hdf5"]
 ###############################################################################
@@ -136,7 +139,7 @@ def dump_ASCII(filename, disc, time, header=None):
 
     with open(filename, 'w') as f:
         f.write(head)
-        f.write('# time: {}yr\n'.format(time / (2 * np.pi)))
+        f.write('# time: {}yr\n'.format(time / constants.yr))
 
         # Construct the list of variables that we are going to print
         Ncell = disc.Ncells
@@ -182,7 +185,16 @@ def dump_ASCII(filename, disc, time, header=None):
 ################################################################################
 # Write data using HDF5
 ################################################################################
-def dump_hdf5(filename, disc, time, header=None):
+def _write_nested_hdf5_header(hdf_obj, header):
+    """Write the header data as attributes in a nested fashion."""
+    for key, value in header.items():
+        if isinstance(value, collections.Mapping):
+            group = hdf_obj.create_group(key)
+            _write_nested_hdf5_header(group, value)
+        else:
+             hdf_obj.attrs[key] = value
+
+def dump_hdf5(filename, disc, time, headers=None):
     """Write disc data to file.
 
     args:
@@ -202,3 +214,72 @@ def dump_hdf5(filename, disc, time, header=None):
         msg = ("{}.{} {}".format("DiscEvolution.io", "dump_hdf5",
                                  "requires h5py, which could not be found."))
         raise ImportError(msg)
+
+    if headers is None:
+        headers == []
+
+    with h5py.File(filename, "w") as f:
+        # Write the header information for auxillary objects
+        for name, attrs in headers:
+            group = f.create_group(name)
+            _write_nested_hdf5_header(group, attrs)
+
+        # Generate and write the header information for the disc data
+        name, attrs = disc.HDF5_attributes()
+        _write_nested_hdf5_header(f.create_group(name), attrs)
+
+        f.create_dataset("time", data=time/constants.yr).attrs["units"] = "yr"
+
+        # Create a group for the physical data, store the disc type
+        phys = f.create_group("data")
+        phys.attrs["disc model"] = name
+
+        # Store the physical data, along with units:
+        R = phys.create_dataset("radius", data=disc.R)
+        R.attrs["units"] = "au"
+
+        Sigma = phys.create_dataset("surface density", data=disc.Sigma)
+        Sigma.attrs["units"] = "g cm^-2"
+
+        T = phys.create_dataset("temperature", data=disc.T)
+        T.attrs["units"] = "K"
+
+        # Dust properties, if present
+        try:
+            a, eps = disc.grain_size, disc.dust_frac
+
+            Ndust = a.shape[0]
+
+            dust = phys.create_group("dust")
+            dust.attrs["number of dust species"] = Ndust
+
+            size = dust.create_dataset("grain size", data=a)
+            size.attrs["units"] = "cm"
+
+            dust_frac = dust.create_dataset("dust mass fraction", data=eps)
+            dust_frac.attrs["units"] = ""
+        except  AttributeError:
+            pass
+
+        # Chemistry, if present
+        try:
+            gas, ice = disc.chem.gas, disc.chem.ice
+
+            chem = phys.create_group("chemistry")
+
+            for name, phase in zip( ["gas", "ice"], [gas, ice]):
+                data = chem.create_group(name)
+                data.attrs["number of species"] = phase.Nspec
+
+                # Names / Masses of chemical species
+                names = np.array(phase.names).astype('S') # Use ASCII strings
+                data.create_dataset("names", data=names)
+                masses = data.create_dataset("masses", data=phase.masses)
+                masses.attrs["units"] = "proton masses"
+
+                abund = data.create_dataset("number fraction", data=phase.data)
+                abund.attrs["units"] = ""
+        except AttributeError:
+            pass
+
+

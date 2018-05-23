@@ -8,6 +8,7 @@
 from __future__ import print_function
 import numpy as np
 
+
 class TracerDiffusion(object):
     """Diffusion of trace species in a turbulent background.
     args:
@@ -24,7 +25,14 @@ class TracerDiffusion(object):
         """Tracer diffusion header"""
         return '# {} Sc: {}, flux_limit: {}'.format(self.__class__.__name__,
                                                     self.Sc, self._limit)
-    
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        return (self.__class__.__name__,
+                {"Sc" : "{}".format(self.Sc),
+                 "flux_limit" : "{}".format(bool(self._limit))}
+                )
+
     @staticmethod
     def _diffusive_flux(disc, eps_i, Sc):
         """Compute the diffusive flux for a tracer
@@ -38,7 +46,7 @@ class TracerDiffusion(object):
         """
         D = disc.nu / Sc
         Sigma_G = disc.Sigma_G
-        
+
         # Use geometric average to avoid problems at the edge of evaporating
         # regions., where Sigma_G = 0 (and eps_i is ill-defined)
         DSig = D*disc.Sigma_G
@@ -68,11 +76,11 @@ class TracerDiffusion(object):
             F /= 1 + abs(F)/(0.5*(max_f[1:] + max_f[:-1]))
 
         F *= grid.Re[1:-1]
-        
-        depsdt = np.zeros_like(eps_i)        
+
+        depsdt = np.zeros_like(eps_i)
         depsdt[...,1:]  += F / grid.dRe2[1:]
         depsdt[...,:-1] -= F / grid.dRe2[:-1]
-        
+
         depsdt /= Sigma_G + 1e-300
         return depsdt
 
@@ -101,18 +109,18 @@ if __name__ == "__main__":
     eos = LocallyIsothermalEOS(star, 1/30., -0.25, alpha)
     eos.set_grid(grid)
     Sigma =  (Mdot / (3 * np.pi * eos.nu))*np.exp(-grid.Rc/Rd)
-    
+
     disc = AccretionDisc(grid, star, eos, Sigma)
 
     eps = np.empty([2, grid.Ncells], dtype='f4')
     eps[0] =  0.01 * (1 + np.sin(np.pi*np.log(grid.Rc)))
     eps[1] =  0.01 * (1 + np.cos(np.pi*np.log(grid.Rc)))
-    
+
 
     times = np.array([0, 1e2, 1e3, 1e4, 1e5, 1e6, 3e6]) * 2*np.pi
 
     diffuse = TracerDiffusion()
-    
+
     dt = 100.0
     t = 0
     n = 0
