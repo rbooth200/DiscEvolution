@@ -1,4 +1,5 @@
 from __future__ import print_function
+from ..constants import m_H
 
 __all__ = [ "KromeAbund", "KromeIceAbund", "KromeGasAbund",
             "KromeMolecularIceAbund", "KromeChem" ]
@@ -23,7 +24,7 @@ _nmols = _krome.krome_nmols
 _krome_names = np.array(_krome.krome_names[:_nmols])
 _krome_masses = np.empty(_nmols, dtype='f8')
 _krome.lib.krome_get_mass(_krome_masses)
-_krome_masses /= _krome.krome_p_mass
+_krome_masses /= m_H
 
 # Gas / Ice species
 _krome_ice = np.array([n.endswith('_DUST') for n in _krome_names])
@@ -71,7 +72,12 @@ class KromeMolecularIceAbund(object):
         self.gas = gas
         self.ice = ice
 
-
+    def mu(self):
+        """Mean molecular weight of the data"""
+        n_g = (self.gas.data.T / self.gas.masses).sum(1)
+        n_i = (self.ice.data.T / self.ice.masses).sum(1)
+        
+        return (self.gas.data.sum(0) + self.ice.data.sum(0)) / (n_g + n_i)
 
 ################################################################################
 # Wrapper for KROME Chemistry solver
@@ -101,23 +107,21 @@ class KromeChem(object):
 
         n = np.empty(len(m_gas) + len(m_ice), dtype='f8')
 
+        mu = chem.mu() * m_H
+
         gas_data = chem.gas.data.T
         ice_data = chem.ice.data.T
         for i in range(len(T)):
-            Ti, rho_i, eps_i = T[i], rho[i], dust_frac[i]
+            Ti, rho_i, eps_i, mu_i = T[i], rho[i], dust_frac[i], mu[i]
+            
+            nH = rho_i / mu_i
 
-            nH = rho_i / _krome.krome_p_mass
+            # Compute the number density
+            n[_krome_gas] = (gas_data[i] / m_gas) * nH
+            n[_krome_ice] = (ice_data[i] / m_ice) * nH
 
-            n_gas = (gas_data[i] / m_gas) * nH
-            n_ice = (ice_data[i] / m_ice) * nH
+            _krome.lib.krome_set_dust_to_gas(eps_i)
 
-            n[_krome_gas] = n_gas
-            n[_krome_ice] = n_ice
-
-            _krome.lib.krome_init_dust_distribution(n, eps_i,
-                                                    self._amin, self._amax,
-                                                    self._phi)
-            _krome.lib.krome_set_tdust(Ti)
             _krome.lib.krome(n, byref(Ti), byref(dt))
 
             gas_data[i] = n[_krome_gas] * m_gas / nH
@@ -130,11 +134,11 @@ if __name__ == "__main__":
     from ..eos import LocallyIsothermalEOS
     from ..star import SimpleStar
     from ..grid import Grid
-    from ..constants import Msun, AU
+    from ..constants import Msun, AU, m_H
 
     Ncell = 1000
 
-    Rmin  = 0.01
+    Rmin  = 0.1
     Rmax  = 1000.
 
     cs0   = 1/30.
@@ -145,9 +149,7 @@ if __name__ == "__main__":
     Rd = 100.
 
     d2g = 0.01
-
-
-    CO_frac = 1e-4
+    mu = 1.28
 
     grid = Grid(Rmin, Rmax, Ncell, spacing='log')
     R = grid.Rc
@@ -158,7 +160,7 @@ if __name__ == "__main__":
     Sigma = (Mdot / (3 * np.pi * eos.nu)) * np.exp(-R/Rd)
     rho = Sigma / (np.sqrt(2 * np.pi) * eos.H * AU)
 
-    T = eos.T
+    T = np.minimum(eos.T, 1500.)
     dust_frac = np.ones_like(Sigma) * d2g
 
     gas = KromeGasAbund(Ncell)
@@ -166,8 +168,30 @@ if __name__ == "__main__":
 
     abund = KromeMolecularIceAbund(gas,ice)
 
-    abund.gas['CO'] = CO_frac*gas.mass('CO')
-    abund.ice['CO'] = 0.
+    abund.gas.data[:] = 0
+    abund.ice.data[:] = 0
+
+    abund.gas.set_number_abund('H2',  0.5)
+    abund.gas.set_number_abund('HE',  1.00e-1)
+    abund.gas.set_number_abund('C',   3.75e-4) 
+    abund.gas.set_number_abund('CO',  3.66e-5)
+    abund.gas.set_number_abund('CH4', 1.10e-6)
+    abund.gas.set_number_abund('N',   1.15e-4)
+    abund.gas.set_number_abund('NH3', 3.30e-6)
+    abund.gas.set_number_abund('O',   6.74e-4)
+    abund.gas.set_number_abund('H2O', 1.83e-4)
+    abund.gas.set_number_abund('NA',  3.50e-5)
+    abund.gas.set_number_abund('H2CO',1.83e-6)
+    abund.gas.set_number_abund('CO2', 3.67e-5)
+    abund.gas.set_number_abund('HCN', 4.59e-7)
+    abund.gas.set_number_abund('HNC', 7.34e-8)
+    abund.gas.set_number_abund('S',   1.62e-5)
+    abund.gas.set_number_abund('H2S', 2.75e-6)
+    abund.gas.set_number_abund('SO',  1.47e-6)
+    abund.gas.set_number_abund('SO2', 1.84e-7)
+    abund.gas.set_number_abund('OCS', 3.30e-6)
+
+    abund.gas.data[:] /= abund.mu() 
 
     times = np.array([1e0, 1e2, 1e4, 1e6])*2*np.pi
 
@@ -201,6 +225,7 @@ if __name__ == "__main__":
                         label=str(round(t/(2*np.pi),2)) + 'yr')
         plt.loglog(R, abund.ice.number_abund('CO'), ls='--',
                    c=l.get_color())
+
 
     plt.legend()
     plt.show()

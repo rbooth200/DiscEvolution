@@ -43,7 +43,6 @@ class ChemicalAbund(object):
     def __iter__(self):
         return iter(self._names)
 
-        
     def copy(self):
         return copy.deepcopy(self)
             
