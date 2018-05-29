@@ -135,8 +135,9 @@ if __name__ == "__main__":
     from ..star import SimpleStar
     from ..grid import Grid
     from ..constants import Msun, AU, m_H
+    import time
 
-    Ncell = 1000
+    Ncell = 100
 
     Rmin  = 0.1
     Rmax  = 1000.
@@ -216,11 +217,13 @@ if __name__ == "__main__":
     plt.loglog(R, abund.ice.number_abund('CO'), ls='--', c=l.get_color())
 
     t = 0.
-    for ti in times:
+    tStart = time.time()
+    for ti in times:        
         dt = ti - t
         KC.update(dt, T, rho, dust_frac, abund)
         t = ti
-
+        print ('Time {} ({})'.format(t,(time.time()-tStart)/60.))
+        
         l, = plt.loglog(R, abund.gas.number_abund('CO'), ls='-',
                         label=str(round(t/(2*np.pi),2)) + 'yr')
         plt.loglog(R, abund.ice.number_abund('CO'), ls='--',

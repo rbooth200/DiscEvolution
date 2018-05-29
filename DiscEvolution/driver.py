@@ -170,6 +170,7 @@ if __name__ == "__main__":
     from .eos  import IrradiatedEOS
     from .viscous_evolution import ViscousEvolution
     from .dust import DustGrowthTwoPop, SingleFluidDrift
+    from .opacity import Zhu2012, Tazzari2016
     from .diffusion import TracerDiffusion
     from .chemistry import TimeDepCOChemOberg, SimpleCOAtomAbund
     from .constants import Msun, AU
@@ -183,8 +184,11 @@ if __name__ == "__main__":
     Mdot  = 1e-8
     Rd    = 100.
 
+    #kappa = Zhu2012
+    kappa = Tazzari2016()
+    
     N_cell = 250
-    R_in  = 0.5
+    R_in  = 0.1
     R_out = 500.
 
     yr = 2*np.pi
@@ -192,7 +196,6 @@ if __name__ == "__main__":
     output_dir = 'test_DiscEvo'
     output_times = np.arange(0, 4) * 1e6 * yr
     plot_times = np.array([0, 1e4, 1e5, 5e5, 1e6, 3e6])*yr
-
 
     # Setup the initial conditions
     Mdot *= (Msun / yr) / AU**2
@@ -205,7 +208,7 @@ if __name__ == "__main__":
     Sigma = (Mdot / (0.1 * alpha * R**2 * star.Omega_k(R))) * np.exp(-R/Rd)
 
     # Iterate until constant Mdot
-    eos = IrradiatedEOS(star, alpha)
+    eos = IrradiatedEOS(star, alpha, kappa=kappa)
     eos.set_grid(grid)
     eos.update(0, Sigma)
     for i in range(100):

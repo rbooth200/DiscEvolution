@@ -51,7 +51,7 @@ class EOS_Table(object):
     def mu(self):
         return self._mu
 
-    def update(self, dt, Sigma,star=None):
+    def update(self, dt, Sigma, amax=None, star=None):
         """Update the eos"""
         pass
 
@@ -142,10 +142,12 @@ class IrradiatedEOS(EOS_Table):
         Tmax    : Maximum temperature allowed in the disc, default=1500
         mu      : Mean molecular weight, default = 2.4
         gamma   : Ratio of specific heats
+        kappa   : Opacity, default=Zhu2012
         accrete : Whether to include heating due to accretion,
                   default=True
     """
     def __init__(self, star, alpha_t, Tc=10, Tmax=1500., mu=2.4, gamma=1.4,
+                 kappa=None,
                  accrete=True, tol=None): # tol is no longer used
         super(IrradiatedEOS, self).__init__()
 
@@ -161,8 +163,11 @@ class IrradiatedEOS(EOS_Table):
 
         self._accrete = accrete
         self._gamma = gamma
-        
-        self._kappa = opacity.Zhu2012
+
+        if kappa is None:
+            self._kappa = opacity.Zhu2012
+        else:
+            self._kappa = kappa
         
         self._T = None
 
@@ -173,7 +178,7 @@ class IrradiatedEOS(EOS_Table):
         self._H0 = (Omega0**-1/AU) * (GasConst / (self._mu*self._star.M))**0.5
 
 
-    def update(self, dt, Sigma, star=None):
+    def update(self, dt, Sigma, amax=1e-5, star=None):
         if star:
             self._star = star
             self._compute_constants()
@@ -204,7 +209,7 @@ class IrradiatedEOS(EOS_Table):
             cs = np.sqrt(GasConst * Tm / mu)
             H = cs / Om_k
 
-            kappa = self._kappa(Sigma / (sqrt2pi * H), Tm)
+            kappa = self._kappa(Sigma / (sqrt2pi * H), Tm, amax)
             tau = 0.5 * Sigma * kappa
             H /= AU
 
@@ -238,6 +243,12 @@ class IrradiatedEOS(EOS_Table):
 
         self._T =  brentq(balance, T0, T1)
         self._Sigma = Sigma
+
+        # Save the opacity:
+        cs = np.sqrt(GasConst * self._T / mu)
+        H = cs / Om_k
+        self._kappa_arr = self._kappa(Sigma / (sqrt2pi * H), self._T, amax)
+        
         self._set_arrays()
 
 
@@ -265,8 +276,7 @@ class IrradiatedEOS(EOS_Table):
         return self._alpha_t
 
     def _f_Pr(self):
-        rho = self._Sigma / ((2*np.pi)**0.5 * self.H * AU)
-        kappa = self._kappa(rho, self._T)
+        kappa = self._kappa_arr
         tau = 0.5 * self._Sigma * kappa
         f_esc = 1 + 2/(3*tau*tau)
         Pr_1 =  2.25 * self._gamma * (self._gamma - 1) * f_esc
@@ -352,14 +362,15 @@ def from_file(filename):
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    from star import SimpleStar
-    from grid import Grid
+    from .star import SimpleStar
+    from .grid import Grid
 
     alpha = 1e-3
     star = SimpleStar(M=1.0, R=3.0, T_eff=4280.)
 
     active  = IrradiatedEOS(star, alpha)
     passive = IrradiatedEOS(star, alpha, accrete=False)
+    marco   = IrradiatedEOS(star, alpha, kappa=opacity.Tazzari2016())
 
     powerlaw = LocallyIsothermalEOS(star, 1/30., -0.25, alpha)
 
@@ -367,14 +378,18 @@ if __name__ == "__main__":
     
     Sigma = 2.2e3 / grid.Rc**1.5
 
-    c  = { 'active' : 'r', 'passive' : 'b', 'isothermal' : 'g' }
+    amax = 10 / grid.Rc**1.5
+    
+    c  = { 'active' : 'r', 'passive' : 'b', 'marco' : 'm',
+           'isothermal' : 'g' }
     ls = { 0 : '-', 1 : '--' }
     for i in range(2):
         for eos, name in [[active, 'active'],
+                          [marco, 'marco'],
                           [passive, 'passive'],
                           [powerlaw, 'isothermal']]:
             eos.set_grid(grid)
-            eos.update(0, Sigma)
+            eos.update(0, Sigma, amax=amax)
 
             label = None
             if ls[i] == '-':

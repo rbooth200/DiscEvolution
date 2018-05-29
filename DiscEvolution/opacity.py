@@ -1,166 +1,199 @@
+import os
 import numpy as np
-from scipy.interpolate import interp2d
+from scipy.interpolate import RegularGridInterpolator
 
+def Zhu2012(rho, T, amax=None):
+    """Opacity tables for PPD's from Zhu et al. (2012, [1]).
 
-def _Zhu2012(rho, T):
-    """Zhu, Hartmann, Nelson & Gammie (2012) opacity tables for PPD's
+    An updated version of the Bell & Lin (1994, [2]) opacities (assuming ISM 
+    grains).
 
     args:
-        rho : density, c.g.s
-        T   : Temperature, K
+        rho : float or array of float
+            Density, c.g.s
+        T : float or array of float
+            Temperature, K
+        amax : float or array of float, ignored
+            Maximum grain size, cm       
+
+    References:
+        [1] Zhu, Z., Hartmann, L., Nelson, R. P., et al. 2012, ApJ, 746, 110.
+        [2] Bell, K. R. & Lin, D. N.C. 1994, ApJ, 427, 987.
     """
 
     pre = rho * T * 8.314472e7 / 2.4
     xlp = np.log10(pre)
     xlt = np.log10(T)
 
-    if xlt < 2.23567 + 0.01899 * (xlp - 5.):
-        xlop = 1.5 * (xlt - 1.16331) - 0.736364
-    elif xlt < 2.30713 + 0.01899 * (xlp - 5.):
-        xlop = -3.53154212 * xlt + 8.767726 - (7.24786 - 8.767726) * (xlp - 5.) / 16.
-    elif xlt < 2.79055:
-        xlop = 1.5 * (xlt - 2.30713) + 0.62
-    elif xlt < 2.96931:
-        xlop = -5.832 * xlt + 17.7
-    elif xlt < 3.29105 + (3.29105 - 3.07651) * (xlp - 5.) / 8.:
-        xlop = 2.129 * xlt - 5.9398
-    elif xlt < 3.08 + 0.028084 * (xlp + 4):
-        xlop = 129.88071 - 42.98075 * xlt + (142.996475 - 129.88071) * 0.1 * (xlp + 4)
-    elif xlt < 3.28 + xlp / 4. * 0.12:
-        xlop = -15.0125 + 4.0625 * xlt
-    elif xlt < 3.41 + 0.03328 * xlp / 4.:
-        xlop = 58.9294 - 18.4808 * xlt + (61.6346 - 58.9294) * xlp / 4.
-    elif xlt < 3.76 + (xlp - 4) / 2. * 0.03:
-        xlop = -12.002 + 2.90477 * xlt + (xlp - 4) / 4. * (13.9953 - 12.002)
-    elif xlt < 4.07 + (xlp - 4) / 2. * 0.08:
-        xlop = -39.4077 + 10.1935 * xlt + (xlp - 4) / 2. * (40.1719 - 39.4077)
-    elif xlt < 5.3715 + (xlp - 6) / 2. * 0.5594:
-        xlop = 17.5935 - 3.3647 * xlt + (xlp - 6) / 2. * (17.5935 - 15.7376)
-    else:
-        xlop = -0.48
-
-    if xlop < 3.586 * xlt - 16.85 and xlt < 4.:
-        xlop = 3.586 * xlt - 16.85
-
-    return 10. ** xlop
-
-
-def _Zhu2012_np(rho, T):
-    """Zhu, Hartmann, Nelson & Gammie (2012) opacity tables for PPD's
-
-    args:
-        rho : density, c.g.s
-        T   : Temperature, K
-    """
-
-    pre = rho * T * 8.314472e7 / 2.4
-    xlp = np.log10(pre)
-    xlt = np.log10(T)
-
+    # Electron scattering
     xlop = -0.48
 
+    # Water ice
     idx = xlt < 2.23567 + 0.01899 * (xlp - 5.)
     xlop = np.where(idx, 1.5 * (xlt - 1.16331) - 0.736364, xlop)
     done = idx
 
+    # Ice Evaporation
     idx = (~done) & (xlt < 2.30713 + 0.01899 * (xlp - 5.))
     xlop = np.where(idx, -3.53154212 * xlt + 8.767726 - (7.24786 - 8.767726) * (xlp - 5.) / 16., xlop)
     done |= idx
 
+    # Metal grains
     idx = (~done) & (xlt < 2.79055)
     xlop = np.where(idx, 1.5 * (xlt - 2.30713) + 0.62, xlop)
     done |= idx
 
+    # Graphite Corrosion
     idx = (~done) & (xlt < 2.96931)
     xlop = np.where(idx, -5.832 * xlt + 17.7, xlop)
     done |= idx
 
+    # Grain opacity
     idx = (~done) & (xlt < 3.29105 + (3.29105 - 3.07651) * (xlp - 5.) / 8.)
     xlop = np.where(idx, 2.129 * xlt - 5.9398, xlop)
     done |= idx
 
+    # Silicate Evaporation
     idx = (~done) & (xlt < 3.08 + 0.028084 * (xlp + 4))
     xlop = np.where(idx, 129.88071 - 42.98075 * xlt + (142.996475 - 129.88071) * 0.1 * (xlp + 4), xlop)
     done |= idx
 
+    # Water vapour
     idx = (~done) & (xlt < 3.28 + xlp / 4. * 0.12)
     xlop = np.where(idx, -15.0125 + 4.0625 * xlt, xlop)
     done |= idx
 
+    # More water vapour
     idx = (~done) & (xlt < 3.41 + 0.03328 * xlp / 4.)
     xlop = np.where(idx, 58.9294 - 18.4808 * xlt + (61.6346 - 58.9294) * xlp / 4., xlop)
     done |= idx
 
+    # Molecular opacity
     idx = (~done) & (xlt < 3.76 + (xlp - 4) / 2. * 0.03)
     xlop = np.where(idx, -12.002 + 2.90477 * xlt + (xlp - 4) / 4. * (13.9953 - 12.002), xlop)
     done |= idx
 
+    # H scattering
     idx = (~done) & (xlt < 4.07 + (xlp - 4) / 2. * 0.08)
     xlop = np.where(idx, -39.4077 + 10.1935 * xlt + (xlp - 4) / 2. * (40.1719 - 39.4077), xlop)
     done |= idx
 
+    # Bound-free, free-free
     idx = (~done) & (xlt < 5.3715 + (xlp - 6) / 2. * 0.5594)
     xlop = np.where(idx, 17.5935 - 3.3647 * xlt + (xlp - 6) / 2. * (17.5935 - 15.7376), xlop)
     done |= idx
 
+    # Extra limits
     idx = (xlop < 3.586 * xlt - 16.85) & (xlt < 4.)
     xlop = np.where(idx, 3.586 * xlt - 16.85, xlop)
 
     return 10. ** xlop
 
+class Tazzari2016(object):
+    '''Tabulated opacities for icy grains.
 
-Zhu2012 = _Zhu2012_np
+    The grain composition is taken from Tazzari et al. (2016, [1]).
+
+    args:
+        dust_to_gas : float, default = 0.01
+            Dust-to-gas mass ratio
+        q : float, default = 3.
+            Slope of the grain size distribution, n(a) da ~ a^-q da
+
+    References:
+        [1] Tazzari, M., Testi, L., Ercolano, B., et al. 2016, A&A, 588, A53.
+    '''
+    def __init__(self, dust_to_gas = 0.01, q=3.5):
+        data_dir = os.path.join(os.path.dirname(__file__), 'data', 'opacity')
 
 
-class Zhu2012_tab(object):
-    """Tabulated form of zhu 2012"""
+        kappa_table_abs = 'kappa_table_abs_q{}.npy'.format(q)
+        kappa_table_sca = 'kappa_table_sca_q{}.npy'.format(q)
+        
+        a         = np.load(os.path.join(data_dir, 'amax.npy'))
+        T         = np.load(os.path.join(data_dir, 'T.npy'))
+        kappa_abs = np.load(os.path.join(data_dir, kappa_table_abs)).T
+        kappa_sca = np.load(os.path.join(data_dir, kappa_table_sca)).T
 
-    def __init__(self, rho_min, rho_max, T_min, T_max,
-                 Nrho, NT):
-        lrho_i = np.linspace(np.log10(rho_min), np.log10(rho_max), Nrho)
-        lT_i = np.linspace(np.log10(T_min), np.log10(T_max), NT)
+        self._amin = a[0]
+        self._amax = a[-1]
+        self._Tmin = T[0]
+        self._Tmax = T[-1]
 
-        grho_i, gT_i = np.meshgrid(lrho_i, lT_i)
-        opac = np.vectorize(_Zhu2012)(10 ** grho_i, 10 ** gT_i)
+        self._kappa = RegularGridInterpolator((np.log(a), np.log(T)),
+                                              np.log(kappa_abs + kappa_sca))
 
-        self._opac = interp2d(lrho_i, lT_i, np.log10(opac))
-        self._rho = [rho_min, rho_max]
-        self._T = [T_min, T_max]
+        self._eps = dust_to_gas
 
-    def __call__(self, rho, T):
-        if (self._rho[0] <= rho <= self._rho[1]) and (self._T[0] <= T <= self._T[1]):
-            return 10 ** self._opac(np.log10(rho), np.log10(T))
-        return Zhu2012(rho, T)
+        self._q = q
 
+        # Setup the coefficients for extrapolation
+        k0_30, kl_30 = 3.84368330e+00, 1.15351466e-02
+        k0_35, kl_35 = 3.94169075e+00, 2.27306292e-02
+
+        self._k0 = k0_30 + (k0_35-k0_30) * ((q-3)/0.5)
+        self._kl = kl_30 + (kl_35-kl_35) * ((q-3)/0.5)
+
+    def __call__(self, rho, T, a):
+        """Evaluate the opacity
+
+        args:
+            rho : float or array of float, ignored
+                Density, c.g.s
+            T : float or array of float
+                Temperature, K
+            amax : float, or array of float
+                Maximum grain size, cm       
+        """
+        # Clip the limits to the tabulated ranges
+        #  T < Tmin should never be needed, and kappa(T) ~ const at high T.
+        #  a < amin kappa ~ const. and a > amax, we scale
+
+        a_clip = np.minimum(np.maximum(a, self._amin), self._amax)
+        T_clip = np.minimum(np.maximum(T, self._Tmin), self._Tmax)
+
+        kappa = np.exp(self._kappa((np.log(a_clip), np.log(T_clip))))
+
+        # Scale for large grains
+        amax = np.maximum(a, a_clip)
+        kp = self._q - self._k0 + self._kl*np.log10(amax/100)
+        kappa *= (amax/a_clip)**kp
+
+        return kappa * self._eps
+        
+        
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from matplotlib.colors import LogNorm
 
-    T = np.logspace(0, 5, 300)
+    T = np.logspace(0.5, 3.5, 300)
     rho = np.logspace(-10, 0, 300)
 
     T, rho = np.meshgrid(T, rho)
 
-    vmax = np.vectorize(_Zhu2012)(rho, T).max()
-    vmin = np.vectorize(_Zhu2012)(rho, T).min()
-
     plt.subplot(121)
-    plt.pcolormesh(rho, T, np.vectorize(_Zhu2012)(rho, T).T,
-                   norm=LogNorm(), vmax=vmax, vmin=vmin)
-    plt.colorbar()
-    plt.xlabel('rho')
+    plt.title("Zhu2012")
+    plt.pcolormesh(rho, T, Zhu2012(rho, T).T, norm=LogNorm())
+    plt.colorbar(label='opacity [cm$^2$ g$^{-1}$]')
+    plt.xlabel(r'density')
     plt.ylabel('T')
     plt.xscale('log')
     plt.yscale('log')
+
 
     plt.subplot(122)
-    plt.pcolormesh(rho, T, _Zhu2012_np(rho, T).T,
-                   vmax=vmax, vmin=vmin, norm=LogNorm())
-    plt.colorbar()
-    plt.xlabel('rho')
+    plt.title("Tazzari2016")
+    amax = np.logspace(-5, 3, 300)
+    T = np.logspace(0.5, 3.5, 300)
+    T, amax = np.meshgrid(T, amax)
+    plt.pcolormesh(amax, T, Tazzari2016()(1., T, amax).T, norm=LogNorm())
+    plt.colorbar(label='opacity [cm$^2$ g$^{-1}$]')
+    plt.xlabel('amax')
     plt.ylabel('T')
     plt.xscale('log')
     plt.yscale('log')
 
+    plt.tight_layout()
+    
     plt.show()
