@@ -216,7 +216,7 @@ def dump_hdf5(filename, disc, time, headers=None):
         raise ImportError(msg)
 
     if headers is None:
-        headers == []
+        headers = []
 
     with h5py.File(filename, "w") as f:
         # Write the header information for auxillary objects
