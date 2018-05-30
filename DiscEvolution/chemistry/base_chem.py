@@ -88,6 +88,10 @@ class ChemicalAbund(object):
         """Mass of species in atomic mass units"""
         return self._mass[self._indexes[k]]
 
+    def mu(self):
+        '''Mean molecular weight'''
+        return self._data.sum(0) / (self._data.T / self._mass).sum(1)
+
     @property
     def masses(self):
         """Masses of all species in amu"""

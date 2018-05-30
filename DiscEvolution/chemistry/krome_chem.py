@@ -2,7 +2,7 @@ from __future__ import print_function
 from ..constants import m_H
 
 __all__ = [ "KromeAbund", "KromeIceAbund", "KromeGasAbund",
-            "KromeMolecularIceAbund", "KromeChem" ]
+            "KromeMolecularIceAbund", "KromeChem", "main" ]
 
 # Locate the KROME library code
 import sys, os
@@ -18,19 +18,48 @@ from pykrome import PyKROME
 # Alias for ctypes by reference
 def byref(x): return ctypes.byref(ctypes.c_double(x))
 
+# Setup the KROME Library
 _krome = PyKROME(path_to_lib=KROME_PATH)
 _krome.lib.krome_init()
+
+
+# Here we setup the species loaded from KROME.
+# Note:
+#   - KROME distinguishes between gas and ice phase species through the "_DUST"
+#     tail on the names, so we use that to seperate the phases.
+#   - KROME does not explicitly include refractory dust, so we add that those
+#     to the end of the array. For now we hard code a single dust species.
+
+# Number of species
 _nmols = _krome.krome_nmols
+_ngrain = 1
+
+# Load the names / masses from the KROME library and convert mass to internal
+# units (Hydrogen masses)
 _krome_names = np.array(_krome.krome_names[:_nmols])
 _krome_masses = np.empty(_nmols, dtype='f8')
 _krome.lib.krome_get_mass(_krome_masses)
 _krome_masses /= m_H
 
-# Gas / Ice species
-_krome_ice = np.array([n.endswith('_DUST') for n in _krome_names])
-_krome_gas = ~_krome_ice
-_krome_ice_names = np.array(map(lambda x:x[:-5], _krome_names[_krome_ice]))
+# Add grains to the end of the names, with an arbitrary mass
+_krome_names  = np.append(_krome_names, "grain")
+_krome_masses = np.append(_krome_masses, 100.)
 
+# Seperate solid / gas species
+def is_solid(species):
+    return species.endswith("_DUST") or species.endswith("grain")
+
+def to_ice_name(species):
+    if species.endswith("_DUST"):
+        return species[:-5]
+    elif species.endswith("grain"):
+        return species
+    else:
+        raise ValueError("Expect name ending in '_DUST' or 'grain'")
+
+_krome_ice = np.array([is_solid(n) for n in _krome_names])
+_krome_gas = ~_krome_ice
+_krome_ice_names = np.array([to_ice_name(n) for n in _krome_names[_krome_ice]])
 
 class KromeAbund(ChemicalAbund):
     """Wrapper for chemical species used by the KROME package.
@@ -39,7 +68,8 @@ class KromeAbund(ChemicalAbund):
         size : Number of data points to hold
     """
     def __init__(self, size=0):
-        super(KromeAbund, self).__init__(_krome_names, _krome_masses, size)
+        super(KromeAbund, self).__init__(_krome_names,
+                                         _krome_masses, size)
 
 
 class KromeIceAbund(ChemicalAbund):
@@ -50,8 +80,7 @@ class KromeIceAbund(ChemicalAbund):
     """
     def __init__(self, size=0):
         super(KromeIceAbund, self).__init__(_krome_ice_names,
-                                            _krome_masses[_krome_ice],
-                                            size)
+                                            _krome_masses[_krome_ice], size)
 
 class KromeGasAbund(ChemicalAbund):
     """Wrapper for gas phase chemical species used by the KROME package.
@@ -73,7 +102,7 @@ class KromeMolecularIceAbund(object):
         self.ice = ice
 
     def mu(self):
-        """Mean molecular weight of the data"""
+        """Total mean molecular weight of the data"""
         n_g = (self.gas.data.T / self.gas.masses).sum(1)
         n_i = (self.ice.data.T / self.ice.masses).sum(1)
         
@@ -86,14 +115,12 @@ class KromeChem(object):
     """Time-dependent chemistry integrated with the KROME pacakage
 
     args:
-        amin : minimum dust grain size, cm. Default=5e-7
-        amax : maximum dust grain size, cm. Default=2e-5
-        phi  : slope of size distribution. Default=-3.5 (MRN)
+        renormalize : boolean, default = True
+            If true, the total abdunances will be renormalized to 1 after the
+             update.
     """
-    def __init__(self, amin=5e-7, amax=2e-5, phi=-3.5):
-        self._amin = byref(amin)
-        self._amax = byref(amax)
-        self._phi  = byref(phi)
+    def __init__(self, renormalize=True):
+        self._renormalize = renormalize
 
     def update(self, dt, T, rho, dust_frac, chem):
         """Integrate the chemistry for time dt"""
@@ -105,31 +132,40 @@ class KromeChem(object):
         m_gas = chem.gas.masses
         m_ice = chem.ice.masses
 
-        n = np.empty(len(m_gas) + len(m_ice), dtype='f8')
+        n = np.empty(_nmols + _ngrain, dtype='f8')
 
-        mu = chem.mu() * m_H
+        # Gas mean molecular weight
+        mu = chem.gas.mu() * m_H
 
         gas_data = chem.gas.data.T
         ice_data = chem.ice.data.T
         for i in range(len(T)):
             Ti, rho_i, eps_i, mu_i = T[i], rho[i], dust_frac[i], mu[i]
             
-            nH = rho_i / mu_i
+            nGas = rho_i / mu_i
 
             # Compute the number density
-            n[_krome_gas] = (gas_data[i] / m_gas) * nH
-            n[_krome_ice] = (ice_data[i] / m_ice) * nH
+            n[_krome_gas] = (gas_data[i] / m_gas) * nGas
+            n[_krome_ice] = (ice_data[i] / m_ice) * nGas
 
             _krome.lib.krome_set_dust_to_gas(eps_i)
 
-            _krome.lib.krome(n, byref(Ti), byref(dt))
+            # Do not send dummy grain species.
+            _krome.lib.krome(n[:-_ngrain], byref(Ti), byref(dt))
 
-            gas_data[i] = n[_krome_gas] * m_gas / nH
-            ice_data[i] = n[_krome_ice] * m_ice / nH
+            # Renormalize the gas / dust / ice mass fractions
+            n[_krome_gas] *= m_gas / nGas
+            n[_krome_ice] *= m_ice / nGas
+
+            if self._renormalize:
+                n /= n.sum()
+
+            gas_data[i] = n[_krome_gas]
+            ice_data[i] = n[_krome_ice]
 
 
 
-if __name__ == "__main__":
+def main():
     import matplotlib.pyplot as plt
     from ..eos import LocallyIsothermalEOS
     from ..star import SimpleStar
@@ -162,7 +198,7 @@ if __name__ == "__main__":
     rho = Sigma / (np.sqrt(2 * np.pi) * eos.H * AU)
 
     T = np.minimum(eos.T, 1500.)
-    dust_frac = np.ones_like(Sigma) * d2g
+    dust_frac = np.ones_like(Sigma) * d2g / (1. + d2g)
 
     gas = KromeGasAbund(Ncell)
     ice = KromeIceAbund(Ncell)
@@ -192,7 +228,11 @@ if __name__ == "__main__":
     abund.gas.set_number_abund('SO2', 1.84e-7)
     abund.gas.set_number_abund('OCS', 3.30e-6)
 
-    abund.gas.data[:] /= abund.mu() 
+    abund.gas.data[:] *= (1-dust_frac) / abund.gas.total_abund
+
+    abund.ice["grain"].data[:] = dust_frac
+
+    print("Gas / Total Mean Mol. Weight:", abund.gas.mu()[0], abund.mu()[0])
 
     times = np.array([1e0, 1e2, 1e4, 1e6])*2*np.pi
 
@@ -220,9 +260,13 @@ if __name__ == "__main__":
     tStart = time.time()
     for ti in times:        
         dt = ti - t
-        KC.update(dt, T, rho, dust_frac, abund)
+        KC.update(dt, T, rho*(1-dust_frac), dust_frac, abund)
+        dust_frac = abund.ice.total_abund
         t = ti
-        print ('Time {} ({})'.format(t,(time.time()-tStart)/60.))
+        
+        tEnd = time.time()
+        print ('Time {} ({} min)'.format(t,(tEnd-tStart)/60.))
+        tStart = tEnd
         
         l, = plt.loglog(R, abund.gas.number_abund('CO'), ls='-',
                         label=str(round(t/(2*np.pi),2)) + 'yr')
@@ -230,5 +274,12 @@ if __name__ == "__main__":
                    c=l.get_color())
 
 
+    print("Gas / Total Mean Mol. Weight:", abund.gas.mu()[0], abund.mu()[0])
+
+
     plt.legend()
     plt.show()
+
+
+if __name__ == "__main__":
+    main()
