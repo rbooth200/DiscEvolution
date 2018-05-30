@@ -170,7 +170,7 @@ def main():
     from ..eos import LocallyIsothermalEOS
     from ..star import SimpleStar
     from ..grid import Grid
-    from ..constants import Msun, AU, m_H
+    from ..constants import Msun, AU
     import time
 
     Ncell = 100
@@ -186,7 +186,6 @@ def main():
     Rd = 100.
 
     d2g = 0.01
-    mu = 1.28
 
     grid = Grid(Rmin, Rmax, Ncell, spacing='log')
     R = grid.Rc
