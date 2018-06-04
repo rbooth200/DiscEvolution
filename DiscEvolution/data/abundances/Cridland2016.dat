@@ -1,0 +1,23 @@
+### Initial chemical abundances from Cridland et al. 2016, MNRAS, 469, 3910
+# Species    Abundance
+H2	     0.5 
+H2O	     2.5e-4 
+HE  	     0.14 
+N  	     2.25e-5 
+CN  	     6.0e-8 
+H3+  	     1.0e-8 
+CS  	     4.0e-9 
+SO  	     5.0e-9 
+S+  	     1.0e-11 
+C+  	     1.0e-9 
+CO  	     1.0e-4 
+N2  	     1.0e-6 
+C  	     7.0e-7 
+NH3  	     8.0e-8 
+HCN  	     2.0e-8 
+HCO+  	     9.0e-9 
+C2H   	     8.0e-9 
+SI+  	     1.0e-11 
+MG+  	     1.0e-11 
+FE+  	     1.0e-11 
+GRAIN  	     6.0e-12 

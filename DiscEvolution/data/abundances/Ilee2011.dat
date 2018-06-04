@@ -1,0 +1,21 @@
+### Initial chemical abundances from Ilee et al. 2011, MNRAS, 417, 2950
+# Species   Abundance
+H2	    0.5
+HE	    1.00e-1
+C	    3.75e-4 
+CO	    3.66e-5
+CH4	    1.10e-6
+N	    1.15e-4
+NH3	    3.30e-6
+O	    6.74e-4
+H2O	    1.83e-4
+NA	    3.50e-5
+H2CO	    1.83e-6
+CO2	    3.67e-5
+HCN	    4.59e-7
+HNC	    7.34e-8
+S	    1.62e-5
+H2S	    2.75e-6
+SO	    1.47e-6
+SO2	    1.84e-7
+OCS	    3.30e-6
