@@ -117,10 +117,32 @@ class KromeChem(object):
     args:
         renormalize : boolean, default = True
             If true, the total abdunances will be renormalized to 1 after the
-             update.
+            update.
+        fixed_mu : float, default 0
+            The mean molecular weight (in hydrogen masses). If not specified,
+            this will be computed on the fly; however, if fixed_mu > 0, then 
+            this value will be used instead.
     """
-    def __init__(self, renormalize=True):
+    def __init__(self, renormalize=True, fixed_mu=0.):
         self._renormalize = renormalize
+        self._mu = fixed_mu
+
+    def ASCII_header(self):
+        """Header for ASCII dump file"""
+        return ('# {} '.format(self.__class__.__name__) +
+                'renormalize: {}, fixed_mu: {}, '.format(self._renormalize,
+                                                         self._mu) + 
+                'KROME_PATH {}'.format(KROME_PATH))
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        header = { 
+            'renormalize' : "{}".format(self._renormalize),
+            'fixed_mu'    : "{}".format(self._mu),
+            'KROME_PATH'  : "{}".format(KROME_PATH),
+            }
+
+        return self.__class__.__name__, header
 
     def update(self, dt, T, rho, dust_frac, chem):
         """Integrate the chemistry for time dt"""
@@ -135,7 +157,10 @@ class KromeChem(object):
         n = np.empty(_nmols + _ngrain, dtype='f8')
 
         # Gas mean molecular weight
-        mu = chem.gas.mu() * m_H
+        if self._mu > 0:
+            mu = self._mu * np.ones_like(rho) * m_H
+        else:
+            mu = chem.gas.mu() * m_H
 
         gas_data = chem.gas.data.T
         ice_data = chem.ice.data.T

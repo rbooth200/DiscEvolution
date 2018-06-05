@@ -151,7 +151,7 @@ class DiscEvolutionDriver(object):
             head += self._chemistry.ASCII_header() + '\n'
 
         # Write it all to disc
-        io.dump_ASCII(filename, disc, self.t, head)
+        io.dump_ASCII(filename, self._disc, self.t, head)
 
     def dump_hdf5(self, filename):
         """Write the current state in HDF5 format, with header information"""
@@ -161,7 +161,7 @@ class DiscEvolutionDriver(object):
         if self._diffusion: headers.append(self._diffusion.HDF5_attributes())
         if self._chemistry: headers.append(self._chemistry.HDF5_attributes())
 
-        io.dump_hdf5(filename, disc, self.t, headers)
+        io.dump_hdf5(filename, self._disc, self.t, headers)
 
 
 if __name__ == "__main__":

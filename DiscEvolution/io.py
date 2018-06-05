@@ -9,10 +9,13 @@ from __future__ import print_function
 from six import string_types
 import collections
 import numpy as np
+import re
+import os
 
 from . import constants
+from .chemistry import create_abundances, MolecularIceAbund
 
-__all__ = [ "Event_Controller", "dump_ASCII", "dump_hdf5"]
+__all__ = [ "Event_Controller", "dump_ASCII", "dump_hdf5", "DiscReader" ]
 ###############################################################################
 # I/O Controller
 ###############################################################################
@@ -256,7 +259,7 @@ def dump_hdf5(filename, disc, time, headers=None):
             size = dust.create_dataset("grain size", data=a)
             size.attrs["units"] = "cm"
 
-            dust_frac = dust.create_dataset("dust mass fraction", data=eps)
+            dust_frac = dust.create_dataset("mass fraction", data=eps)
             dust_frac.attrs["units"] = ""
         except  AttributeError:
             pass
@@ -277,9 +280,197 @@ def dump_hdf5(filename, disc, time, headers=None):
                 masses = data.create_dataset("masses", data=phase.masses)
                 masses.attrs["units"] = "proton masses"
 
-                abund = data.create_dataset("number fraction", data=phase.data)
+                abund = data.create_dataset("mass fraction", data=phase.data)
                 abund.attrs["units"] = ""
         except AttributeError:
             pass
 
 
+################################################################################
+# Snapshot data Readers
+################################################################################
+class DiscSnap(object):
+    """Base class for disc data"""
+    @property
+    def time(self):
+        return self._t
+    @property
+    def R(self):
+        return self._R
+    @property
+    def Sigma(self):
+        return self._Sigma
+    @property
+    def T(self):
+        return self._T
+    @property
+    def dust_frac(self):
+        return self._eps
+    @property
+    def grain_size(self):
+        return self._a
+    @property
+    def chem(self):
+        return self._chem
+
+
+class AsciiDiscSnap(DiscSnap):
+    """Reads data from ASCII dump file.
+    
+    args:
+        filename : string
+            Name of the file to read
+    """
+    def __init__(self, filename):
+         self.read(filename)
+
+    def read(self, filename):
+        """Read disc data from file"""
+        # read the header
+        head = ''
+        found_time  = False
+        count = 0
+        with open(filename) as f:
+            for line in f:
+                if not found_time:
+                    if not line.startswith('# time'):
+                        head += line
+                    else:
+                        found_time = True
+                        # Get the time
+                        self._t = float(line.strip().split(':')[1][:-2])
+                    count += 1
+                    continue
+                # Get data variables stored
+                data = line[2:].split(' ')
+                assert(len(data) % 2 == 1)
+
+                # Get the number of dust species
+                Ndust = len([x for x in data  if x.startswith('epsilon')])
+                Nchem = (len(data) - 3 - 2*Ndust) / 2
+                
+                iChem = 2*Ndust + 3
+                chem_spec = data[iChem:iChem + Nchem]
+                break
+            
+        # Parse the actual data:
+        data = np.genfromtxt(filename, skip_header=count, names=True)
+        Ndata = data.shape[0]
+        names = data.dtype.names
+        self._R     = data['R']
+        self._Sigma = data['Sigma']
+        self._T     = data['T']
+
+        self._eps = np.empty([Ndust, Ndata], dtype='f8')
+        self._a   = np.empty([Ndust, Ndata], dtype='f8')
+        for i in range(Ndust):
+            self._eps[i] = data['epsilon{}'.format(i)]
+            self._a[i]   = data['a{}'.format(i)]
+
+
+        if Nchem:
+            gas = create_abundances(names[iChem:iChem+Nchem], data)
+            ice = create_abundances(names[iChem+Nchem:], data, grain_prefix='s')
+
+            self._chem = MolecularIceAbund(gas, ice)
+
+
+class Hdf5DiscSnap(DiscSnap):
+    """Reads data from an HDF5 dump file.
+    
+    args:
+        filename : string
+            Name of the file to read
+    """
+    def __init__(self, filename):
+        self.read(filename)
+
+    def read(self, filename):
+        try:
+            import h5py  # Here to avoid forcing h5py depedency
+        except ImportError:
+            # Raise own more useful message
+            msg = "{}.{} {}".format("DiscEvolution.io", "Hdf5DiscSnap", 
+                                    "requires h5py, which could not be found.")
+            raise ImportError(msg)
+
+        with h5py.File(filename, "r") as f:
+            self._t = float(np.array(f['time']))
+
+            data = f['data']             
+            self._R     = np.array(data['radius'])
+            self._Sigma = np.array(data['surface density'])
+            self._T     = np.array(data['temperature'])
+            
+            try:
+                dust = data['dust']
+                self._a   = np.array(dust['grain size'])
+                self._eps = np.array(dust['mass fraction'])
+            except KeyError:
+                pass
+
+            try:
+                chem = data['chemistry']
+                
+                gas = chem['gas']
+                names, masses = np.array(gas['names']), np.array(gas['masses'])
+                gas = create_abundances(names,
+                                        np.rec.fromarrays(gas['mass fraction'],
+                                                          names=tuple(names)),
+                                        masses=masses)
+
+                ice = chem['ice']
+                names, masses = np.array(ice['names']), np.array(ice['masses'])
+                ice = create_abundances(names,
+                                        np.rec.fromarrays(ice['mass fraction'],
+                                                          names=tuple(names)),
+                                        masses=masses)
+
+                self._chem = MolecularIceAbund(gas, ice)
+            except KeyError:
+                pass
+                
+
+
+class Reader(object):
+    """Base class for reading data from entire simulation"""
+    def __init__(self, SnapType, DIR, base='*', tail='.dat'):
+        self._SnapType = SnapType
+        self._DIR = DIR
+
+        m = re.compile(r'^'+base+r'_\d\d\d\d'+tail+'$')
+        self._files = [ f for f in os.listdir(DIR) if m.findall(f)]
+        
+        snaps = {}
+        Nmax = 0
+        for f in self._files:
+            n = int(f[-(4+len(tail)):-len(tail)])
+            snaps[n] = os.path.join(self._DIR, f)
+            Nmax = max(n, Nmax)
+        self._snaps = snaps
+        self._Nmax = Nmax
+        
+            
+    def __getitem__(self, n):
+        return self._SnapType(self._snaps[n])
+
+    def filename(self, n):
+        return self._snaps[n]
+
+    @property
+    def Num_Snaps(self):
+        return self._Nmax
+
+                    
+class DiscReader(Reader):
+    """Read disc snaphshots from file"""
+    def __init__(self, DIR, base='disc', type='hdf5'):
+        
+        if type.lower() == 'ascii':
+            SnapType = AsciiDiscSnap
+            extension =  '.dat'
+        else:
+            SnapType = Hdf5DiscSnap
+            extension = '.h5'
+
+        super(DiscReader, self).__init__(SnapType, DIR, base, extension)

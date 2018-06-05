@@ -10,3 +10,4 @@ from .CNO_chem import SimpleCNOChemOberg, TimeDepCNOChemOberg
 from .CNO_chem import EquilibriumCNOChemOberg
 from .CNO_chem import SimpleCNOChemMadhu, EquilibriumCNOChemMadhu
 
+from .utils import create_abundances
