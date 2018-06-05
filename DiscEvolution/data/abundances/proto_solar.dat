@@ -1,0 +1,20 @@
+# Solar Abundances from Asplund et al. (2009), ARA&A, 47, 481
+# Abundances are given as Log_10(X) + 12, and X is the abundance relative to H.
+# Proton-Number	Element Log-Abundance Error
+1   H    12.00  0.00
+2   He   10.98  0.01
+6   C     8.47  0.05
+7   N     7.87  0.05
+8   O     8.73  0.05
+10  Ne    7.97  0.10
+11  Na    6.28  0.04
+12  Mg    7.64  0.04
+13  Al    6.49  0.03
+14  Si    7.55  0.03
+15  P     5.45  0.03
+16  S     7.16  0.03
+17  Cl    5.54  0.30
+18  Ar    6.44  0.13
+19  K     5.07  0.09
+20  Ca    6.38  0.04
+26  Fe    7.54  0.04
