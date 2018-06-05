@@ -8,6 +8,9 @@ AU = 1.496e13
 
 k_B = 1.3806e-16
 sig_SB = 5.6704e-5
-m_H = 1.6737e-24
+m_e = 9.10938188e-28
+m_p = 1.67262158e-24
+m_n = 1.6725e-24
+m_H = m_e + m_p
 sig_H2 = 2e-15 # Cross-section of H2 molecule
 GasConst = 8.314472e7
