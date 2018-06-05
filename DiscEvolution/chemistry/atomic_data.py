@@ -58,4 +58,15 @@ def atomic_composition(mol, charge=False):
     return atoms
                                
                                   
-    
+def molecular_mass(molecule):
+    """Compute the mass of a molecule, in hydrogen masses"""
+    atoms = atomic_composition(molecule, charge=True)
+
+    mass = 0
+    for atom in atoms:
+        if 'charge' in atom:
+            mass += m_e * atoms['charge']
+        else:
+            mass += ATOMIC_MASSES[atom] * atoms[atom]
+
+    return mass / m_H
