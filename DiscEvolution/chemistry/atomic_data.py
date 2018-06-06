@@ -1,7 +1,9 @@
 from collections import defaultdict
 import re
+import numpy as np
 
-from ..constants import m_H, m_n
+from ..constants import m_H, m_n, m_e
+from .base_chem import ChemicalAbund
 
 
 ATOMIC_MASSES = {
@@ -17,6 +19,12 @@ ATOMIC_MASSES = {
     'K'  : 19*m_H + 20*m_n, 'Ca' : 20*(m_H + m_n),  'Fe' : 26*m_H + 29*m_n,    
     }
 
+def atomic_mass(atom):
+    '''Mass of the atom in hydrogen masses'''
+    if atom == 'E':
+        return m_e / m_H
+    else:
+        return ATOMIC_MASSES[atom] / m_H
 
 def atomic_composition(mol, charge=False):
     '''Compute the atomic composition of a molecule
@@ -67,6 +75,52 @@ def molecular_mass(molecule):
         if 'charge' in atom:
             mass += m_e * atoms['charge']
         else:
-            mass += ATOMIC_MASSES[atom] * atoms[atom]
+            mass += atomic_mass(atom) * atoms[atom]
 
-    return mass / m_H
+    return mass 
+
+
+
+def atomic_abundances(mol_abund, charge=False):
+    """Converts the molecular abundances to atomic abundances.
+
+    Uses the list of molecular species to compute the atoms present and breaks
+    down each molecule into its atomic components.
+
+    args:
+        mol_abund : ChemicalAbund object
+           Abundance of the molecules to convert to atomic abundances
+        charge : bool, optional
+           Whether to track the net charge, i.e. the abundance of electrons
+    
+    returns:
+       atom_abund : ChemicalAbund object
+           Abundance of the constituent atomic species
+    """
+    # Break down each molecule into atoms
+    atoms = {}
+    for mol in mol_abund.species:
+        composition = atomic_composition(mol, charge)
+
+        for atom, count in composition.items():
+            nmol = mol_abund.number_abund(mol)
+            if atom not in atoms: atoms[atom] = np.zeros_like(nmol)
+            atoms[atom] += nmol * count
+            
+    # Rename charge to E:
+    try:
+        atoms['E'] = -atoms['charge']
+        del atoms['charge']
+    except KeyError:
+        pass
+
+    # Create the ChemicalAbund object
+    species = np.array(atoms.keys())
+    masses  = np.array([atomic_mass(s) for s in species])
+
+    atom_abund = ChemicalAbund(species, masses, len(atoms[species[0]]))
+
+    for atom, abund in atoms.items():
+        atom_abund.set_number_abund(atom, abund)
+    
+    return atom_abund
