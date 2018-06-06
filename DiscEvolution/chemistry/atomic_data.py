@@ -5,6 +5,8 @@ import numpy as np
 from ..constants import m_H, m_n, m_e
 from .base_chem import ChemicalAbund
 
+__all__ = [ "atomic_mass", "molecular_mass", "atomic_composition",
+            "atomic_abundances" ]
 
 ATOMIC_MASSES = {
     'H'  :    m_H,          'He' :  2*(m_H + m_n),
@@ -25,6 +27,19 @@ def atomic_mass(atom):
         return m_e / m_H
     else:
         return ATOMIC_MASSES[atom] / m_H
+                                  
+def molecular_mass(molecule):
+    """Compute the mass of a molecule, in hydrogen masses"""
+    atoms = atomic_composition(molecule, charge=True)
+
+    mass = 0
+    for atom in atoms:
+        if 'charge' in atom:
+            mass += m_e * atoms['charge']
+        else:
+            mass += atomic_mass(atom) * atoms[atom]
+
+    return mass 
 
 def atomic_composition(mol, charge=False):
     '''Compute the atomic composition of a molecule
@@ -64,22 +79,6 @@ def atomic_composition(mol, charge=False):
     assert mol == '', "Unknown component in molecule: {}".format(mol)
             
     return atoms
-                               
-                                  
-def molecular_mass(molecule):
-    """Compute the mass of a molecule, in hydrogen masses"""
-    atoms = atomic_composition(molecule, charge=True)
-
-    mass = 0
-    for atom in atoms:
-        if 'charge' in atom:
-            mass += m_e * atoms['charge']
-        else:
-            mass += atomic_mass(atom) * atoms[atom]
-
-    return mass 
-
-
 
 def atomic_abundances(mol_abund, charge=False):
     """Converts the molecular abundances to atomic abundances.
