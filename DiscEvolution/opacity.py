@@ -121,7 +121,7 @@ class Tazzari2016(object):
         self._Tmax = T[-1]
 
         self._kappa = RegularGridInterpolator((np.log(a), np.log(T)),
-                                              np.log(kappa_abs + kappa_sca))
+                                              np.log(kappa_abs + kappa_sca).T)
 
         self._eps = dust_to_gas
 
@@ -159,7 +159,7 @@ class Tazzari2016(object):
         kp = self._q - self._k0 + self._kl*np.log10(amax/100)
         kappa *= (amax/a_clip)**kp
 
-        return kappa * self._eps
+        return kappa * (self._eps / 0.01)
         
         
 
@@ -168,32 +168,56 @@ if __name__ == "__main__":
     from matplotlib.colors import LogNorm
 
     T = np.logspace(0.5, 3.5, 300)
-    rho = np.logspace(-10, 0, 300)
+    rho = np.logspace(-10, 0, 301)
 
     T, rho = np.meshgrid(T, rho)
 
+    vmax =  Zhu2012(rho, T).max()
+
+    amax = np.logspace(-5, 3, 301)
+    T = np.logspace(0.5, 3.5, 300)
+    T, amax = np.meshgrid(T, amax)
+
+    vmin =  Tazzari2016()(1., T, amax).min()
+
+
     plt.subplot(121)
     plt.title("Zhu2012")
-    plt.pcolormesh(rho, T, Zhu2012(rho, T).T, norm=LogNorm())
+    plt.pcolormesh(rho, T, Zhu2012(rho, T), norm=LogNorm(),
+                   vmax=vmax, vmin=vmin)
     plt.colorbar(label='opacity [cm$^2$ g$^{-1}$]')
     plt.xlabel(r'density')
     plt.ylabel('T')
     plt.xscale('log')
     plt.yscale('log')
-
+    plt.ylim(T.min(), T.max())
 
     plt.subplot(122)
-    plt.title("Tazzari2016")
-    amax = np.logspace(-5, 3, 300)
-    T = np.logspace(0.5, 3.5, 300)
-    T, amax = np.meshgrid(T, amax)
-    plt.pcolormesh(amax, T, Tazzari2016()(1., T, amax).T, norm=LogNorm())
+    plt.title("Tazzari2016")   
+    plt.pcolormesh(amax, T, Tazzari2016()(1., T, amax), norm=LogNorm(),
+                   vmax=vmax, vmin=vmin)
     plt.colorbar(label='opacity [cm$^2$ g$^{-1}$]')
     plt.xlabel('amax')
     plt.ylabel('T')
     plt.xscale('log')
     plt.yscale('log')
+    plt.ylim(T.min(), T.max())
 
     plt.tight_layout()
+
+    plt.figure()
     
+    rho  = 1e3 / (0.05*1.5e13)
+    amax = 0.01
+
+    T = np.logspace(0.5, 3.5, 1000)
+
+    plt.loglog(T, Zhu2012(rho, T, amax), 'k', label='Zhu2012')
+    plt.loglog(T, Tazzari2016()(rho, T, amax), 'k--', label='Tazzari2016')
+
+    plt.legend()
+    plt.xlabel(r'$T$ [K]')
+    plt.ylabel(r'$\kappa$ [g cm$^2$]')
+
+
     plt.show()

@@ -80,7 +80,7 @@ def atomic_composition(mol, charge=False):
             
     return atoms
 
-def atomic_abundances(mol_abund, charge=False):
+def atomic_abundances(mol_abund, charge=False, ignore_grains=True):
     """Converts the molecular abundances to atomic abundances.
 
     Uses the list of molecular species to compute the atoms present and breaks
@@ -91,6 +91,8 @@ def atomic_abundances(mol_abund, charge=False):
            Abundance of the molecules to convert to atomic abundances
         charge : bool, optional
            Whether to track the net charge, i.e. the abundance of electrons
+        ignore_grains : bool, optional
+           Whether to ignore the contribution from dust species. 
     
     returns:
        atom_abund : ChemicalAbund object
@@ -99,6 +101,7 @@ def atomic_abundances(mol_abund, charge=False):
     # Break down each molecule into atoms
     atoms = {}
     for mol in mol_abund.species:
+        if mol.endswith('grain') and ignore_grains: continue
         composition = atomic_composition(mol, charge)
 
         for atom, count in composition.items():
