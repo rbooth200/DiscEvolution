@@ -41,6 +41,9 @@ _krome_masses = np.empty(_nmols, dtype='f8')
 _krome.lib.krome_get_mass(_krome_masses)
 _krome_masses /= m_H
 
+if "M" in _krome_names:
+    _krome_masses[_krome_names == "M"] = 1.0
+
 # Add grains to the end of the names, with an arbitrary mass
 _krome_names  = np.append(_krome_names, "grain")
 _krome_masses = np.append(_krome_masses, 100.)
@@ -232,25 +235,17 @@ def main():
     abund.gas.data[:] = 0
     abund.ice.data[:] = 0
 
-    abund.gas.set_number_abund('H2',  0.5)
-    abund.gas.set_number_abund('HE',  1.00e-1)
-    abund.gas.set_number_abund('C',   3.75e-4) 
-    abund.gas.set_number_abund('CO',  3.66e-5)
-    abund.gas.set_number_abund('CH4', 1.10e-6)
-    abund.gas.set_number_abund('N',   1.15e-4)
-    abund.gas.set_number_abund('NH3', 3.30e-6)
-    abund.gas.set_number_abund('O',   6.74e-4)
-    abund.gas.set_number_abund('H2O', 1.83e-4)
+    abund.gas.set_number_abund('H2',  1.0)
+    abund.gas.set_number_abund('H',   9.10e-5)
+    abund.gas.set_number_abund('HE',  9.80e-2)
+    abund.gas.set_number_abund('H2O', 3.00e-4)
+    abund.gas.set_number_abund('CO',  6.00e-5)
+    abund.gas.set_number_abund('CO2', 6.00e-5)
+    abund.gas.set_number_abund('CH4', 1.80e-5)
+    abund.gas.set_number_abund('N2',  2.10e-5)
+    abund.gas.set_number_abund('NH3', 2.10e-5)
     abund.gas.set_number_abund('NA',  3.50e-5)
-    abund.gas.set_number_abund('H2CO',1.83e-6)
-    abund.gas.set_number_abund('CO2', 3.67e-5)
-    abund.gas.set_number_abund('HCN', 4.59e-7)
-    abund.gas.set_number_abund('HNC', 7.34e-8)
-    abund.gas.set_number_abund('S',   1.62e-5)
-    abund.gas.set_number_abund('H2S', 2.75e-6)
-    abund.gas.set_number_abund('SO',  1.47e-6)
-    abund.gas.set_number_abund('SO2', 1.84e-7)
-    abund.gas.set_number_abund('OCS', 3.30e-6)
+    abund.gas.set_number_abund('H2S', 6.00e-6)
 
     abund.gas.data[:] *= (1-dust_frac) / abund.gas.total_abund
 
@@ -262,23 +257,25 @@ def main():
 
     KC = KromeChem()
 
-    plt.subplot(311)
-    plt.loglog(R, Sigma)
-    plt.xlabel('R [au]')
-    plt.ylabel('Sigma [g cm^-2]')
+    f, (ax1, ax2, ax3, ax4) = plt.subplots(4,1, sharex=True)
+    
+    ax1.loglog(R, Sigma)
+    ax1.set_xlabel('R [au]')
+    ax1.set_ylabel('Sigma [g cm^-2]')
 
-    plt.subplot(312)
-    plt.loglog(R, T)
-    plt.xlabel('R [au]')
-    plt.ylabel('T [K]')
+    ax2.loglog(R, T)
+    ax2.set_xlabel('R [au]')
+    ax2.set_ylabel('T [K]')
 
-    plt.subplot(313)
-    plt.xlabel('R [au]')
-    plt.ylabel('X_i')
+    ax3.set_xlabel('R [au]')
+    ax3.set_ylabel('X_i')
 
-    l, = plt.loglog(R, abund.gas.number_abund('CO'), ls='-',
+    ax4.set_xlabel('R [au]')
+    ax4.set_ylabel('X_e')
+
+    l, = ax3.loglog(R, abund.gas.number_abund('CO'), ls='-',
                     label=str(0.) + 'yr')
-    plt.loglog(R, abund.ice.number_abund('CO'), ls='--', c=l.get_color())
+    ax3.loglog(R, abund.ice.number_abund('CO'), ls='--', c=l.get_color())
 
     t = 0.
     tStart = time.time()
@@ -291,17 +288,19 @@ def main():
         tEnd = time.time()
         print ('Time {} ({} min)'.format(t,(tEnd-tStart)/60.))
         tStart = tEnd
-        
-        l, = plt.loglog(R, abund.gas.number_abund('CO'), ls='-',
+
+        l, = ax3.loglog(R, abund.gas.number_abund('CO'), ls='-',
                         label=str(round(t/(2*np.pi),2)) + 'yr')
-        plt.loglog(R, abund.ice.number_abund('CO'), ls='--',
+        ax3.loglog(R, abund.ice.number_abund('CO'), ls='--',
                    c=l.get_color())
+
+        ax4.loglog(R, abund.gas.number_abund('E'), ls='-', c=l.get_color())
 
 
     print("Gas / Total Mean Mol. Weight:", abund.gas.mu()[0], abund.mu()[0])
 
 
-    plt.legend()
+    ax3.legend()
     plt.show()
 
 
