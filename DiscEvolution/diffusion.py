@@ -54,6 +54,12 @@ class TracerDiffusion(object):
 
         return - DSig * np.diff(eps_i) / disc.grid.dRc
 
+    def max_timestep(self, disc):
+        grid = disc.grid
+        D = disc.nu / self.Sc
+
+        return (0.25 * np.diff(grid.Re)**2 / D).max()
+
     def __call__(self, disc, eps_i, Sc=None):
         """Compute the rate of change of the surface density due to diffusion.
 
