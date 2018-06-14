@@ -55,6 +55,7 @@ class TracerDiffusion(object):
         return - DSig * np.diff(eps_i) / disc.grid.dRc
 
     def max_timestep(self, disc):
+        """Courant limited time-step"""
         grid = disc.grid
         D = disc.nu / self.Sc
 
