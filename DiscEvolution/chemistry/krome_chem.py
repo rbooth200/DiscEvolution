@@ -2,7 +2,9 @@ from __future__ import print_function
 from ..constants import m_H
 
 __all__ = [ "KromeAbund", "KromeIceAbund", "KromeGasAbund",
-            "KromeMolecularIceAbund", "KromeChem", "main" ]
+            "KromeMolecularIceAbund", "KromeChem", 
+            "KromeCallBack", "UserDust2GasCallBack",
+            "main" ]
 
 # Locate the KROME library code
 import sys, os
@@ -22,7 +24,6 @@ def byref(x): return ctypes.byref(ctypes.c_double(x))
 _krome = PyKROME(path_to_lib=KROME_PATH)
 _krome.lib.krome_init()
 
-
 # Here we setup the species loaded from KROME.
 # Note:
 #   - KROME distinguishes between gas and ice phase species through the "_DUST"
@@ -41,8 +42,8 @@ _krome_masses = np.empty(_nmols, dtype='f8')
 _krome.lib.krome_get_mass(_krome_masses)
 _krome_masses /= m_H
 
-if "M" in _krome_names:
-    _krome_masses[_krome_names == "M"] = 1.0
+#if "M" in _krome_names:
+#    _krome_masses[_krome_names == "M"] = 1.0
 
 # Add grains to the end of the names, with an arbitrary mass
 _krome_names  = np.append(_krome_names, "grain")
@@ -114,6 +115,18 @@ class KromeMolecularIceAbund(object):
 ################################################################################
 # Wrapper for KROME Chemistry solver
 ################################################################################
+class KromeCallBack(object):
+    """Interface class for user call-backs to KROME"""
+    def init_krome(self, krome):
+        pass
+    def __call__(self,  krome, T, rho, dust_frac, **kwargs):
+        pass
+
+class UserDust2GasCallBack(KromeCallBack):
+    """Sets the user_dust2gas ratio argument"""
+    def __call__(self, krome, T, rho, dust_frac, **kwargs):
+        krome.lib.krome_set_user_dust2gas(dust_frac/(1-dust_frac))
+
 class KromeChem(object):
     """Time-dependent chemistry integrated with the KROME pacakage
 
@@ -125,10 +138,23 @@ class KromeChem(object):
             The mean molecular weight (in hydrogen masses). If not specified,
             this will be computed on the fly; however, if fixed_mu > 0, then 
             this value will be used instead.
+        call_back: KromeCallBack object:
+            Provides an interface to allow the user to call krome_user_*
+            routines. The call_back object should provide two methods:
+                init_krome(self, krome) : 
+                    which is called once during the __init__ routine
+                __call__(self, krome, T, n, dust_frac, **kwargs),
+                    which is called before each call to krome.
+                In both functions krome is the krome python library object
+                created by the call to pyKROME
     """
-    def __init__(self, renormalize=True, fixed_mu=0.):
+    def __init__(self, renormalize=True, fixed_mu=0., call_back=None):
         self._renormalize = renormalize
         self._mu = fixed_mu
+        self._call_back = call_back
+
+        if self._call_back is not None:
+            self._call_back.init_krome(_krome)
 
     def ASCII_header(self):
         """Header for ASCII dump file"""
@@ -147,7 +173,7 @@ class KromeChem(object):
 
         return self.__class__.__name__, header
 
-    def update(self, dt, T, rho, dust_frac, chem):
+    def update(self, dt, T, rho, dust_frac, chem, **kwargs):
         """Integrate the chemistry for time dt"""
 
 
@@ -168,7 +194,7 @@ class KromeChem(object):
         gas_data = chem.gas.data.T
         ice_data = chem.ice.data.T
         for i in range(len(T)):
-            Ti, rho_i, eps_i, mu_i = T[i], rho[i], dust_frac[i], mu[i]
+            T_i, rho_i, eps_i, mu_i = T[i], rho[i], dust_frac[i], mu[i]
             
             nGas = rho_i / mu_i
 
@@ -176,10 +202,14 @@ class KromeChem(object):
             n[_krome_gas] = (gas_data[i] / m_gas) * nGas
             n[_krome_ice] = (ice_data[i] / m_ice) * nGas
 
-            _krome.lib.krome_set_dust_to_gas(eps_i)
+            if self._call_back is not None:
+                opt = {}
+                for kw, arg in kwargs.iteritems():
+                    opt[kw] = arg[i]
+                self._call_back(_krome, T_i, n, eps_i, **opt)
 
             # Do not send dummy grain species.
-            _krome.lib.krome(n[:-_ngrain], byref(Ti), byref(dt))
+            _krome.lib.krome(n[:-_ngrain], byref(T_i), byref(dt))
 
             # Renormalize the gas / dust / ice mass fractions
             n[_krome_gas] *= m_gas / nGas
@@ -255,9 +285,9 @@ def main():
 
     times = np.array([1e0, 1e2, 1e4, 1e6])*2*np.pi
 
-    KC = KromeChem()
+    KC = KromeChem(call_back=UserDust2GasCallBack())
 
-    f, (ax1, ax2, ax3, ax4) = plt.subplots(4,1, sharex=True)
+    f, (ax1, ax2, ax3) = plt.subplots(3,1, sharex=True)
     
     ax1.loglog(R, Sigma)
     ax1.set_xlabel('R [au]')
@@ -269,9 +299,6 @@ def main():
 
     ax3.set_xlabel('R [au]')
     ax3.set_ylabel('X_i')
-
-    ax4.set_xlabel('R [au]')
-    ax4.set_ylabel('X_e')
 
     l, = ax3.loglog(R, abund.gas.number_abund('CO'), ls='-',
                     label=str(0.) + 'yr')
@@ -293,8 +320,6 @@ def main():
                         label=str(round(t/(2*np.pi),2)) + 'yr')
         ax3.loglog(R, abund.ice.number_abund('CO'), ls='--',
                    c=l.get_color())
-
-        ax4.loglog(R, abund.gas.number_abund('E'), ls='-', c=l.get_color())
 
 
     print("Gas / Total Mean Mol. Weight:", abund.gas.mu()[0], abund.mu()[0])
