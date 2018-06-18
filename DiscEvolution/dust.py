@@ -1,4 +1,4 @@
-# dust.py
+ # dust.py
 #
 # Author: R. Booth
 # Date : 10 - Nov - 2016
@@ -458,7 +458,11 @@ class SingleFluidDrift(object):
         deps = - np.diff(flux*grid.Re) / ((Sigma+1e-300) * 0.5*grid.dRe2)
         if self._diffuse:
             St2 = St_i**2
-            Sc = self.Sc * (0.5625/(1 + 4*St2) + 0.4375 + 0.25*St2)
+            try:
+                Sc = disc.Sc
+            except ValueError:
+                Sc = self._diffuse.Sc
+            Sc = Sc * (0.5625/(1 + 4*St2) + 0.4375 + 0.25*St2)
 
             deps += self._diffuse(disc, eps_i, Sc)
 
