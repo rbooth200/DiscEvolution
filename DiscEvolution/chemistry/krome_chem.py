@@ -203,9 +203,7 @@ class KromeChem(object):
             n[_krome_ice] = (ice_data[i] / m_ice) * nGas
 
             if self._call_back is not None:
-                opt = {}
-                for kw, arg in kwargs.items():
-                    opt[kw] = arg[i]
+                opt = { kw : arg[i] for (kw, arg) in kwargs.items() }
                 self._call_back(_krome, T_i, n, eps_i, **opt)
 
             # Do not send dummy grain species.
