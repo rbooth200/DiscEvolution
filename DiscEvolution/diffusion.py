@@ -54,10 +54,18 @@ class TracerDiffusion(object):
 
         return - DSig * np.diff(eps_i) / disc.grid.dRc
 
-    def max_timestep(self, disc):
+    def _get_Schmidt(self, disc, Sc):
+        if Sc is None:
+            try:
+                Sc = disc.Sc
+            except AttributeError:
+                Sc = self.Sc
+        return Sc
+
+    def max_timestep(self, disc, Sc=None):
         """Courant limited time-step"""
         grid = disc.grid
-        D = disc.nu / self.Sc
+        D = disc.nu / self._get_Schmidt(disc, Sc)
 
         return (0.25 * np.diff(grid.Re)**2 / D).max()
 
@@ -67,12 +75,12 @@ class TracerDiffusion(object):
         args:
             disc  : Disc object
             eps_i : Concentration of species that is diffusing
-            Sc    : Schmidt number, defaults to the value stored by the class
-
+            Sc    : Schmidt number. If not provided the value provided by the
+                    disc is tried, before falling back to self.Sc
         returns:
             dSigma_i/dt : Rate of change of density of tracer
         """
-        if Sc is None: Sc = self.Sc
+        Sc = self._get_Schmidt(disc, Sc)
 
         grid = disc.grid
         Sigma_G = disc.Sigma_G

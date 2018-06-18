@@ -19,16 +19,19 @@ class DustyDisc(AccretionDisc):
         star     : Stellar object
         eos      : Equation of state
         rho_s    : solid density, default=1
+        Sc       : Schmidt number, default=1
         feedback : When False, the dust mass is considered to be a negligable
                    fraction of the total mass.
     """
-    def __init__(self, grid, star, eos, Sigma=None, rho_s=1., feedback=True):
+    def __init__(self, grid, star, eos, Sigma=None, rho_s=1., Sc=1.,
+                 feedback=True):
 
         super(DustyDisc, self).__init__(grid, star, eos, Sigma)
 
         self._rho_s = rho_s
         self._Kdrag = (np.pi * rho_s) / 2.
 
+        self._Sc = Sc
         self._feedback = feedback
 
 
@@ -73,9 +76,12 @@ class DustyDisc(AccretionDisc):
         """Mean area of grains"""
         return self._area
 
+    @property
+    def Sc(self):
+        """Schmidt number, Sc = nu/D"""
+        return self._Sc
 
-    # Overload Accretion disc densities to make it dusts
-
+    # Overload Accretion disc densities to make it dusty
     @property
     def Sigma_G(self):
         return self.Sigma * (1-self.integ_dust_frac)
@@ -97,7 +103,7 @@ class DustyDisc(AccretionDisc):
         """Dust scale height"""
 
         St = self.Stokes()
-        a  = self.alpha
+        a  = self.alpha/self.Sc
         eta = 1 - 1. / (2 + 1./St)
 
         return self.H * np.sqrt(eta * a / (a + St))
@@ -171,8 +177,13 @@ class DustGrowthTwoPop(DustyDisc):
     particles themselves.
 
     args:
-        Ncells    : Number of cells in grid
+        grid      : Disc gridding object
+        star      : Stellar object
+        eos       : Equation of state
         eps       : Initital dust fraction
+        Sigma     : Initial surface density distribution
+        rho_s     : solid density, default=1
+        Sc        : Schmidt number, default=1
         rhos      : Grain solid density, default=1.
         uf_0      : Fragmentation velocity (default = 100 (cm/s))
         uf_ice    : Fragmentation velocity of icy grains (default = 1000 (cm/s))
@@ -187,10 +198,10 @@ class DustGrowthTwoPop(DustyDisc):
         feedback  : Whether to include feedback from dust on gas
     """
     def __init__(self, grid, star, eos, eps, Sigma=None,
-                 rho_s=1., uf_0=100., uf_ice=1e3, f_ice=1, thresh=0.1,
+                 rho_s=1., Sc=1., uf_0=100., uf_ice=1e3, f_ice=1, thresh=0.1,
                  a0=1e-5, amin=0., f_drift=0.55, f_frag=0.37, feedback=True):
         super(DustGrowthTwoPop, self).__init__(grid, star, eos,
-                                               Sigma, rho_s, feedback)
+                                               Sigma, rho_s, Sc, feedback)
 
         
         self._uf_0   = uf_0 / (AU * Omega0)
@@ -248,7 +259,8 @@ class DustGrowthTwoPop(DustyDisc):
         
     def _frag_limit(self):
         """Maximum particle size before fragmentation kicks in"""
-        af = (self.Sigma_G/(self._rho_s*self.alpha)) * (self._uf/self.cs)**2
+        alpha = self.alpha/self.Sc
+        af = (self.Sigma_G/(self._rho_s*alpha)) * (self._uf/self.cs)**2
         return self._ffrag * af
 
     def a_BT(self, eps_tot=None):
@@ -257,8 +269,10 @@ class DustGrowthTwoPop(DustyDisc):
         if eps_tot is None:
             eps_tot = self.integ_dust_frac
 
+        alpha = self.alpha/self.Sc
+
         a0  = 8 * self.Sigma / (np.pi * self._rho_s) * self.Re**-0.25
-        a0 *= np.sqrt(self.mu*m_H/(self._rho_s*self.alpha)) / (2*np.pi)
+        a0 *= np.sqrt(self.mu*m_H/(self._rho_s*alpha)) / (2*np.pi)
         return a0**0.4
         
     def _gammaP(self):
@@ -444,7 +458,7 @@ class SingleFluidDrift(object):
         deps = - np.diff(flux*grid.Re) / ((Sigma+1e-300) * 0.5*grid.dRe2)
         if self._diffuse:
             St2 = St_i**2
-            Sc = self._diffuse.Sc * (0.5625/(1 + 4*St2) + 0.4375 + 0.25*St2)
+            Sc = self.Sc * (0.5625/(1 + 4*St2) + 0.4375 + 0.25*St2)
 
             deps += self._diffuse(disc, eps_i, Sc)
 

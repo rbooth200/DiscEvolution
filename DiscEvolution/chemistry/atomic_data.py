@@ -117,7 +117,7 @@ def atomic_abundances(mol_abund, charge=False, ignore_grains=True):
         pass
 
     # Create the ChemicalAbund object
-    species = np.array(atoms.keys())
+    species = np.array(list(atoms.keys()))
     masses  = np.array([atomic_mass(s) for s in species])
 
     atom_abund = ChemicalAbund(species, masses, len(atoms[species[0]]))
