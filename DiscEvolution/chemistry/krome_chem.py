@@ -204,7 +204,7 @@ class KromeChem(object):
 
             if self._call_back is not None:
                 opt = {}
-                for kw, arg in kwargs.iteritems():
+                for kw, arg in kwargs.items():
                     opt[kw] = arg[i]
                 self._call_back(_krome, T_i, n, eps_i, **opt)
 
