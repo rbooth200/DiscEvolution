@@ -126,7 +126,7 @@ class ViscousEvolution(object):
         Sigma_new = disc.Sigma + dt * f
 
         for t in tracers:
-            if t is None: pass
+            if t is None: continue
             t[:] += dt*(self._tracer_fluxes(t) - t*f) / (Sigma_new + 1e-300)
 
         disc.Sigma[:] = Sigma_new
