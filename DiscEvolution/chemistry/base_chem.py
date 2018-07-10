@@ -194,7 +194,7 @@ class SimpleChemBase(object):
         return MolecularIceAbund(gas=gas, ice=ice)
 
 
-    def update(self, dt, T, rho, dust_frac, chem):
+    def update(self, dt, T, rho, dust_frac, chem, **kwargs):
 
         if not self._fix_ratios:
             mol_abund  = chem.gas.copy()
@@ -407,7 +407,7 @@ class TimeDependentChem(ThermalChem,SimpleChemBase):
         ThermalChem.__init__(self, **kwargs)
         SimpleChemBase.__init__(self)
 
-    def update(self, dt, T, rho, dust_frac, chem):
+    def update(self, dt, T, rho, dust_frac, chem, **kwargs):
         """Update the gas/ice abundances"""
         for spec in chem:
             self._update_ice_balance(dt, T, rho, dust_frac, spec, chem)

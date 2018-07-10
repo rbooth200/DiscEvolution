@@ -180,27 +180,21 @@ class KromeChem(object):
         # Convert dt to seconds:
         dt *= _krome.krome_seconds_per_year/(2*np.pi)
 
-        m_gas = chem.gas.masses
-        m_ice = chem.ice.masses
+        m_gas = chem.gas.masses * m_H
+        m_ice = chem.ice.masses * m_H
 
         n = np.empty(_nmols + _ngrain, dtype='f8')
-
-        # Gas mean molecular weight
-        if self._mu > 0:
-            mu = self._mu * np.ones_like(rho) * m_H
-        else:
-            mu = chem.gas.mu() * m_H
 
         gas_data = chem.gas.data.T
         ice_data = chem.ice.data.T
         for i in range(len(T)):
-            T_i, rho_i, eps_i, mu_i = T[i], rho[i], dust_frac[i], mu[i]
+            T_i, rho_i, eps_i = T[i], rho[i], dust_frac[i]
             
-            nGas = rho_i / mu_i
+            rho_i /= 1 - eps_i
 
             # Compute the number density
-            n[_krome_gas] = (gas_data[i] / m_gas) * nGas
-            n[_krome_ice] = (ice_data[i] / m_ice) * nGas
+            n[_krome_gas] = (gas_data[i] / m_gas) * rho_i
+            n[_krome_ice] = (ice_data[i] / m_ice) * rho_i
 
             if self._call_back is not None:
                 opt = { kw : arg[i] for (kw, arg) in kwargs.items() }
@@ -210,15 +204,14 @@ class KromeChem(object):
             _krome.lib.krome(n[:-_ngrain], byref(T_i), byref(dt))
 
             # Renormalize the gas / dust / ice mass fractions
-            n[_krome_gas] *= m_gas / nGas
-            n[_krome_ice] *= m_ice / nGas
+            n[_krome_gas] *= m_gas / rho_i
+            n[_krome_ice] *= m_ice / rho_i
 
             if self._renormalize:
-                n /= n.sum()
+                 n /= n.sum()
 
             gas_data[i] = n[_krome_gas]
             ice_data[i] = n[_krome_ice]
-
 
 
 def main():
