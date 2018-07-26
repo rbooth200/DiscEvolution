@@ -414,6 +414,7 @@ class Hdf5DiscSnap(DiscSnap):
                 
                 gas = chem['gas']
                 names, masses = np.array(gas['names']), np.array(gas['masses'])
+                names = np.array([n.decode() for n in names])                
                 gas = create_abundances(names,
                                         np.rec.fromarrays(gas['mass fraction'],
                                                           names=tuple(names)),
@@ -421,6 +422,7 @@ class Hdf5DiscSnap(DiscSnap):
 
                 ice = chem['ice']
                 names, masses = np.array(ice['names']), np.array(ice['masses'])
+                names = np.array([n.decode() for n in names])
                 ice = create_abundances(names,
                                         np.rec.fromarrays(ice['mass fraction'],
                                                           names=tuple(names)),
