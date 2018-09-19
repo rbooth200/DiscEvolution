@@ -267,7 +267,7 @@ class DustGrowthTwoPop(DustyDisc):
         """Size at transition between Brownian motion and turbulence dominated
         collision velocities"""
         if eps_tot is None:
-            eps_tot = self.integ_dust_frac
+            eps_tot = self.dust_frac.sum(0)
 
         alpha = self.alpha/self.Sc
 
@@ -540,7 +540,7 @@ class SingleFluidDrift(object):
         """Apply the update for radial drift over time-step dt"""
         eps = disc.dust_frac
         a   = disc.grain_size   
-        eps_inv = 1. / (disc.integ_dust_frac + np.finfo(eps.dtype).tiny)
+        eps_inv = 1. / (eps.sum(0) + np.finfo(eps.dtype).tiny)
 
         # Compute the dust-gas relative velocity
         DeltaV = self._compute_deltaV(disc)
@@ -572,11 +572,6 @@ class SingleFluidDrift(object):
             
     def radial_drift_velocity(self, disc):
         """Compute the radial drift velocity for the disc"""
-        eps = disc.dust_frac
-        a   = disc.grain_size   
-        eps_inv = 1. / (disc.integ_dust_frac + np.finfo(eps.dtype).tiny)
-
-        # Compute the dust-gas relative velocity
         DeltaV = self._compute_deltaV(disc)
         return DeltaV - self._epsDeltaV
 
