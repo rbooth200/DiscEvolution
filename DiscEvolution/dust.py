@@ -9,6 +9,7 @@ from __future__ import print_function
 import numpy as np
 from .constants import *
 from .disc import AccretionDisc
+from .reconstruction import DonorCell, VanLeer
 
 class DustyDisc(AccretionDisc):
     """Dusty accretion disc. Base class for an accretion disc that also
@@ -396,26 +397,30 @@ class SingleFluidDrift(object):
     args:
         diffusion : Diffusion algorithm, default=None
         settling  : Include settling in the velocity calculation, default=False
+        van_leer  : Use 2nd-order Van-Leer reconstruction, default=False
     """
-    def __init__(self, diffusion=None, settling=False):
+    def __init__(self, diffusion=None, settling=False, van_leer=False):
         self._diffuse = diffusion
         self._settling = settling
+        self._van_leer = van_leer
 
     def ASCII_header(self):
         """Radial drift header"""
         head = ''
         if self._diffuse:
             head += self._diffuse.ASCII_header() + '\n'
-        head += ('# {} diffusion: {} settling: {}'
+        head += ('# {} diffusion: {} settling: {} van-leer: {}'
                  ''.format(self.__class__.__name__,
                            self._diffuse is not None,
-                           self._settling))
+                           self._settling,
+                           self._van_leer))
         return head
 
     def HDF5_attributes(self):
         """Class information for HDF5 headers"""
         head = { "diffusion" : "{}".format(self._diffuse is not None),
-                 "settling"  : "{}".format(self._settling)
+                 "settling"  : "{}".format(self._settling),
+                 "van-leer"  : "{}".format(self._van_leer),
                  }
         if self._diffuse is not None:
             head.update(dict([self._diffuse.HDF5_attributes()]))
@@ -427,32 +432,64 @@ class SingleFluidDrift(object):
         dV = abs(self._compute_deltaV(disc))
         return 0.5 * (disc.grid.dRc / dV).min()
     
-    def _fluxes(self, disc, eps_i, deltaV_i, St_i):
+    def _fluxes(self, disc, eps_i, deltaV_i, St_i, dt=0):
         """Update a quantity that moves with the gas/dust"""
 
         Sigma = disc.Sigma
         grid = disc.grid
 
-        # Add boundary cells
-        shape_v   = eps_i.shape[:-1] + (eps_i.shape[-1]+1,)
-        shape_rho = eps_i.shape[:-1] + (eps_i.shape[-1]+2,)
+        if not self._van_leer:
+            # Add boundary cells
+            shape_v   = eps_i.shape[:-1] + (eps_i.shape[-1]+1,)
+            shape_rho = eps_i.shape[:-1] + (eps_i.shape[-1]+2,)
         
-        dV_i = np.empty(shape_v, dtype='f8')
-        dV_i[...,1:-1] = deltaV_i - self._epsDeltaV
-        dV_i[..., 0] = dV_i[..., 1] 
-        dV_i[...,-1] = dV_i[...,-2] 
+            dV_i = np.empty(shape_v, dtype='f8')
+            dV_i[...,1:-1] = deltaV_i - self._epsDeltaV
+            dV_i[..., 0] = dV_i[..., 1] 
+            dV_i[...,-1] = dV_i[...,-2] 
+            
+            Sig = np.zeros(shape_rho[-1], dtype='f8')
+            eps = np.zeros(shape_rho,     dtype='f8')
+            Sig[    1:-1] = Sigma
+            eps[...,1:-1] = eps_i
+            
+            # Upwind the density
+            dc = DonorCell(grid.Ree[1:-1], 1)
+            Sig = dc(dV_i, Sig, dt)
+            eps = dc(dV_i, eps, dt)
 
-        Sig = np.zeros(shape_rho[-1], dtype='f8')
-        eps = np.zeros(shape_rho,     dtype='f8')
-        Sig[    1:-1] = Sigma
-        eps[...,1:-1] = eps_i
+            # Compute the fluxes
+            flux = Sig*eps * dV_i
+        else:
+             # Add boundary cells
+            shape_v   = eps_i.shape[:-1] + (eps_i.shape[-1]+3,)
+            shape_rho = eps_i.shape[:-1] + (eps_i.shape[-1]+4,)
         
-        # Upwind the density
-        Sig = np.where(dV_i > 0, Sig[    :-1], Sig[    1:])
-        eps = np.where(dV_i > 0, eps[...,:-1], eps[...,1:])
+            dV_i = np.empty(shape_v, dtype='f8')
+            dV_i[..., 2:-2] = deltaV_i - self._epsDeltaV
+            dV_i[...,  :2] = dV_i[..., 2] 
+            dV_i[...,-2: ] = dV_i[...,-3] 
+            
+            Sig = np.zeros(shape_rho[-1], dtype='f8')
+            eps = np.zeros(shape_rho,     dtype='f8')
+            Sig[    2:-2] = Sigma
+            eps[...,2:-2] = eps_i
+
+            Sig[     1] = Sig[ 2]
+            Sig[    -2] = Sig[-3]
+            eps[..., 1] = eps[..., 2]
+            Sig[...,-2] = eps[...,-3]
+            
+            # Upwind the density
+            vl = VanLeer(grid.Ree, 1)
+            Sig = vl(dV_i, Sig, dt)
+            eps = vl(dV_i, eps, dt)
+
+            # Compute the fluxes
+            flux = Sig*eps * dV_i[1:-1]
+
         
-        # Compute the fluxes
-        flux = Sig*eps * dV_i
+
 
         # Do the update
         deps = - np.diff(flux*grid.Re) / ((Sigma+1e-300) * 0.5*grid.dRe2)
@@ -547,7 +584,7 @@ class SingleFluidDrift(object):
         
         # Compute and apply the fluxes
         if gas_tracers is not None:
-            gas_tracers[:] += dt * self._fluxes(disc, gas_tracers, 0, 0)
+            gas_tracers[:] += dt * self._fluxes(disc, gas_tracers, 0, 0, dt)
 
 
         # Update the dust fraction, size and tracers
@@ -556,14 +593,14 @@ class SingleFluidDrift(object):
                                           disc.grain_size, disc.Stokes()):
             if dust_tracers is not None:
                 t_k = dust_tracers * eps_k * eps_inv
-                d_tr  += dt*self._fluxes(disc, t_k, dV_k, St_k)
+                d_tr  += dt*self._fluxes(disc, t_k, dV_k, St_k, dt)
                 
             # multiply a_k by the dust-to-gas ratio, so that constant functions
             # are advected perfectly
             eps_a = a_k * eps_k
-            eps_a +=  dt*self._fluxes(disc, eps_a, dV_k, St_k)
+            eps_a +=  dt*self._fluxes(disc, eps_a, dV_k, St_k, dt)
             
-            eps_k[:] += dt*self._fluxes(disc, eps_k, dV_k, St_k)
+            eps_k[:] += dt*self._fluxes(disc, eps_k, dV_k, St_k, dt)
 
             a_k[:] = eps_a / (eps_k + 1e-300)
 

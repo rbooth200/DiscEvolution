@@ -42,8 +42,15 @@ class Grid(object):
         Rce[1:-1] = self._Rc
         Rce[ 0] = Rce[ 1]**2 / Rce[ 2]
         Rce[-1] = Rce[-2]**2 / Rce[-3]
-
         self._Rce = Rce
+
+        Ree = np.empty(N+5, dtype='f8')
+        Ree[2:-2] = self._Re
+        Ree[ 1] = Ree[ 2]**2 / Ree[ 3]
+        Ree[-2] = Ree[-3]**2 / Ree[-4]
+        Ree[ 0] = Ree[ 1]**2 / Ree[ 2]
+        Ree[-1] = Ree[-2]**2 / Ree[-3]
+        self._Ree = Ree
 
     def _setup_powerlaw(self, R0, R1, N, alpha):
         """Setup a power law grid"""
@@ -57,9 +64,17 @@ class Grid(object):
         Rce = np.empty(N+2, dtype='f8')
         Rce[1:-1] = self._Rc
         Rce[ 0] = (2*Rchalf[ 0] - Rchalf[ 1])**alpha1
-        Rce[-1] = (2*Rchalf[-1] - Rchalf[-2])**alpha1
-    
+        Rce[-1] = (2*Rchalf[-1] - Rchalf[-2])**alpha1    
         self._Rce = Rce
+
+        Ree = np.empty(N+5, dtype='f8')
+        Ree[2:-2] = self._Re
+        Ree[ 1] = (2*Rehalf[ 1] - Rehalf[ 2])**alpha1
+        Ree[-2] = (2*Rehalf[-2] - Rehalf[-3])**alpha1
+        Ree[ 0] = (2*Rehalf[ 0] - Rehalf[ 1])**alpha1
+        Ree[-1] = (2*Rehalf[-1] - Rehalf[-2])**alpha1
+        self._Ree = Ree
+
         
     def _setup_aux(self):
         self._dRe  = np.diff(self._Re)
@@ -94,6 +109,9 @@ class Grid(object):
     @property
     def Rce(self):
         return self._Rce
+    @property
+    def Ree(self):
+        return self._Ree
 
     @property
     def dRc(self):
