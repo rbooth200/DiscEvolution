@@ -45,10 +45,10 @@ class VanLeer(object):
         self._cF = (xc[2:] - xc[1:-1]) / (xe[2:-1] - xc[1:-1])
         self._cB = (xc[2:] - xc[1:-1]) / (xc[2:  ] - xe[2:-1])
 
-        dx = np.diff(xe)
-        self._dxp = (self._xe[1:]  - self._xc) / dx
-        self._dxm = (self._xe[:-1] - self._xc) / dx
-
+        self._dx = np.diff(xe[1:-1])
+        self._dxp = (self._xe[1:]  - self._xc)
+        self._dxm = (self._xe[:-1] - self._xc)
+        
 
     def __call__(self, v_edge, Q, dt=0.):
         '''Compute the upwinded face value (optionally time-centered)'''
@@ -61,7 +61,7 @@ class VanLeer(object):
         num = QF*QB*(cF*QB + cB*QF)
         den = (QB*QB + (cF + cB - 2)*QB*QF + QF*QF) + 1e-300
 
-        dQ_lim = np.where(QB*QF > 0, num/den, 0) 
+        dQ_lim = np.where(QB*QF > 0, num/den, 0) / self._dx
 
         # Reconstruct the face states
         Qp = Q[1:-1] + dQ_lim * (self._dxp[1:-1] - v_edge[1:  ]*dt/2.)
