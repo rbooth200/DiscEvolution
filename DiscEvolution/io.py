@@ -183,7 +183,7 @@ def dump_ASCII(filename, disc, time, header=None):
                     f.write(' {}'.format(chem.gas[k][i]))
                 for k in chem.ice:
                     f.write(' {}'.format(chem.ice[k][i]))
-                f.write('\n')
+            f.write('\n')
 
 ################################################################################
 # Write data using HDF5
