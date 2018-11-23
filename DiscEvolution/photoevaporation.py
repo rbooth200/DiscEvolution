@@ -7,7 +7,7 @@
 ###############################################################################
 import numpy as np
 from .constants import AU, Msun
-
+import FRIED.photorate as photorate
 
 class ExternalPhotoevaporationBase(object):
     """Base class for handling the external photo-evaportation of discs
