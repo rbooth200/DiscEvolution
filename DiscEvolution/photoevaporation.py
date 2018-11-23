@@ -33,7 +33,8 @@ class ExternalPhotoevaporationBase(object):
         # Disc densities / masses
         Sigma_G = disc.Sigma_G
         Sigma_D = disc.Sigma_D
-
+	
+	# Mass in gas/dust in each annulus 
         Re = disc.R_edge * AU
         A = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
         dM_gas = Sigma_G * A
@@ -92,11 +93,34 @@ class FixedExternalEvaportation(ExternalPhotoevaporationBase):
         self._amax = amax
 
     def mass_loss_rate(self, disc):
+	
         return self._Mdot
 
     def max_size_entrained(self, disc):
         return self._amax
 
+class FRIEDSCExternalEvaportation(ExternalPhotoevaporationBase):
+    """External photoevaporation flow with a mass loss rate which
+    is dependent on radius and surface density.
+	Currently ignores dust by setting max size to 0
+	Currently hard codes a UV field of 10 G0.
+
+    args:
+        Mdot : mass-loss rate in Msun / yr,  default = 10^-8
+        amax : maximum grain size entrained, default = 0
+    """
+
+    def __init__(self, Mdot=0, amax=0):
+        self._Mdot = Mdot
+        self._amax = amax
+
+    def mass_loss_rate(self, disc):
+	UV_field = 10 * numpy.ones_like(disc.Sigma_G) 
+	return photorate.PE_rate_D(disc.star.M,UV_field,disc.Sigma_G,disc.R)
+        #return self._Mdot
+
+    def max_size_entrained(self, disc):
+        return self._amax
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
