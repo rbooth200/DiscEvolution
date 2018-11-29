@@ -137,6 +137,19 @@ class DiscEvolutionDriver(object):
     def num_steps(self):
         return self._nstep
 
+    @property
+    def gas(self):
+        return self._gas
+    @property
+    def dust(self):
+        return self._dust
+    @property
+    def diffusion(self):
+        return self._diffusion
+    @property
+    def chemistry(self):
+        return self._chemistry
+
     def dump_ASCII(self, filename):
         """Write the current state to a file, including header information"""
 
