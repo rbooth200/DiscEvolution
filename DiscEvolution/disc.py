@@ -17,10 +17,15 @@ class AccretionDisc(object):
         self._grid = grid
         self._star = star
         self._eos  = eos
+        self.UV = 0
         if Sigma is None:
             Sigma = np.zeros_like(self.R)
         self._Sigma = Sigma
-
+        
+        # Extra properties for dealing with half empty cells in timescale approach
+        self.mass_lost = 0.0
+        self.tot_mass_lost = 0.0
+        self.i_edge = -1
 
     def ASCII_header(self):
         """Write header information about the disc"""
@@ -35,6 +40,9 @@ class AccretionDisc(object):
         return self.__class__.__name__, dict([ self._grid.HDF5_attributes(),
                                                self._star.HDF5_attributes(),
                                                self._eos.HDF5_attributes() ])
+
+    def set_UV(self,UV):
+        self.UV = UV
 
     @property
     def star(self):

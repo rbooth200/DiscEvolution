@@ -29,7 +29,7 @@ class DiscEvolutionDriver(object):
         t0  : Starting time, default = 0.
     """
     def __init__(self, disc,
-                 gas=None, dust=None, diffusion=None, chemistry=None,
+                 gas=None, dust=None, diffusion=None, chemistry=None, photoevaporation=None,
                  t0=0.):
 
         self._disc = disc
@@ -38,6 +38,7 @@ class DiscEvolutionDriver(object):
         self._dust      = dust
         self._diffusion = diffusion
         self._chemistry = chemistry
+        self.photoevap = photoevaporation
 
         self._t = t0
         self._nstep = 0
@@ -51,6 +52,8 @@ class DiscEvolutionDriver(object):
         returns:
             dt : Time step taken
         """
+        disc = self._disc
+
         # Compute the maximum time-step
         dt = tmax - self.t
         if self._gas:
@@ -59,8 +62,13 @@ class DiscEvolutionDriver(object):
             dt = min(dt, self._dust.max_timestep(self._disc))
         if self._diffusion:
             dt = min(dt, self._diffusion.max_timestep(self._disc))
+        if self.photoevap is not None:
+            (dM_dot, dM_gas) = self.photoevap.optically_thin_weighting(disc,dt)
+            Dt = dM_gas[(dM_dot>0)] / dM_dot[(dM_dot>0)]
+            Dt_min = np.min(Dt)
+            dt = min(dt,Dt_min)
 
-        disc = self._disc
+            self.photoevap(disc,dt,self.t) # Must apply PE here so that the timescales, if limiting, are correct 
 
         gas_chem, ice_chem = None, None
         try:
@@ -78,12 +86,12 @@ class DiscEvolutionDriver(object):
         # Do Advection-diffusion update
         if self._gas:
             self._gas(dt, disc, [dust, gas_chem, ice_chem])
-
+        
         if self._dust:
             self._dust(dt, disc,
                        gas_tracers=gas_chem,
                        dust_tracers=ice_chem)
-
+        
         if self._diffusion:
             if gas_chem is not None:
                 gas_chem[:] += dt * self._diffusion(disc, gas_chem)
