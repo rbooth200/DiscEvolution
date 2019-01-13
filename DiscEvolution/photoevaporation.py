@@ -58,7 +58,7 @@ class ExternalPhotoevaporationBase(object):
         Dt_R = np.concatenate((Dt_R, np.zeros(np.size(disc.Sigma_G)-np.size(Dt_R)))) # Append 0 for empty annuli
         dM_evap = np.concatenate((dM_evap, np.zeros(np.size(disc.Sigma_G)-np.size(dM_evap)))) # Append 0 for empty annuli
         Dt = np.cumsum(Dt_R[::-1])[::-1] # Dynamical time to deplete each annulus and those exterior
-        #print (Dt)	
+
         # Return mass loss rate, annulus mass, cumulative mass and cumulative timescale
         return (dM_evap, dM_tot, M_tot, Dt)
 
@@ -76,26 +76,14 @@ class ExternalPhotoevaporationBase(object):
             half_empty = -(np.sum(empty) + 1) # ID (from end) of half depleted cell
 
             mass_left = -1.0*excess_t[half_empty] / (Dt[half_empty]-Dt[half_empty+1]) # Work out fraction left in cell
-            #disc.outer_mass = dM_tot[half_empty] * depletion
             if (half_empty==disc.i_edge):
                 disc.mass_lost += dM_tot[half_empty] * (1.0-mass_left)
             else:
                 disc.mass_lost = dM_tot[half_empty] * (1.0-mass_left)
                 disc.i_edge = half_empty
             disc.tot_mass_lost += dM_tot[half_empty] * (1.0-mass_left)
-            #print (disc.i_edge)
-
-            # Sigma depletion method (doesn't work well for short dt)
-            #disc.Sigma_G[half_empty] *= disc.depletion # Adjust density to remaining value            
-
-            # Explicit Edge tracking method
-            #Re = disc.R_edge # In AU
-            #Rout = Re[1:]
-            #Rin = Re[:-1]
-            #disc.RD = np.sqrt(Rin[half_empty]**2*(1-depletion) + depletion * Rout[half_empty])
 
         #disc.Sigma = disc.Sigma_G
-        #disc.M519.append((age/(2*np.pi),dM_tot[-519]))
 
     def optically_thin_weighting(self, disc, dt):
         # Locate and select cells that aren't empty
@@ -174,8 +162,7 @@ class ExternalPhotoevaporationBase(object):
         disc.dust_frac[not_entrained, cell_id] = \
             dM_dust[not_entrained, cell_id] / M_left
 
-        ### And we're done"""
-
+        ### And we're done"""        
 
 class FixedExternalEvaporation(ExternalPhotoevaporationBase):
     """External photoevaporation flow with a constant mass loss rate, which
@@ -199,7 +186,6 @@ class FixedExternalEvaporation(ExternalPhotoevaporationBase):
 class FRIEDExternalEvaporationMS(ExternalPhotoevaporationBase):
     """External photoevaporation flow with a mass loss rate which
     is dependent on radius and surface density.
-	Currently ignores dust by setting max size to 0
 
     args:
         Mdot : mass-loss rate in Msun / yr,  default = 10^-8

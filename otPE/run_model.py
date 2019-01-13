@@ -287,7 +287,7 @@ def timeplot(model, radius_data, nv_data):
 
     plt.semilogx(radius_data[:,0], radius_data[:,1], marker='x',color='blue',linestyle='None')
     xlims=plt.xlim()
-    plt.semilogx(nv_data[:,0], nv_data[:,1], color='black',linestyle='--',label='Expected without viscous spreading')
+    plt.semilogx(nv_data[:,0], nv_data[:,1], color='black',linestyle='--',label='Expected from initial timescale')
     plt.xlim(xlims)
 
     # Complete Plot
@@ -364,7 +364,7 @@ def main():
     # Save radius data
     plot_times=np.insert(np.array(model['output']['plot_times']),0,0)
     outputdata = np.column_stack((plot_times,outer_radii))
-    np.savetxt(output_name+"_discproperties.dat",outputdata)
+    np.savetxt(plot_name+"_discproperties.dat",outputdata)
 
     # Check separate plotting function
     timeplot(model, outputdata[1:,:], np.column_stack((Dt_nv/(2*np.pi), disc.grid.Rc)))
