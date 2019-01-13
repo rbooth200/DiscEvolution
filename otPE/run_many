@@ -6,6 +6,7 @@ do
  j=$((j+1))
 done
 
+echo "Number assigned to this run:"
 echo $j
 
 #for i in $runs
@@ -17,8 +18,8 @@ echo $j
 #done
 
 python config_generator.py $j
-mkdir weighted_$j_profiles
+mkdir weighted_"$j"_profiles
 python run_model.py -m DiscConfig$j.json
-ffmpeg -framerate 5 -i weighted_$j_visc_%01d.png weighted_$j.avi 
+ffmpeg -framerate 5 -i weighted_"$j"_profiles/weighted_"$j"_novisc_%01d.png weighted_$j.avi 
 
 chmod +x run_many
