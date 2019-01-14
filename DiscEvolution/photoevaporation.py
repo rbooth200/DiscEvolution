@@ -93,23 +93,30 @@ class ExternalPhotoevaporationBase(object):
         # Find the maximum, corresponding to optically thin/thick boundary
         i_max = np.size(Mdot) - np.argmax(Mdot[::-1]) - 1
 
-        # Weighting function USING TOTAL SIGMA
-        ot_radii = (disc.grid.Rc >= disc.grid.Rc[i_max])
-        Sigma_tot = np.sum(disc.Sigma[ot_radii])
-        Sigma_weight = disc.Sigma/Sigma_tot
-        Sigma_weight *= ot_radii # Set weight of all cells inside the maximum to zero.
-        M_dot_tot = np.sum(Mdot * Sigma_weight[not_empty]) # Contribution of all non-empty cells to mass loss rate
-        M_dot_eff = M_dot_tot * Sigma_weight # Effective mass loss rate
-
-        # Convert Msun / yr to g / dynamical time
-        dM_dot = M_dot_eff * Msun / (2 * np.pi)
-
         # Annulus TOTAL masses
         Re = disc.R_edge * AU
         dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
         dM_tot = disc.Sigma * dA
 
-        return (dM_dot, dM_tot)        
+        # Weighting function USING TOTAL SIGMA
+        ot_radii = (disc.R >= disc.R[i_max])
+        s = disc.R**(3/2) * disc.Sigma
+        s_tot = np.sum(disc.s[ot_radii])
+        s_weight = s/s_tot
+        s_weight *= ot_radii # Set weight of all cells inside the maximum to zero.
+        M_dot_tot = np.sum(Mdot * s_weight[not_empty]) # Contribution of all non-empty cells to mass loss rate
+        M_dot_eff = M_dot_tot * s_weight # Effective mass loss rate
+
+        """Sigma_tot = np.sum(disc.Sigma[ot_radii])
+        Sigma_weight = disc.Sigma/Sigma_tot
+        Sigma_weight *= ot_radii # Set weight of all cells inside the maximum to zero.
+        M_dot_tot = np.sum(Mdot * Sigma_weight[not_empty]) # Contribution of all non-empty cells to mass loss rate
+        M_dot_eff = M_dot_tot * Sigma_weight # Effective mass loss rate"""
+
+        # Convert Msun / yr to g / dynamical time
+        dM_dot = M_dot_eff * Msun / (2 * np.pi)
+
+        return (dM_dot, dM_tot)
 
     def weighted_removal(self, disc, dt):
         (dM_dot, dM_tot) = self.optically_thin_weighting(disc,dt)
