@@ -8,6 +8,7 @@
 import numpy as np
 from .constants import AU, Msun
 import FRIED.photorate as photorate
+from .dust import DustyDisc
 
 class ExternalPhotoevaporationBase(object):
     """Base class for handling the external photo-evaportation of discs
@@ -26,7 +27,6 @@ class ExternalPhotoevaporationBase(object):
         Sigma_G = disc.Sigma_G
         #Sigma_D = disc.Sigma_D
         not_empty = (disc.Sigma_G > 0)
-        #outer_cell = np.sum(not_empty) - 1
 
         # Get the photo-evaporation rates at each cell as if it were the edge:
         Mdot = self.mass_loss_rate(disc,not_empty)
@@ -58,7 +58,7 @@ class ExternalPhotoevaporationBase(object):
         Dt_R = np.concatenate((Dt_R, np.zeros(np.size(disc.Sigma_G)-np.size(Dt_R)))) # Append 0 for empty annuli
         dM_evap = np.concatenate((dM_evap, np.zeros(np.size(disc.Sigma_G)-np.size(dM_evap)))) # Append 0 for empty annuli
         Dt = np.cumsum(Dt_R[::-1])[::-1] # Dynamical time to deplete each annulus and those exterior
-
+        
         # Return mass loss rate, annulus mass, cumulative mass and cumulative timescale
         return (dM_evap, dM_tot, M_tot, Dt)
 
@@ -69,7 +69,7 @@ class ExternalPhotoevaporationBase(object):
         excess_t = dt - Dt
         empty = (excess_t > 0)
         disc.tot_mass_lost += np.sum(dM_tot[empty])
-        disc.Sigma_G[empty] = 0
+        disc.Sigma[empty] = 0
 
         # Deal with marginal cell (first for which dt<Dt) as long as entire disc isn't removed
         if (np.sum(empty)<np.size(disc.Sigma_G)):
@@ -82,46 +82,60 @@ class ExternalPhotoevaporationBase(object):
                 disc.mass_lost = dM_tot[half_empty] * (1.0-mass_left)
                 disc.i_edge = half_empty
             disc.tot_mass_lost += dM_tot[half_empty] * (1.0-mass_left)
-
-        #disc.Sigma = disc.Sigma_G
-
+        
     def optically_thin_weighting(self, disc, dt):
-        # Locate and select cells that aren't empty
+        # Locate and select cells that aren't empty OF GAS
         Sigma_G = disc.Sigma_G
         not_empty = (disc.Sigma_G > 0)
 
-        # Get the photo-evaporation rates at each cell as if it were the edge
+        # Get the photo-evaporation rates at each cell as if it were the edge USING TOTAL SIGMA
         Mdot = self.mass_loss_rate(disc,not_empty)
         # Find the maximum, corresponding to optically thin/thick boundary
         i_max = np.size(Mdot) - np.argmax(Mdot[::-1]) - 1
 
-        # Weighting function
-        ot_radii = (disc.grid.Rc >= disc.grid.Rc[i_max])
-        Sigma_tot = np.sum(Sigma_G[ot_radii])
-        Sigma_weight = Sigma_G/Sigma_tot
+        # Annulus TOTAL masses
+        Re = disc.R_edge * AU
+        dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
+        dM_tot = disc.Sigma * dA
+
+        # Weighting function USING TOTAL SIGMA
+        ot_radii = (disc.R >= disc.R[i_max])
+        s = disc.R**(3/2) * disc.Sigma
+        s_tot = np.sum(s[ot_radii])
+        s_weight = s/s_tot
+        s_weight *= ot_radii # Set weight of all cells inside the maximum to zero.
+        M_dot_tot = np.sum(Mdot * s_weight[not_empty]) # Contribution of all non-empty cells to mass loss rate
+        M_dot_eff = M_dot_tot * s_weight # Effective mass loss rate
+
+        """Sigma_tot = np.sum(disc.Sigma[ot_radii])
+        Sigma_weight = disc.Sigma/Sigma_tot
         Sigma_weight *= ot_radii # Set weight of all cells inside the maximum to zero.
         M_dot_tot = np.sum(Mdot * Sigma_weight[not_empty]) # Contribution of all non-empty cells to mass loss rate
-        M_dot_eff = M_dot_tot * Sigma_weight # Effective mass loss rate
+        M_dot_eff = M_dot_tot * Sigma_weight # Effective mass loss rate"""
 
         # Convert Msun / yr to g / dynamical time
         dM_dot = M_dot_eff * Msun / (2 * np.pi)
 
-        # Annulus masses
-        Re = disc.R_edge * AU
-        dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
-        dM_gas = Sigma_G * dA
-
-        return (dM_dot, dM_gas)        
+        return (dM_dot, dM_tot)
 
     def weighted_removal(self, disc, dt):
-        (dM_dot, dM_gas) = self.optically_thin_weighting(disc,dt)
+        (dM_dot, dM_tot) = self.optically_thin_weighting(disc,dt)
+
+        if (isinstance(disc,DustyDisc)):
+            Sigma_D = disc.Sigma_D        
 
         dM_evap = dM_dot * dt
-        deplete = np.ones_like(disc.Sigma_G)
-        not_empty = (dM_gas>0)
-        deplete[not_empty] = (dM_gas[not_empty] - dM_evap[not_empty])/ dM_gas[not_empty]
-        disc.Sigma_G[:] *= deplete
-        disc.Sigma[:] = disc.Sigma_G
+        deplete = np.zeros_like(disc.Sigma)
+        not_empty = (dM_tot>0)
+        deplete[not_empty] = dM_evap[not_empty] / dM_tot[not_empty] # Fraction of mass lost
+        #print(deplete)
+        disc.Sigma[:] -= deplete * disc.Sigma_G # This fraction of mass is lost in GAS
+
+        # For now, no entrainment, Sigma_D is as before so all of above loss must be gas 
+        if (isinstance(disc,DustyDisc)):
+            disc._eps[0] = Sigma_D[0,:] / disc.Sigma
+            disc._eps[1] = Sigma_D[1,:] / disc.Sigma
+            #print (disc._eps)
 
     def __call__(self, disc, dt, age):
         """Removes gas and dust from the edge of a disc"""
@@ -164,6 +178,18 @@ class ExternalPhotoevaporationBase(object):
 
         ### And we're done"""        
 
+    def Facchini_limit(disc, Mdot):
+        # Equation 35 of Facchini et al (2016)
+        # Note following definitions:
+        # F = H / sqrt(H^2+R^2)
+        # v_th = \sqrt(8/pi) C_S
+        F = disc.H / np.sqrt(disc.H**2+disc.R**2)
+        rho = disc._rho_s
+        Mstar = disc.star.M
+        v_th = np.sqrt(8/np.pi) * disc.cs
+        
+        s_entr = (v_th * Mdot) / (Mstar * 4 * np.pi * F * rho)
+        return s_entr 
 class FixedExternalEvaporation(ExternalPhotoevaporationBase):
     """External photoevaporation flow with a constant mass loss rate, which
     entrains dust below a fixed size.
@@ -178,7 +204,7 @@ class FixedExternalEvaporation(ExternalPhotoevaporationBase):
         self._amax = amax
 
     def mass_loss_rate(self, disc, not_empty):
-        return self._Mdot*np.ones_like(disc.Sigma_G[not_empty])
+        return self._Mdot*np.ones_like(disc.Sigma[not_empty])
 
     def max_size_entrained(self, disc):
         return self._amax
@@ -194,24 +220,26 @@ class FRIEDExternalEvaporationMS(ExternalPhotoevaporationBase):
 
     def __init__(self, disc, Mdot=0, amax=0):
         self.FRIED_Rates = photorate.FRIED_3DMS(photorate.grid_parameters,photorate.grid_rate,disc.star.M)
-        self._Mdot = Mdot
-        self._amax = amax
+        self._Mdot = Mdot * np.ones_like(disc.R)
+        self._amax = amax * np.ones_like(disc.R)
 
     def mass_loss_rate(self, disc, not_empty):
-        UV_field = disc.UV * np.ones_like(disc.Sigma_G) 
-        calc_rates = self.FRIED_Rates.PE_rate(( UV_field[not_empty], disc.Sigma_G[not_empty], disc.R[not_empty] ))
+        UV_field = disc.UV * np.ones_like(disc.Sigma) 
+        calc_rates = self.FRIED_Rates.PE_rate(( UV_field[not_empty], disc.Sigma[not_empty], disc.R[not_empty] ))
         norate = np.isnan(calc_rates)
         final_rates = calc_rates
         final_rates[norate] = 1e-10
-        return final_rates
+        self._Mdot = final_rates
+        return self._Mdot
 
     def max_size_entrained(self, disc):
+        # Update maximum entrained size
+        self._amax = Facchini_limit(disc,self._Mdot)
         return self._amax
 
 class FRIEDExternalEvaporationS(ExternalPhotoevaporationBase):
     """External photoevaporation flow with a mass loss rate which
     is dependent on radius and surface density.
-	Currently ignores dust by setting max size to 0
 
     args:
         Mdot : mass-loss rate in Msun / yr,  default = 10^-8
@@ -220,18 +248,21 @@ class FRIEDExternalEvaporationS(ExternalPhotoevaporationBase):
 
     def __init__(self, disc, Mdot=0, amax=0):
         self.FRIED_Rates = photorate.FRIED_3DS(photorate.grid_parameters,photorate.grid_rate,disc.star.M)
-        self._Mdot = Mdot
-        self._amax = amax
+        self._Mdot = Mdot * np.ones_like(disc.R)
+        self._amax = amax * np.ones_like(disc.R)
 
     def mass_loss_rate(self, disc, not_empty):
-        UV_field = disc.UV * np.ones_like(disc.Sigma_G) 
-        calc_rates = self.FRIED_Rates.PE_rate(( UV_field[not_empty], disc.Sigma_G[not_empty], disc.R[not_empty] ))
+        UV_field = disc.UV * np.ones_like(disc.Sigma) 
+        calc_rates = self.FRIED_Rates.PE_rate(( UV_field[not_empty], disc.Sigma[not_empty], disc.R[not_empty] ))
         norate = np.isnan(calc_rates)
         final_rates = calc_rates
         final_rates[norate] = 1e-10
-        return final_rates
+        self._Mdot = final_rates
+        return self._Mdot
 
     def max_size_entrained(self, disc):
+        # Update maximum entrained size
+        self._amax = Facchini_limit(disc,self._Mdot)
         return self._amax
 
 if __name__ == "__main__":
