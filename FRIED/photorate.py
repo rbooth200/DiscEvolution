@@ -15,7 +15,7 @@ grid_parameters = np.loadtxt(os.environ['DISC_CODE_ROOT']+'/FRIED/friedgrid.dat'
 grid_rate = np.loadtxt(os.environ['DISC_CODE_ROOT']+'/FRIED/friedgrid.dat',skiprows=1,usecols=5)
 #grid_rate_exp = np.power(10,grid_rate)
 
-# Parent class that returns the photoevaporation rate.
+"""Parent class that returns the photoevaporation rate."""
 class FRIEDInterpolator(object):
 
 	def PE_rate(self, query_inputs):
@@ -23,7 +23,7 @@ class FRIEDInterpolator(object):
 		M_dot = self.M_dot_interp(query_log) # Perform the interpolation
 		return np.power(10,M_dot) # Return exponentiated mass rate
 
-# Linear interpolators - using either disc mass (M), surface density (S) 
+"""Linear interpolators - using either disc mass (M), surface density (S)"""
 # 3D interpolators (no stellar mass for computational speed) in log space
 class FRIED_3DM(FRIEDInterpolator):
 	# Interpolates on mass (M)
@@ -50,6 +50,40 @@ class FRIED_3DMS(FRIED_3DM):
 		Mass_calc = 2*np.pi * query_inputs[1] * (query_inputs[2]*cst.AU)**2 / (cst.Mjup) # Convert sigma to a disc mass (for 1/R profile)
 		new_query = np.log10(query_inputs)
 		new_query[1] = np.log10(Mass_calc)
+		new_query = tuple(new_query)
+		M_dot = self.M_dot_interp(new_query) # Perform the interpolation
+		return np.power(10,M_dot) # Return exponentiated mass rate
+
+# 2D interpolators (no stellar mass or UV for computational speed) in log space
+class FRIED_2DM(FRIEDInterpolator):
+	# Interpolates on mass (M)
+
+	def __init__(self, grid_parameters, grid_rate, M_star, UV):
+		select_mass = (np.abs(grid_parameters[:,0] - M_star)<0.001) # Filter based on ones with the correct mass
+		select_UV = (np.abs(grid_parameters[:,1] - UV)<0.001) # Filter based on ones with the correct UV
+		select_MUV = select_mass * select_UV
+		grid_inputs_2D = grid_parameters[select_MUV,:] # Apply filter
+		grid_inputs_2DM = grid_inputs_2D[:,(2,4)] # Select only the columns necessary - UV, M_disc, R_disc
+		self.M_dot_interp = interpolate.LinearNDInterpolator(np.log10(grid_inputs_2DM),grid_rate[select_MUV]) # Build interpolator on log of inputs 
+
+class FRIED_2DS(FRIEDInterpolator):
+	#Interpolates on surface density (S)
+
+	def __init__(self, grid_parameters, grid_rate, M_star, UV):
+		select_mass = (np.abs(grid_parameters[:,0] - M_star)<0.001) # Filter based on ones with the correct mass
+		select_UV = (np.abs(grid_parameters[:,1] - UV)<0.001) # Filter based on ones with the correct UV
+		select_MUV = select_mass * select_UV
+		grid_inputs_2D = grid_parameters[select_MUV,:] # Apply filter
+		grid_inputs_2DS = grid_inputs_2D[:,(3,4)] # Select only the columns necessary - UV, Sigma_disc, R_disc
+		self.M_dot_interp = interpolate.LinearNDInterpolator(np.log10(grid_inputs_2DS),grid_rate[select_MUV]) # Build interpolator on log of inputs
+
+class FRIED_2DMS(FRIED_2DM):
+	# Interpolates on mass but is provided with surface density
+
+	def PE_rate(self, query_inputs):
+		Mass_calc = 2*np.pi * query_inputs[0] * (query_inputs[1]*cst.AU)**2 / (cst.Mjup) # Convert sigma to a disc mass (for 1/R profile)
+		new_query = np.log10(query_inputs)
+		new_query[0] = np.log10(Mass_calc)
 		new_query = tuple(new_query)
 		M_dot = self.M_dot_interp(new_query) # Perform the interpolation
 		return np.power(10,M_dot) # Return exponentiated mass rate
@@ -143,4 +177,5 @@ if __name__ == "__main__":
 	#print(testinterp.PE_rate((float(sys.argv[2]),float(sys.argv[3]),float(sys.argv[4]))))
 	
 	#compareinterp((1.0,7.41,1,100),'FRIEDinterp4.dat')
-	Fdependence('FRIEDinterp6.dat')
+	#Fdependence('FRIEDinterp6.dat')
+	FRIED_Rates_2DM = FRIED_2DM(grid_parameters,grid_rate,1,100)
