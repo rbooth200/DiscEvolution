@@ -282,14 +282,14 @@ class FRIEDExternalEvaporationMS(ExternalPhotoevaporationBase):
     """
 
     def __init__(self, disc, Mdot=1e-10, amax=0):
-        self.FRIED_Rates = photorate.FRIED_3DMS(photorate.grid_parameters,photorate.grid_rate,disc.star.M)
+        self.FRIED_Rates = photorate.FRIED_2DMS(photorate.grid_parameters,photorate.grid_rate,disc.star.M,disc.UV)
         self._Mdot = Mdot * np.ones_like(disc.R)
         self._amax = amax * np.ones_like(disc.R)
 
     def mass_loss_rate(self, disc, not_empty):
         UV_field = disc.UV * np.ones_like(disc.R) 
         calc_rates = np.zeros_like(disc.R)
-        calc_rates[not_empty] = self.FRIED_Rates.PE_rate(( UV_field[not_empty], disc.Sigma_G[not_empty], disc.R[not_empty] ))
+        calc_rates[not_empty] = self.FRIED_Rates.PE_rate(( disc.Sigma_G[not_empty], disc.R[not_empty] ))
         norate = np.isnan(calc_rates)
         final_rates = calc_rates
         final_rates[norate] = 1e-10
@@ -311,14 +311,14 @@ class FRIEDExternalEvaporationS(ExternalPhotoevaporationBase):
     """
 
     def __init__(self, disc, Mdot=1e-10, amax=0):
-        self.FRIED_Rates = photorate.FRIED_3DS(photorate.grid_parameters,photorate.grid_rate,disc.star.M)
+        self.FRIED_Rates = photorate.FRIED_2DS(photorate.grid_parameters,photorate.grid_rate,disc.star.M,disc.UV)
         self._Mdot = Mdot * np.ones_like(disc.R)
         self._amax = amax * np.ones_like(disc.R)
 
     def mass_loss_rate(self, disc, not_empty):
         UV_field = disc.UV * np.ones_like(disc.R) 
         calc_rates = np.zeros_like(disc.R)
-        calc_rates[not_empty] = self.FRIED_Rates.PE_rate(( UV_field[not_empty], disc.Sigma_G[not_empty], disc.R[not_empty] ))
+        calc_rates[not_empty] = self.FRIED_Rates.PE_rate(( disc.Sigma_G[not_empty], disc.R[not_empty] ))
         norate = np.isnan(calc_rates)
         final_rates = calc_rates
         final_rates[norate] = 1e-10
