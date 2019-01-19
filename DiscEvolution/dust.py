@@ -35,6 +35,8 @@ class DustyDisc(AccretionDisc):
         self._Sc = Sc
         self._feedback = feedback
 
+        # Global, time dependent properties
+        self._Mdust = np.array([])
 
     def Stokes(self, Sigma=None, size=None):
         """Stokes number of the particle"""
@@ -108,6 +110,13 @@ class DustyDisc(AccretionDisc):
         eta = 1 - 1. / (2 + 1./St)
 
         return self.H * np.sqrt(eta * a / (a + St))
+
+    def Mdust(self):
+        Re = self.R_edge * AU
+        dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
+        dM_dust = self.Sigma_D.sum(0) * dA
+        self._Mdust = np.append(self._Mdust,[np.sum(dM_dust)])
+        return self._Mdust[-1]
     
     def update(self, dt):
         """Update the disc properites and age"""
@@ -166,6 +175,8 @@ class FixedSizeDust(DustyDisc):
 
         self._area = np.pi * self._a**2
 
+        self.Mdust()
+
 class DustGrowthTwoPop(DustyDisc):
     """Two-population dust growth model of Birnstiel (2011).
 
@@ -200,7 +211,7 @@ class DustGrowthTwoPop(DustyDisc):
     """
     def __init__(self, grid, star, eos, eps, Sigma=None,
                  rho_s=1., Sc=1., uf_0=100., uf_ice=1e3, f_ice=1, thresh=0.1,
-                 a0=1e-5, amin=0., f_drift=0.55, f_frag=0.37, feedback=True):
+                 a0=1e-5, amin=1e-5, f_drift=0.55, f_frag=0.37, feedback=True):
         super(DustGrowthTwoPop, self).__init__(grid, star, eos,
                                                Sigma, rho_s, Sc, feedback)
 
@@ -233,8 +244,9 @@ class DustGrowthTwoPop(DustyDisc):
         self._head = (', uf_0: {}cm s^-1, uf_ice: {}cm s^-1, thresh: {}'
                       ', a0: {}cm'.format(uf_0, uf_ice, thresh, a0))
 
-
         self.update(0)
+
+        self.Mdust()
 
     def ASCII_header(self):
         """Dust growth header"""
@@ -307,7 +319,10 @@ class DustGrowthTwoPop(DustyDisc):
         return ad, af
 
     def _t_grow(self, eps):
-        return 1 / (self.Omega_k * eps)
+        t_grow = np.zeros_like(eps)
+        not_dustless = (eps > 0)
+        t_grow[not_dustless] = 1 / (self.Omega_k[not_dustless] * eps[not_dustless])
+        return t_grow
 
     def do_grain_growth(self, dt):
         """Apply the grain growth"""
@@ -323,14 +338,16 @@ class DustGrowthTwoPop(DustyDisc):
         afrag = np.minimum(afrag_t, afrag_d)
         a0    = np.minimum(afrag, adrift)
 
+        # ignore empty cells:
+        ids = eps_tot > 0
         # Update the particle distribution
         #   Maximum size due to growth:
-        amax = np.minimum(a0, a*np.exp(dt/t_grow))
+        amax = a0
+        amax[ids] = np.minimum(a0[ids], a[ids]*np.exp(dt/t_grow[ids]))
         #   Reduce size due to erosion / fragmentation if grains have grown
         #   above this due to ice condensation
         # amin = a + np.minimum(0, afrag-a)*np.expm1(-dt/t_grow)
-        # ignore empty cells:
-        ids = eps_tot > 0
+        
         self._a[1, ids] = np.maximum(amax[ids], self._amin)
 
         # Update the mass-fractions in each population
@@ -339,6 +356,9 @@ class DustGrowthTwoPop(DustyDisc):
         
         self._eps[0][ids] = ((1-fm)*eps_tot)[ids]
         self._eps[1][ids] = (   fm *eps_tot)[ids]
+
+        """Is this mass fraction behaviour suitable in the case of growth limited (early on in outer disc, but when PE strongest?)"""
+        """Why does this even need calibrating?"""
 
 
         # Set the average area:

@@ -17,7 +17,7 @@ class AccretionDisc(object):
         self._grid = grid
         self._star = star
         self._eos  = eos
-        self.UV = 0
+        self.UV = 0.0
         if Sigma is None:
             Sigma = np.zeros_like(self.R)
         self._Sigma = Sigma
@@ -26,6 +26,12 @@ class AccretionDisc(object):
         self.mass_lost = 0.0
         self.tot_mass_lost = 0.0
         self.i_edge = -1
+
+        # Global, time dependent properties
+        self._threshold = np.amin(self.Sigma)
+        self._Rout = np.array([self.R[-1]])
+        self._Mtot = np.array([])
+        self.Mtot()
 
     def ASCII_header(self):
         """Write header information about the disc"""
@@ -128,6 +134,32 @@ class AccretionDisc(object):
     @property
     def Omega_k(self):
         return self._star.Omega_k(self.R)
+
+    def Rout(self):
+        notempty = self.Sigma > self._threshold
+        notempty_cells = self.R[notempty]
+        if np.size(notempty_cells>0):
+            R_outer = notempty_cells[-1]
+        else:
+            R_outer = 0.0
+        self._Rout = np.append(self._Rout,[R_outer])
+        return self._Rout[-1]
+
+    def Rot(self,photoevap):
+        # Get the photo-evaporation rates at each cell as if it were the edge USING GAS SIGMA
+        not_empty = (self.Sigma_G > 0)
+        Mdot = photoevap.mass_loss_rate(self,not_empty)
+        # Find the maximum, corresponding to optically thin/thick boundary
+        i_max = np.size(Mdot) - np.argmax(Mdot[::-1]) - 1
+        self._Rout = np.append(self._Rout,[self.R[i_max]])
+        return self._Rout[-1]
+
+    def Mtot(self):
+        Re = self.R_edge * AU
+        dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
+        dM_tot = self.Sigma * dA
+        self._Mtot = np.append(self._Mtot,[np.sum(dM_tot)])
+        return self._Mtot[-1]
 
     def set_surface_density(self, Sigma):
         self._Sigma[:] = Sigma
