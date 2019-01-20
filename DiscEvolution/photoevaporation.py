@@ -115,6 +115,13 @@ class ExternalPhotoevaporationBase(object):
     def weighted_removal(self, disc, dt):
         (dM_dot, dM_gas) = self.optically_thin_weighting(disc,dt)
 
+        if (isinstance(disc,DustyDisc)):
+            #First get initial dust conditions
+            Sigma_D0 = disc.Sigma_D
+            not_dustless = (Sigma_D0.sum(0) > 0)
+            f_m = np.zeros_like(disc.Sigma)
+            f_m[not_dustless] = disc.dust_frac[1,:].flatten()[not_dustless]/disc.integ_dust_frac[not_dustless]
+
         # Annulus Areas
         Re = disc.R_edge * AU
         dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
@@ -124,12 +131,6 @@ class ExternalPhotoevaporationBase(object):
         disc._Sigma -= dM_evap / dA # This amount of mass is lost in GAS
         
         if (isinstance(disc,DustyDisc)):
-            #First get initial dust conditions
-            Sigma_D0 = disc.Sigma_D
-            not_dustless = (Sigma_D0.sum(0) > 0)
-            f_m = np.zeros_like(disc.Sigma)
-            f_m[not_dustless] = disc.dust_frac[1,:].flatten()[not_dustless]/disc.integ_dust_frac[not_dustless]
-
             # Update the maximum entrained size
             self._amax = self.Facchini_limit(disc,dM_dot *(yr/Msun))
 
@@ -224,7 +225,7 @@ class ExternalPhotoevaporationBase(object):
         # F = H / sqrt(H^2+R^2)
         # v_th = \sqrt(8/pi) C_S in AU / t_dyn
         # Mdot is in units of Msun yr^-1
-        # G=1 in units AU^3 Msun^-1 yr^-2
+        # G=1 in units AU^3 Msun^-1 t_dyn^-2
         
         F = disc.H / np.sqrt(disc.H**2+disc.R**2)
         rho = disc._rho_s
@@ -232,7 +233,7 @@ class ExternalPhotoevaporationBase(object):
         v_th = np.sqrt(8/np.pi) * disc.cs
         
         a_entr = (v_th * Mdot) / (Mstar * 4 * np.pi * F * rho)
-        a_entr *= yr * Msun / AU**2
+        a_entr *= Msun / AU**2 / yr
         return a_entr 
 
 class FixedExternalEvaporation(ExternalPhotoevaporationBase):
