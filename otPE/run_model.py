@@ -159,6 +159,15 @@ def run(model, io, base_name, plot_name, outer_radii, verbose=True, n_print=1000
     while not io.finished():
         ti = io.next_event_time()
         while model.t < ti:
+            not_empty = (model.disc.Sigma_G > 0)
+            Mdot = model.photoevap.mass_loss_rate(model.disc,not_empty)
+            if (np.amax(Mdot)<1e-6):
+                last_save = io.event_times('save')[-1]
+                last_plot = io.event_times('plot')[-1]
+                last_t = max(last_save,last_plot)
+                io.pop_events(last_t)
+                break
+
             dt = model(ti)
 
             if verbose and (model.num_steps % n_print) == 0:
@@ -363,7 +372,7 @@ def main():
 
     # Save radius data
     plot_times=np.insert(np.array(model['output']['plot_times']),0,0)
-    outputdata = np.column_stack((plot_times,outer_radii))
+    outputdata = np.column_stack((plot_times[0:np.size(outer_radii):1],outer_radii))
     np.savetxt(plot_name+"_discproperties.dat",outputdata)
 
     # Check separate plotting function

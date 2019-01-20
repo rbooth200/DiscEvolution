@@ -260,6 +260,7 @@ class DustGrowthTwoPop(DustyDisc):
 
         self.Mdust()
         self._threshold = np.amin(self.Sigma_D.sum(0))
+        self.Rdust()
 
     def ASCII_header(self):
         """Dust growth header"""

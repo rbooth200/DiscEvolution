@@ -92,7 +92,6 @@ class ExternalPhotoevaporationBase(object):
         Mdot = self.mass_loss_rate(disc,not_empty)
         # Find the maximum, corresponding to optically thin/thick boundary
         i_max = np.size(Mdot) - np.argmax(Mdot[::-1]) - 1
-
         # Annulus GAS masses
         Re = disc.R_edge * AU
         dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
@@ -307,7 +306,7 @@ class FRIEDExternalEvaporationS(ExternalPhotoevaporationBase):
         final_rates[norate] = 1e-10
         self._Mdot = final_rates
         return final_rates
-
+        
     def max_size_entrained(self, disc):
         # Update maximum entrained size
         self._amax = self.Facchini_limit(disc,self._Mdot)

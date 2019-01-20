@@ -39,8 +39,8 @@
     "base"	: "disc",
     "format"    : "ascii",
     "first"     : 0.0,
-    "last"      : 5e5,
-    "interval"  : 5e3,
+    "last"      : 1e5,
+    "interval"  : 1e3,
     "plot"      : true,
     "plot_times" : [2.5e3,5e3,7.5e3,1e4,1.25e4,2e4,3e4,4e4,6e4,8e4],
     "plot_name" : "weighted"

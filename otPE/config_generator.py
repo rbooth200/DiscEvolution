@@ -47,7 +47,7 @@ number = end/step
 
 #words[41][2] = str(end) + ','
 #words[44][2] = np.array2string(np.linspace(step,end,number,endpoint=True,dtype=int),max_line_width=1e4,separator=',') + ',' # Linear times
-words[44][2] = np.array2string(np.logspace(3,4,11,endpoint=True,base=10,dtype=int),max_line_width=1e4,separator=',') + ',' # Log times
+words[44][2] = np.array2string(np.logspace(3,5,21,endpoint=True,base=10,dtype=int),max_line_width=1e4,separator=',') + ',' # Log times
 words[37][2] = words[37][2][:-2]+ '_' + str(testno) + '",'	# Update output folder name
 words[45][2] = words[45][2][:-1]+ '_' + str(testno) + '"'	# Update plot filename
 
