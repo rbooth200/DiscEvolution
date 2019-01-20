@@ -28,8 +28,7 @@ class AccretionDisc(object):
         self.i_edge = -1
 
         # Global, time dependent properties
-        self._threshold = np.amin(self.Sigma)
-        self._Rout = np.array([self.R[-1]])
+        self._Rout = np.array([])
         self._Mtot = np.array([])
         self.Mtot()
 
@@ -134,16 +133,6 @@ class AccretionDisc(object):
     @property
     def Omega_k(self):
         return self._star.Omega_k(self.R)
-
-    def Rout(self):
-        notempty = self.Sigma > self._threshold
-        notempty_cells = self.R[notempty]
-        if np.size(notempty_cells>0):
-            R_outer = notempty_cells[-1]
-        else:
-            R_outer = 0.0
-        self._Rout = np.append(self._Rout,[R_outer])
-        return self._Rout[-1]
 
     def Rot(self,photoevap):
         # Get the photo-evaporation rates at each cell as if it were the edge USING GAS SIGMA

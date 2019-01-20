@@ -37,6 +37,7 @@ class DustyDisc(AccretionDisc):
 
         # Global, time dependent properties
         self._Mdust = np.array([])
+        self._Rdust = np.array([])
 
     def Stokes(self, Sigma=None, size=None):
         """Stokes number of the particle"""
@@ -117,6 +118,17 @@ class DustyDisc(AccretionDisc):
         dM_dust = self.Sigma_D.sum(0) * dA
         self._Mdust = np.append(self._Mdust,[np.sum(dM_dust)])
         return self._Mdust[-1]
+
+    def Rdust(self):
+        notempty = self.Sigma_D.sum(0) > self._threshold
+        notempty_cells = self.R[notempty]
+        if np.size(notempty_cells>0):
+            R_outer = notempty_cells[-1]
+        else:
+            R_outer = 0.0
+        self._Rdust = np.append(self._Rdust,[R_outer])
+        return self._Rdust[-1]
+
     
     def update(self, dt):
         """Update the disc properites and age"""
@@ -247,6 +259,7 @@ class DustGrowthTwoPop(DustyDisc):
         self.update(0)
 
         self.Mdust()
+        self._threshold = np.amin(self.Sigma_D.sum(0))
 
     def ASCII_header(self):
         """Dust growth header"""

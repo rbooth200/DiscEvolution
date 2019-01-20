@@ -116,13 +116,6 @@ class ExternalPhotoevaporationBase(object):
     def weighted_removal(self, disc, dt):
         (dM_dot, dM_gas) = self.optically_thin_weighting(disc,dt)
 
-        if (isinstance(disc,DustyDisc)):
-            self._amax = self.Facchini_limit(disc,dM_dot *(yr/Msun))
-            Sigma_D = disc.Sigma_D
-            not_dustless = (Sigma_D.sum(0) > 0)
-            f_m = np.zeros_like(disc.Sigma)
-            f_m[not_dustless] = disc.dust_frac[1,:].flatten()[not_dustless]/disc.integ_dust_frac[not_dustless]
-
         # Annulus Areas
         Re = disc.R_edge * AU
         dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
@@ -131,27 +124,29 @@ class ExternalPhotoevaporationBase(object):
         deplete = np.zeros_like(disc.Sigma)
         disc._Sigma -= dM_evap / dA # This amount of mass is lost in GAS
         
-        #(f_ent_s , f_ent_l) = self.dust_entrainment(disc)
-        #print ((f_ent_s , f_ent_l))
-        M_ent = self.dust_entrainment(disc)
-        M_ent_w= np.zeros_like(M_ent)
-        M_ent_w[(dM_gas > 0)] = M_ent[(dM_gas > 0)] * dM_evap[(dM_gas > 0)] / dM_gas[(dM_gas > 0)]
-        #(f_ent_s , f_ent_l) = (np.zeros_like(disc.R), np.zeros_like(disc.R))
-        disc._Sigma -= M_ent_w / dA
-        #disc._Sigma[not_empty] -= disc.Sigma_D[0,:].flatten()[not_empty] * f_ent_s.flatten()[not_empty] # This fraction of mass is lost in SMALL DUST
-        #disc._Sigma[not_empty] -= disc.Sigma_D[1,:].flatten()[not_empty] * f_ent_l.flatten()[not_empty] # This fraction of mass is lost in LARGE DUST
-
-        # For now, no entrainment, Sigma_D is as before so all of above loss must be gas 
-        # With entrainment, must also lower the dust densities
         if (isinstance(disc,DustyDisc)):
-            #disc._eps[0][not_empty] = Sigma_D[0,:].flatten()[not_empty] * (1.0 - f_ent_s.flatten()[not_empty]) / disc.Sigma[not_empty]
-            #disc._eps[1][not_empty] = Sigma_D[1,:].flatten()[not_empty] * (1.0 - f_ent_l.flatten()[not_empty]) / disc.Sigma[not_empty]
+            #First get initial dust conditions
+            Sigma_D0 = disc.Sigma_D
+            not_dustless = (Sigma_D0.sum(0) > 0)
+            f_m = np.zeros_like(disc.Sigma)
+            f_m[not_dustless] = disc.dust_frac[1,:].flatten()[not_dustless]/disc.integ_dust_frac[not_dustless]
+
+            # Update the maximum entrained size
+            self._amax = self.Facchini_limit(disc,dM_dot *(yr/Msun))
+
+            # Work out the total mass in entrained dust, and remove proportionally to gas loss 
+            M_ent = self.dust_entrainment(disc)
+            M_ent_w = np.zeros_like(M_ent)
+            M_ent_w[(dM_gas > 0)] = M_ent[(dM_gas > 0)] * dM_evap[(dM_gas > 0)] / dM_gas[(dM_gas > 0)]
+            disc._Sigma -= M_ent_w / dA
+
+            # Update the dust mass fractions
             not_empty = (disc.Sigma > 0)
             new_dust_frac = np.zeros_like(disc.Sigma)
-            new_dust_frac[not_empty] = (Sigma_D.sum(0)[not_empty] - M_ent_w[not_empty] / dA[not_empty]) / disc._Sigma[not_empty]
-            disc._eps[0][not_empty] = new_dust_frac[not_empty] * (1-f_m[not_empty])
+            new_Sigma_D = Sigma_D0.sum(0)[not_empty] - M_ent_w[not_empty] / dA[not_empty]
+            new_dust_frac[not_empty] = new_Sigma_D / disc.Sigma[not_empty]
+            disc._eps[0][not_empty] = new_dust_frac[not_empty] * (1.0-f_m[not_empty])
             disc._eps[1][not_empty] = new_dust_frac[not_empty] * f_m[not_empty]
-            #print (new_eps)
 
     def dust_entrainment(self, disc):
         # Representative sizes
@@ -169,23 +164,11 @@ class ExternalPhotoevaporationBase(object):
         #
         not_empty = (disc.Sigma_G>0)
         M_ent = np.zeros_like(disc.Sigma)
-        M_ent_small = np.zeros_like(disc.Sigma)
-        M_ent_large = np.zeros_like(disc.Sigma)
-        f_ent_s = np.zeros_like(disc.Sigma)
-        f_ent_l = np.zeros_like(disc.Sigma)
 
         # Calculate mass of each population that is entrained
-        """print(np.shape(M_ent[not_empty]))
-        print(np.shape(M_dust.sum(0)[not_empty]))
-        print(np.shape(amax[not_empty]))
-        print(np.shape(a_ent[not_empty]))
-        print(np.shape(np.ones_like(amax)[not_empty]))
-        print(np.shape(M_dust.sum(0)[not_empty] * np.minimum(np.ones_like(amax)[not_empty],[(a_ent[not_empty]/amax[not_empty])**(1/2)]).flatten()))"""
         M_ent[not_empty] = M_dust.sum(0)[not_empty] * np.minimum(np.ones_like(amax)[not_empty],[(a_ent[not_empty]/amax[not_empty])**(1/2)]).flatten() # Take as entrained lower of all dust mass, or the fraction from MRN
-        M_ent_small[not_empty] = M_dust[0,:][not_empty] * np.minimum(np.ones_like(amax)[not_empty],[(a_ent[not_empty]/np.minimum(a_eq[not_empty],amax[not_empty]))**(1/2)]).flatten() # Take as entrained, lower of all small dust, or the fraction from MRN, which depends on if upper limit is set by becoming large or largest dust, taking the smaller of those two
-        M_ent_large[not_empty] = M_ent[not_empty] - M_ent_small[not_empty] # Take as entrained the difference between the total and small
-        """Look at numpy.seterr in header /// Just need to consider total mass"""
-        """Consider whether dust left behind or drifts in"""
+        """Look at numpy.seterr in header"""
+        """Consider different distributions for weighting?"""
 
         # Return fraction of each population that is entrained
         #f_ent_s[not_empty] = M_ent_small[not_empty]/M_dust[0,:][not_empty]
