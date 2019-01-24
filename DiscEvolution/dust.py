@@ -642,7 +642,7 @@ class SingleFluidDrift(object):
             
             eps_k[:] += dt*self._fluxes(disc, eps_k, dV_k, St_k, dt)
 
-            a_k[:] = eps_a / (eps_k + 1e-300)
+            #a_k[:] = eps_a / (eps_k + 1e-300)
 
         if dust_tracers is not None:
             dust_tracers[:] += d_tr

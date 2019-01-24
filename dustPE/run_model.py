@@ -355,6 +355,7 @@ def timeplot(model, radius_data, nv_data):
     plt.close()
 
 def main():
+    np.seterr(invalid='raise')
     # Retrieve model from inputs
     import argparse
     parser = argparse.ArgumentParser()

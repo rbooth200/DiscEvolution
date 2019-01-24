@@ -63,7 +63,7 @@ class DiscEvolutionDriver(object):
         if self._diffusion:
             dt = min(dt, self._diffusion.max_timestep(self._disc))
         if self.photoevap is not None:
-            (dM_dot, dM_gas) = self.photoevap.optically_thin_weighting(disc,dt)
+            (dM_dot, dM_gas) = self.photoevap.optically_thin_weighting(disc)
             Dt = dM_gas[(dM_dot>0)] / dM_dot[(dM_dot>0)]
             Dt_min = np.min(Dt)
             dt = min(dt,Dt_min)

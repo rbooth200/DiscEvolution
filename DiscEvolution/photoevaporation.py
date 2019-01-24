@@ -82,21 +82,39 @@ class ExternalPhotoevaporationBase(object):
                 disc.mass_lost = dM_tot[half_empty] * (1.0-mass_left)
                 disc.i_edge = half_empty
             disc.tot_mass_lost += dM_tot[half_empty] * (1.0-mass_left)
-        
-    def optically_thin_weighting(self, disc, dt):
+
+    def unweighted_rates(self, disc):
         # Locate and select cells that aren't empty OF GAS
         Sigma_G = disc.Sigma_G
         not_empty = (disc.Sigma_G > 0)
 
-        # Get the photo-evaporation rates at each cell as if it were the edge USING GAS SIGMA
-        Mdot = self.mass_loss_rate(disc,not_empty)
-        # Find the maximum, corresponding to optically thin/thick boundary
-        i_max = np.size(Mdot) - np.argmax(Mdot[::-1]) - 1
         # Annulus GAS masses
         Re = disc.R_edge * AU
         dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
         dM_gas = disc.Sigma_G * dA
 
+        # Get the photo-evaporation rates at each cell as if it were the edge USING GAS SIGMA
+        Mdot = self.mass_loss_rate(disc,not_empty)
+
+        # Convert Msun / yr to g / dynamical time
+        dM_dot = Mdot * Msun / (2 * np.pi)
+        return (dM_dot, dM_gas)
+        
+    def optically_thin_weighting(self, disc):
+        # Locate and select cells that aren't empty OF GAS
+        Sigma_G = disc.Sigma_G
+        not_empty = (disc.Sigma_G > 0)
+
+        # Annulus GAS masses
+        Re = disc.R_edge * AU
+        dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
+        dM_gas = disc.Sigma_G * dA
+
+        # Get the photo-evaporation rates at each cell as if it were the edge USING GAS SIGMA
+        Mdot = self.mass_loss_rate(disc,not_empty)
+
+        # Find the maximum, corresponding to optically thin/thick boundary
+        i_max = np.size(Mdot) - np.argmax(Mdot[::-1]) - 1
         # Weighting function USING GAS MASS
         ot_radii = (disc.R >= disc.R[i_max])
         s = disc.R**(3/2) * disc.Sigma_G
@@ -113,7 +131,7 @@ class ExternalPhotoevaporationBase(object):
         return (dM_dot, dM_gas)
 
     def weighted_removal(self, disc, dt):
-        (dM_dot, dM_gas) = self.optically_thin_weighting(disc,dt)
+        (dM_dot, dM_gas) = self.optically_thin_weighting(disc)
 
         if (isinstance(disc,DustyDisc)):
             #First get initial dust conditions
@@ -275,7 +293,7 @@ class FRIEDExternalEvaporationMS(ExternalPhotoevaporationBase):
         calc_rates[not_empty] = self.FRIED_Rates.PE_rate(( disc.Sigma_G[not_empty], disc.R[not_empty] ))
         norate = np.isnan(calc_rates)
         final_rates = calc_rates
-        final_rates[norate] = 1e-10
+        final_rates[norate] = 1e-11
         #self._Mdot = final_rates
         return final_rates
 
