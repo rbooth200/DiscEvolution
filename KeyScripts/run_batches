@@ -1,0 +1,11 @@
+#!/bin/bash
+
+bash run_many 0.001 1000 FRIED # Run with low visc, high UV
+bash run_many 0.01 1000 FRIED # Run with higher visc, high UV
+bash run_many 0.001 100 FRIED # Run with low visc, low UV
+
+#bash run_many 0.001 1000 Integrated # Run with low visc, high UV
+#bash run_many 0.01 1000 Integrated # Run with higher visc, high UV
+#bash run_many 0.001 100 Integrated # Run with low visc, low UV
+
+chmod +x run_batches

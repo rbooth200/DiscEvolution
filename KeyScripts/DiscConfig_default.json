@@ -1,0 +1,53 @@
+{
+  "grid" : {
+    "N"  : 1024,
+    "R0" : 0.1,
+    "R1" : 400.0,
+    "spacing" : "natural"
+  },
+
+  "disc" : {
+    "alpha"   : 1e-3,
+    "mass"    : 0.1,
+    "Rc"      : 100.0,
+    "d2g"     : 0.00,
+    "Schmidt" : 1.0,
+    "profile" : "LBP"
+    },
+
+  "eos" : {
+     "type" : "iso", 
+     "opacity" : "Tazzari2016",
+     "h0" : 0.033,
+     "q"  : -0.25
+  },
+
+  "star" : {
+    "mass"   : 1.0,
+    "radius" : 2.5,
+    "T_eff"  : 4000.0
+  },
+
+  "transport" : {
+    "gas"          : true, 
+    "radial drift" : false,
+    "diffusion"	   : false		   
+  },
+
+  "output" : {
+    "directory" : "gas_only",
+    "base"	: "disc",
+    "format"    : "ascii",
+    "first"     : 0.0,
+    "last"      : 1e5,
+    "interval"  : 1e5,
+    "plot"      : true,
+    "plot_times" : [0,1e3,3e3,1e4,3e4,1e5],
+    "plot_name" : "gas_only"
+  },
+
+  "uv" : {
+    "photoevaporation" : "FRIED",
+    "uv_field" : 1000
+  }
+}
