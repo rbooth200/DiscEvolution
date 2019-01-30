@@ -28,9 +28,13 @@ class AccretionDisc(object):
         self.i_edge = -1
 
         # Global, time dependent properties
+        self._threshold = 1e-5
         self._Rout = np.array([])
+        self._Rot = np.array([])
         self._Mtot = np.array([])
         self.Mtot()
+        self.Rout()
+        self._Mdot_acc = np.array([])
 
     def ASCII_header(self):
         """Write header information about the disc"""
@@ -140,7 +144,17 @@ class AccretionDisc(object):
         Mdot = photoevap.mass_loss_rate(self,not_empty)
         # Find the maximum, corresponding to optically thin/thick boundary
         i_max = np.size(Mdot) - np.argmax(Mdot[::-1]) - 1
-        self._Rout = np.append(self._Rout,[self.R[i_max]])
+        self._Rot = np.append(self._Rot,[self.R[i_max]])
+        return self._Rot[-1]
+
+    def Rout(self):
+        notempty = self.Sigma_G > self._threshold
+        notempty_cells = self.R[notempty]
+        if np.size(notempty_cells>0):
+            R_outer = notempty_cells[-1]
+        else:
+            R_outer = 0.0
+        self._Rout = np.append(self._Rout,[R_outer])
         return self._Rout[-1]
 
     def Mtot(self):

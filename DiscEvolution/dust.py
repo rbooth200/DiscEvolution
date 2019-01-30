@@ -120,7 +120,7 @@ class DustyDisc(AccretionDisc):
         return self._Mdust[-1]
 
     def Rdust(self):
-        notempty = self.Sigma_D.sum(0) > self._threshold
+        notempty = self.Sigma_D.sum(0) > self._threshold_d
         notempty_cells = self.R[notempty]
         if np.size(notempty_cells>0):
             R_outer = notempty_cells[-1]
@@ -259,7 +259,7 @@ class DustGrowthTwoPop(DustyDisc):
         self.update(0)
 
         self.Mdust()
-        self._threshold = np.amin(self.Sigma_D.sum(0))
+        self._threshold_d = np.amin(self.Sigma_D.sum(0))
 
     def ASCII_header(self):
         """Dust growth header"""

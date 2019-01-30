@@ -8,6 +8,7 @@
 from __future__ import print_function
 import numpy as np
 import os
+import FRIED.photorate as photorate
 
 from . import io
 
@@ -62,12 +63,13 @@ class DiscEvolutionDriver(object):
             dt = min(dt, self._dust.max_timestep(self._disc))
         if self._diffusion:
             dt = min(dt, self._diffusion.max_timestep(self._disc))
-        if self.photoevap is not None:
+        if ((self.photoevap is not None) and not isinstance(self.photoevap.FRIED_Rates,photorate.FRIED_2DM)):
             (dM_dot, dM_gas) = self.photoevap.optically_thin_weighting(disc)
             Dt = dM_gas[(dM_dot>0)] / dM_dot[(dM_dot>0)]
             Dt_min = np.min(Dt)
             dt = min(dt,Dt_min)
 
+        if (self.photoevap is not None):
             self.photoevap(disc,dt,self.t) # Must apply PE here so that the timescales, if limiting, are correct 
 
         gas_chem, ice_chem = None, None
