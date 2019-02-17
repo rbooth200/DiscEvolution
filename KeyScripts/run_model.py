@@ -32,6 +32,7 @@ from DiscEvolution.io import Event_Controller
 from DiscEvolution.disc_utils import mkdir_p
 import DiscEvolution.photoevaporation as photoevaporation
 import FRIED.photorate as photorate
+from cycler import cycler
 
 ###############################################################################
 # Global Constants
@@ -113,7 +114,7 @@ def setup_model(model, disc):
     if (model['uv']['photoevaporation'] == "FRIED"):
         photoevap = photoevaporation.FRIEDExternalEvaporationMS(disc) # Using 2DMS at 400
     elif (model['uv']['photoevaporation'] == "Constant"):
-        photoevap = photoevaporation.FixedExternalEvaporation(1e-9)
+        photoevap = photoevaporation.FixedExternalEvaporation(disc, Mdot=1e-9)
     elif (model['uv']['photoevaporation'] == "compare"):
         photoevap = photoevaporation.FRIEDExternalEvaporationMS(disc) # Using 2DMS at 400
     elif (model['uv']['photoevaporation'] == "Integrated"):
@@ -158,25 +159,25 @@ def setup_output(model):
     return base_name, EC
     
     
-def run(model, io, base_name, plot_name, ylims, mass_loss_mode, verbose=True, n_print=1000):
-    i=0
-    threshold = model.disc.Sigma[-1]
+def run(model, io, base_name, plot_name, ylims, mass_loss_mode, dust_radii_thresholds, verbose=True, n_print=1000):
+    i=-1 # Initialise the plotting number
     while not io.finished():
         ti = io.next_event_time()
         while model.t < ti:
             """The model breaks down when all at base rate because i_max = i_edge, Sigma(i_edge -> 0). Instead, terminate the model"""
             not_empty = (model.disc.Sigma_G > 0)
-            Mdot = model.photoevap.mass_loss_rate(model.disc,not_empty)
-            if (np.amax(Mdot)<=1e-10):
-                last_save=0
-                last_plot=0
-                if (np.size(io.event_times('save'))>0):
-                    last_save = io.event_times('save')[-1]
-                if (np.size(io.event_times('plot'))>0):
-                    last_plot = io.event_times('plot')[-1]
-                last_t = max(last_save,last_plot)
-                io.pop_events(last_t)
-                break
+            if (model.photoevap is not None):
+                Mdot = model.photoevap.mass_loss_rate(model.disc,not_empty)
+                if (np.amax(Mdot)<=1e-10):
+                    last_save=0
+                    last_plot=0
+                    if (np.size(io.event_times('save'))>0):
+                        last_save = io.event_times('save')[-1]
+                    if (np.size(io.event_times('plot'))>0):
+                        last_plot = io.event_times('plot')[-1]
+                    last_t = max(last_save,last_plot)
+                    io.pop_events(last_t)
+                    break
 
             dt = model(ti)
 
@@ -198,197 +199,329 @@ def run(model, io, base_name, plot_name, ylims, mass_loss_mode, verbose=True, n_
             print('Time: {} yr'.format(model.t / (2 * np.pi)))
             
             grid = model.disc.grid
-           
-            (M_evap, M_ann) = model.photoevap.unweighted_rates(model.disc)
 
-            plt.figure()
-            plt.rcParams['text.usetex'] = "True"
+            # Plot of initial evolutionary timescales
+            if (i < 0 and isinstance(model.disc,DustGrowthTwoPop)):
+                plt.figure()
+                plt.rcParams['text.usetex'] = "True"
+                plt.rcParams['font.family'] = "serif"
+
+                # Photoevaporation calculations
+                (M_evap, _, _, t_evap) = model.photoevap.get_timescale(model.disc)
+                plt.loglog(grid.Rc, t_evap  / (2*np.pi), color='green', label='$t_{evap}$')
+
+                # Radial drift timescale for fragmentation limited dust
+                t_drift_f = 3 * model.disc.alpha * model.disc.star.M**(1/2) / (0.37 * 11/4 * model.disc._uf**2)
+                plt.loglog(grid.Rc, t_drift_f * grid.Rc**(1/2) / (2*np.pi), color='red', label='$\\tau_{drift}$')
+
+                # Growth timescale
+                eps_tot = model.disc.dust_frac.sum(0)
+                eps_tot = np.minimum(eps_tot,1.0)
+                t_grow_e = model.disc._t_grow(eps_tot)
+
+                # Work out local dust size limit, not including growth
+                afrag_t = model.disc._frag_limit()
+                adrift, afrag_d =  model.disc._drift_limit(eps_tot)
+                afrag = np.minimum(afrag_t, afrag_d)
+                a1    = np.minimum(afrag, adrift)
+                # Growth time to maximum size is
+                t_grow_max = t_grow_e * np.log(a1/model.disc._monomer)
+                plt.loglog(grid.Rc, t_grow_max / (2*np.pi), color='blue', label='$t_{grow,max}$')
+
+                # Growth time to entrained size
+                a_ent = model.photoevap.Facchini_limit(model.disc, M_evap *(yr/Msun))
+                t_grow_ent = t_grow_e * np.log(a_ent/model.disc._monomer)
+                plt.loglog(grid.Rc, t_grow_ent / (2*np.pi), color='blue', linestyle='--', label='$t_{grow,ent}$')
+
+                # Growth size to significantly drifting size
+                F = model.disc.H / np.sqrt(model.disc.H**2+model.disc.R**2)
+                a_rd = 2**(7/2) / (np.pi**(3/2) * 11/4) * F * (model.disc.R * model.disc.Omega_k / model.disc.cs)**3 * a_ent
+                t_grow_rd = t_grow_e * np.log(a_rd/model.disc._monomer)
+                plt.loglog(grid.Rc, t_grow_rd / (2*np.pi), color='blue', linestyle='-.', label='$t_{grow,rd}$')                
+
+                # Label plot
+                plt.legend()                
+                plt.xlim([1,400])
+                plt.xlabel('$R~/~\mathrm{AU}$',fontsize=13)
+                plt.ylim([1e3,1e6])
+                plt.ylabel('$t~/~\mathrm{yr}$', fontsize=13)
+                plt.title('Initial Timescales of Dust Evolution', fontsize=16)
+                plt.savefig(plot_name+"_timescales.png")
+                
+                # Print summary information
+                when_drain = np.argmin(np.abs(t_evap-t_grow_rd))
+                Rc_d = grid.Rc[when_drain]
+                t_d = t_evap[when_drain]/(2*np.pi)
+                t_drift_d = t_drift_f*Rc_d**(1/2)/(2*np.pi)
+                print ("Dust will radially drift away from barrier when \t t = {} yr".format(t_d))
+                print ("At this point the base of the wind is at \t\t R_w = {} AU".format(Rc_d))
+                print ("This dust radially drifts with timescale \t\t t = {} yr".format(t_drift_d))
+                print ("Hence the disc has drained after \t\t\t t = {} yr".format(t_d + 2 * t_drift_d))
+                timescale_file = open(plot_name+"_timescales.dat",'w')
+                timescale_file.write("Dust will radially drift away from barrier when  t = {} yr \n".format(t_d))
+                timescale_file.write("At this point the base of the wind is at \t\t R_w = {} AU \n".format(Rc_d))
+                timescale_file.write("This dust radially drifts with timescale \t\t t = {} yr \n".format(t_drift_d))
+                timescale_file.write("Hence the disc has drained after \t\t\t\t t = {} yr \n".format(t_d + 2 * t_drift_d))
+                timescale_file.close()
+
+            # Set plot number and setup figure
             i+=1
-            no_plots = 2 + int(model.photoevap == None) + int(isinstance(model.disc,DustGrowthTwoPop))
+            no_plots = 2 - int(model.photoevap == None) + int(isinstance(model.disc,DustGrowthTwoPop)) + int(model.dust != None)
+            plt.subplots(no_plots,1,sharex=True,figsize=(8,2.5*no_plots))
+            plt.rcParams['text.usetex'] = "True"
+            plt.rcParams['font.family'] = "serif"
             
+            ### SUBPLOT 1 ###
             # Plot of density profile
             plt.subplot(no_plots,1,1)
             plt.loglog(grid.Rc, model.disc.Sigma_G, label='$\Sigma_\mathrm{G}$')
             if (isinstance(model.disc,DustGrowthTwoPop)):
                 plt.loglog(grid.Rc, model.disc.Sigma_D.sum(0), label='$\Sigma_\mathrm{D}$', linestyle='--')
-            plt.ylabel('$\Sigma$')
+            plt.ylabel('$\Sigma~/~\mathrm{g~cm}^{-2}$',fontsize=13)
             plt.xlim([1,500])
             plt.ylim(ylims)
             plt.legend(loc=3)
 
+            ### SUBPLOT 2 ###
             # Plot of weighted mass loss rate profiles and comparisons
-            plt.subplot(no_plots,1,2)
-            cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
+            if (model.photoevap is not None):
+                plt.subplot(no_plots,1,2)
+                cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
-            if (model.photoevap == None):
-                """(M_dot_MS,M_ann) = photoevap.optically_thin_weighting(model.disc)
-                (M_dot_S,_) = photoevap2.optically_thin_weighting(model.disc)
-                plt.loglog(grid.Rc, M_ann, label='Annulus Mass')
-                plt.loglog(grid.Rc, M_evapMS*dt, label='Raw Mass Lost $(M)$')
-                plt.loglog(grid.Rc, M_evapS*dt, label='Raw Mass Lost $(\Sigma)$')
-                plt.loglog(grid.Rc, M_dot_MS*dt, label='Weighted Mass Lost $(M)$')
-                plt.loglog(grid.Rc, M_dot_S*dt, label='Weighted Mass Lost $(\Sigma)$')"""
+                # Get the raw mass loss rates 
+                (M_evap, M_ann) = model.photoevap.unweighted_rates(model.disc)
+                # Get the weighted mass loss rates (Track=True to save integrated quantity for plotting)
+                (M_dot, _) = model.photoevap.optically_thin_weighting(model.disc, Track=True)
 
-            lha = plt.gca()
-            (M_dot, _) = model.photoevap.optically_thin_weighting(model.disc, Track=True)
-            lha.loglog(grid.Rc, M_ann, label='Annulus Mass')
-            lha.set_ylabel('$M/~\mathrm{g}$')
-            rha = lha.twinx()
+                # Mass profile on the left axes
+                lha = plt.gca()
+                lha.loglog(grid.Rc, M_ann, label='Annulus Mass')
+                lha.set_ylabel('$M~/~\mathrm{g}$',fontsize=13)
+                if (i==0):
+                    ylimsl = lha.get_ylim()
+                lha.set_ylim(ylimsl)
+                if (no_plots == 2):
+                    plt.xlabel('$R~/~\mathrm{AU}$',fontsize=13)
 
-            if (mass_loss_mode == 'compare'):
-                photoevapM = photoevaporation.FRIEDExternalEvaporationM(model.disc)
-                (M_evapM, _) = photoevapM.unweighted_rates(model.disc)
-                rha.loglog(grid.Rc, M_evapM * (2 * np.pi), label='Mass Lost ($M_{integ}$)', color=cycle[3],marker='x')
+                # Mass loss on the right axes
+                rha = lha.twinx()
+                rha.loglog(grid.Rc, M_evap * (2 * np.pi), label='Raw Mass Lost ($M_{400}(\Sigma)$)', color=cycle[1])
+                rha.loglog(grid.Rc, M_dot * (2 * np.pi), label='Weighted Mass Lost ($M_{400}(\Sigma)$)', color=cycle[2])
+                rha.set_ylabel('$\dot{M}/~\mathrm{g~yr}^{-1}$',fontsize=13)
 
-                photoevapS = photoevaporation.FRIEDExternalEvaporationS(model.disc)
-                (M_evapS, _) = photoevapS.unweighted_rates(model.disc)
-                rha.loglog(grid.Rc, M_evapS * (2 * np.pi), label='Mass Lost ($\Sigma$)', color=cycle[4])
+                if (mass_loss_mode == 'compare'):
+                    photoevapM = photoevaporation.FRIEDExternalEvaporationM(model.disc)
+                    (M_evapM, _) = photoevapM.unweighted_rates(model.disc)
+                    rha.loglog(grid.Rc, M_evapM * (2 * np.pi), label='Mass Lost ($M_{integ}$)', color=cycle[3],marker='x')
 
-            rha.loglog(grid.Rc, M_evap * (2 * np.pi), label='Raw Mass Lost ($M_{400}(\Sigma)$)', color=cycle[1])
-            rha.loglog(grid.Rc, M_dot * (2 * np.pi), label='Weighted Mass Lost ($M_{400}(\Sigma)$)', color=cycle[2])
-            rha.set_ylabel('$\dot{M}/~\mathrm{g~yr}^{-1}$')
+                    photoevapS = photoevaporation.FRIEDExternalEvaporationS(model.disc)
+                    (M_evapS, _) = photoevapS.unweighted_rates(model.disc)
+                    rha.loglog(grid.Rc, M_evapS * (2 * np.pi), label='Mass Lost ($\Sigma$)', color=cycle[4])
 
-            if (i==1):
-                ylims2 = [1e-12* Msun,10*np.max(M_evap)]
-                yrange = ylims2[1]/ylims2[0]
-                ylimsl = lha.get_ylim()
-            rha.set_ylim([1e-12* Msun,yrange*1e-12* Msun])
-            lha.set_ylim(ylimsl)
+                if (i==0):
+                    ylimsr = [2e-11* Msun,5*np.max(M_evap*2*np.pi)]
+                rha.set_ylim(ylimsr)
 
-            plt.xlim([1,500])
-            plt.xlabel('$R/~\mathrm{AU}$')
-            plt.legend(loc=2)
+                plt.xlim([1,500])
+                plt.legend(loc=2)
 
-            if (model.photoevap == None):
-                # Plot of actual mass loss rate profiles and comparisons 
-                plt.subplot(313)
-                plt.semilogy(grid.Rc, M_ann / M_ann[-1], label='Annulus Mass')
-                plt.semilogy(grid.Rc, M_evapMS / M_evapMS[-1], label='Mass Lost $(M)$')
-                plt.semilogy(grid.Rc, M_evapS / M_evapS[-1], label='Mass Lost $(\Sigma)$')
-                RSigma = grid.Rc * model.disc.Sigma_G
-                RSigma *= M_evap[-1] / RSigma[-1]
-                plt.semilogy(grid.Rc, RSigma / RSigma[-1], label='$R\Sigma$ Limit')
-                plt.semilogy(grid.Rc, np.ones_like(grid.Rc), linestyle='--', color='black')
-                plt.semilogy(grid.Rc, np.power(grid.Rc/grid.Rc[-1],1.5)*model.disc.Sigma_G/model.disc.Sigma_G[-1], linestyle='--', color='blue', label='$R^{3/2} \Sigma$')
-
-                plt.xlabel('$R/\mathrm{AU}$')
-                plt.ylabel('$M$ (normalised)')
-                plt.xlim([100,400])
-                ylims3 = plt.ylim()
-                plt.ylim([1,ylims3[1]])
-                plt.legend()
-
+            #### SUBPLOT 3 ###
+            # Dust size distributions
             if (isinstance(model.disc,DustGrowthTwoPop)):
-                plt.subplot(313)
+                plt.subplot(no_plots,1,no_plots-1)
                 
+                # Large/small boundary
                 St_eq = model.disc._eos.alpha/2
                 a_eq = 2/np.pi * St_eq * model.disc.Sigma_G/model.disc._rho_s
                 plt.loglog(grid.Rc, a_eq, label='$a_{eq}$')
                 
-                #a_ent = model.photoevap.max_size_entrained(model.disc)
-                a_ent = model.photoevap._amax
-                plt.loglog(grid.Rc, a_ent, label='$a_{ent}$')
+                # Maximum entrained size
+                if (model.photoevap is not None):
+                    a_ent = model.photoevap._amax
+                    plt.loglog(grid.Rc, a_ent, label='$a_{ent}$')
+                else:
+                    a_ent = np.zeros_like(a_eq)
 
+                # Maximum size of dust
                 a_max = model.disc.grain_size[1,:].flatten()
                 plt.loglog(grid.Rc, a_max, label='$a_{max}$')
 
-                plt.xlabel('$R/\mathrm{AU}$')
-                plt.ylabel('$a$')
+                plt.ylabel('$a~/~\mathrm{cm}$',fontsize=13)
                 plt.xlim([1,500])
-                ylims3 = plt.ylim()
-                plt.ylim([model.disc._amin/10.0,10.0*np.amax(np.maximum.reduce([a_max,a_eq,a_ent]))])
+                plt.ylim( [ model.disc._monomer/10.0 , 10.0*np.amax(np.maximum.reduce([a_max,a_eq,a_ent])) ] )
                 plt.legend(loc=6)
 
-            # Locate outer radius
-            R_outer = model.disc.Rot(model.photoevap) #Rot = optically thin, Rout=10^-5
-            R_outer = model.disc.Rout()
-            M_tot = model.disc.Mtot()
+            ### SUBPLOT 4 ###
+            # Dust mass fluxes
+            """
+            if (model.dust != None):
+                plt.subplot(no_plots,1,no_plots)
+                # Calculate drift velocities
+                drift_velocities = model.dust._compute_deltaV(model.disc)
+                # Average radius of pairs of cells
+                R_av = 0.5 * ( grid.Rc[:-1] + grid.Rc[1:] )
+                not_empty = (model.disc.Sigma[:-1] > 1e-5)
+                fluxes = 0
+                for eps_k, dV_k, a_k, St_k in zip(model.disc.dust_frac, drift_velocities, model.disc.grain_size, model.disc.Stokes()):
+                    eps_a = a_k * eps_k
+                    fluxes += model.dust._fluxes(model.disc, eps_a, dV_k, St_k)
+                plt.loglog(grid.Rc,-fluxes,label='Large')
+                plt.ylim([1e-9,1e-3])                
+                plt.xlim([1,500])
+                plt.ylabel('Dust Mass Flux')
+                plt.legend()
+            """
+
+            ### SUBPLOT 4 ###
+            # Dust-to-gas ratio
             if (isinstance(model.disc,DustGrowthTwoPop)):
-                model.disc.Mdust()
-                model.disc.Rdust()
+                plt.subplot(no_plots,1,no_plots)
+                plt.loglog(grid.Rc, model.disc.dust_frac.sum(0))
+                plt.ylim([1e-4,1])                
+                plt.xlim([1,500])
+                plt.ylabel('Dust-to-gas ratio',fontsize=13)
+                plt.legend()
+
+            ## Measure disc properties and record
+            R_outer = model.disc.Rout() # Locate outer radius by the density threshold
+            if (model.photoevap is not None):
+                R_outer = model.disc.Rot(model.photoevap) # If photoevaporation active, replace outer radius by position of mass loss rate maximum
+            M_tot = model.disc.Mtot() # Total disc mass
+            if (isinstance(model.disc,DustGrowthTwoPop)):
+                model.disc.Mdust() # Remaining dust mass
+                model.disc.Rdust_new(dust_radii_thresholds) # Radius containing proportion of dust mass
+                model.disc._Mwind=np.append(model.disc._Mwind,[model.disc._Mwind_cum]) # Total mass of dust lost in wind.
 
             # Track accretion rate
             M_visc_out = 2*np.pi * grid.Rc[0] * model.disc.Sigma_G[0] * model._gas.viscous_velocity(model.disc)[0] * (AU**2)
             model.disc._Mdot_acc = np.append(model.disc._Mdot_acc,[-M_visc_out*(yr/Msun)])
+            # Photoevaporative mass loss recorded through Track=True when the weighted rate is plotted
 
-            # Add title and save plot
+            # Finish plot (xlabel, title)
+            plt.xlabel('$R~/~\mathrm{AU}$',fontsize=13)
             if (model.t>0):    
                 logt = np.log10(model.t / (2 * np.pi))
                 exponent = int(logt)
                 prefactor = np.power(10,logt-exponent)
-                plt.suptitle('Surface density and mass loss rates at $t={:.2f}\\times10^{:d}~\mathrm{{yr}}$ ($M_{{disc}}={:.3f}~M_\odot$, $R_{{disc}}={:4.1f})$'.format(prefactor,exponent,(M_tot/Msun),R_outer))
+                plt.suptitle('Radial Profiles at $t={:.2f}\\times10^{:d}~\mathrm{{yr}}$ ($M_{{disc}}={:.3f}~M_J$)'.format(prefactor,exponent,(M_tot/Mjup)), fontsize=16)
             else:
-                plt.suptitle('Surface density and mass loss rates at $t=0~\mathrm{{yr}}$ ($M_{{disc}}={:.3f}~M_\odot$, $R_{{disc}}={:4.1f})$'.format((M_tot/Msun),R_outer))
+                plt.suptitle('Radial Profiles at $t=0~\mathrm{{yr}}$ ($M_{{disc}}={:.3f}~M_J$)'.format((M_tot/Mjup)), fontsize=16)
+            plt.tight_layout()
+            plt.gcf().subplots_adjust(top=1-0.16/no_plots)
+            # Save plot
             if model._gas:
                 plt.savefig(plot_name+"_profiles/"+plot_name+"_{}.png".format(i))
             else:
                 plt.savefig(plot_name+"_profiles/"+plot_name+"_novisc_{}.png".format(i))
             plt.close()
 
-            #print (model.disc.tot_mass_lost/Msun)
-
             np.seterr(**err_state)
 
         io.pop_events(model.t)
 
-def timeplot(model, radius_data, nv_data, t_visc=None):
+def timeplot(model, plotting_data, nv_data, data_2=None):
+    # Extract plot name
     plot_name = model['output']['plot_name']
+    # Calculate the viscous timescale using the x=0 T=1 limit of the eqn in Clarke 2007
+    M_d0 = model['disc']['mass'] / (1-np.exp(-model['grid']['R1']/model['disc']['Rc']))
+    t_visc = M_d0 / (2 * plotting_data[:,5][0])
 
-    no_plots = np.shape(radius_data)[1]-3
-    no_cols = int((no_plots-1)/2)
+    # Work out how many plots needed
+    no_data = np.shape(plotting_data)[1]
+    if (no_data == 6):
+        no_plots = 3
+    else:
+        no_plots = 6
+    no_cols = int(no_plots/3)
     
+    # Initiate the figure
     plt.subplots(3,no_cols,sharex=True,figsize=(10,12))
-    plt.gcf().subplots_adjust(hspace=0,wspace=0,top=0.92)
+    plt.gcf().subplots_adjust(hspace=0,wspace=0,top=0.94,bottom=0.06)
     plt.rcParams['text.usetex'] = "True"
+    plt.rcParams['font.family'] = "serif"
 
+    ### SUBPLOT 1 - Gas Radius
     plt.subplot(3,no_cols,1)
-
-    plt.semilogx(radius_data[:,0], radius_data[:,1], marker='x',color='blue',linestyle='None',label='$R(\Sigma=10^{-5})$')
-    plt.semilogx(radius_data[:,0], radius_data[:,2], marker='x',color='red',linestyle='None',label='$R(\dot{M}_{max})$')
+    if (np.max(plotting_data[:,2])>0):
+        plt.semilogx(plotting_data[:,0], plotting_data[:,2], marker='x',color='blue',linestyle='None',label='$R(\dot{M}_{max})$')
+    else:
+        plt.semilogx(plotting_data[:,0], plotting_data[:,1], marker='x',color='blue',linestyle='None',label='$R(\Sigma=10^{-5})$')
     if (isinstance(nv_data,np.ndarray)) :
         xlims=plt.xlim()
-        ylims=plt.ylim()
+        ylims=plt.ylim()   
         plt.semilogx(nv_data[:,0], nv_data[:,1], color='black',linestyle='--',label='Expected from initial timescale')
         plt.xlim(xlims)
         plt.ylim(ylims)
-    plt.legend()
+        plt.legend()
     xlims = plt.xlim()
     plt.semilogx([t_visc,t_visc],plt.ylim(), linestyle='-.', color='purple')
     plt.xlim(xlims)
-    plt.ylabel('Disc Radius / AU')
+    plt.ylabel('Disc Radius / AU',fontsize=16)
+    plt.tick_params(axis='both', which='major', labelsize=12)
 
+    ### SUBPLOT 2 - Gas Mass
     plt.subplot(3,no_cols,1+no_cols)
-    plt.semilogx(radius_data[:,0], radius_data[:,3]/Mjup, marker='x',color='blue',linestyle='None',label='Total')
+    plt.semilogx(plotting_data[:,0], plotting_data[:,3]/Mjup, marker='x',color='blue',linestyle='None',label='Total')
     xlims = plt.xlim()
     plt.semilogx([t_visc,t_visc],plt.ylim(), linestyle='-.', color='purple')
     plt.xlim(xlims)
-    plt.ylabel('Total Mass / $M_J$')
+    plt.ylabel('Total Mass / $M_J$',fontsize=16)
+    plt.tick_params(axis='both', which='major', labelsize=12)
 
-    plt.subplot(3,no_cols,2+no_cols)
-    plt.loglog(radius_data[:,0],radius_data[:,4],label='$\dot{M}_{evap}$',linestyle='--',color='black')
-    plt.loglog(radius_data[:,0],radius_data[:,5],label='$\dot{M}_{acc}$',linestyle='-',color='black')
+    ### SUBPLOT 3 - Mass Loss Rates
+    plt.subplot(3,no_cols,1+2*no_cols)
+    plt.loglog(plotting_data[:,0],plotting_data[:,4],label='$\dot{M}_{evap}$',linestyle='--',color='black')
+    plt.loglog(plotting_data[:,0],plotting_data[:,5],label='$\dot{M}_{acc}$',linestyle='-',color='black')
     xlims = plt.xlim()
     plt.semilogx([t_visc,t_visc],plt.ylim(), linestyle='-.', color='purple')
     plt.xlim(xlims)
     plt.legend()
-    plt.xlabel('Time / years')
-    plt.ylabel('$\dot{M} /M_\odot\mathrm{yr}^{-1}$')
+    plt.xlabel('Time / years',fontsize=16)
+    plt.ylabel('$\dot{M} /M_\odot\mathrm{yr}^{-1}$',fontsize=16)
+    plt.tick_params(axis='both', which='major', labelsize=12)
 
+    # Dust plots
     if (no_cols>1):
+       ### SUBPLOT 1 - Dust Radii
        ax = plt.subplot(3,no_cols,2)
-       plt.semilogx(radius_data[:,0], radius_data[:,6], marker='x',color='blue',linestyle='None')
-       plt.ylabel('Dust Radius / AU')
+       cmap = plt.get_cmap("autumn")
+       i_range = np.arange(0,np.shape(plotting_data)[1]-8,1)
+       ax.set_prop_cycle('color', cmap(i_range/(i_range[-1]+1)))
+       for i in i_range:
+           ax.semilogx(plotting_data[:,0], plotting_data[:,i+8], marker='x',linestyle='None',label='{}\%'.format(100*np.array(model['tracking']['radii_thresholds'])[i]))
+       plt.legend()
+       plt.ylabel('Dust Radius / AU',fontsize=16)
        ax.yaxis.tick_right()
        ax.yaxis.set_label_position("right")
+       plt.tick_params(axis='both', which='major', labelsize=12)
 
+       ### SUBPLOT 2 - Dust Masses
        ax = plt.subplot(3,no_cols,2+no_cols)
-       plt.semilogx(radius_data[:,0], radius_data[:,7]/Mjup, marker='x',color='blue',linestyle='None',label='Dust')
-       plt.xlabel('Time / years')
-       plt.ylabel('Dust Mass / $M_J$')	
+       plt.semilogx(plotting_data[:,0], plotting_data[:,6]/Mjup, marker='x',color='blue',linestyle='None',label='Mass left in Disc')
+       plt.semilogx(plotting_data[:,0], plotting_data[:,7]/Mjup, marker='x',color='red',linestyle='None',label='Mass lost in Wind')
+       accretion_loss = (plotting_data[:,6][0]-plotting_data[:,6])/Mjup - plotting_data[:,7]/Mjup
+       plt.semilogx(plotting_data[:,0], accretion_loss, marker='x',color='green',linestyle='None',label='Mass lost in Accretion')
+       plt.legend()
+       plt.xlabel('Time / years',fontsize=16)
+       plt.ylabel('Dust Mass $M_d$ / $M_J$',fontsize=16)
        ax.yaxis.tick_right()
        ax.yaxis.set_label_position("right")
+       plt.tick_params(axis='both', which='major', labelsize=12)
 
-    plt.suptitle('Evolution of the disc',fontsize='20')
+       ### SUBPLOT 3 - Either redundant plot or residuals of mass loss
+       ax = plt.subplot(3,no_cols,2+2*no_cols)
+       if (data_2 is None):
+           ax.axis('off')
+       else:
+           accretion_loss_2 = (data_2[:,7][0]-data_2[:,7] - data_2[:,8])/Mjup
+           print(accretion_loss_2)
+           ax.semilogx(plotting_data[:,0], accretion_loss - accretion_loss_2, marker='x',color='blue',linestyle='None')
+           plt.ylabel('Relative accretion mass loss $\Delta M_{d,acc}$ / $M_J$')
+           ax.yaxis.tick_right()
+           ax.yaxis.set_label_position("right")           
+
+    # Save Figure
+    plt.suptitle('Evolution of the disc',fontsize='24')
     plt.savefig(model['output']['plot_name']+"_time.png")
     plt.close()
 
@@ -406,7 +539,7 @@ def main():
     output_name, io_control = setup_output(model)
     plot_name = model['output']['plot_name']
 
-    # Truncate disc at base of wind
+    # Get plotting limits based on original input
     plt.figure()
     plt.loglog(disc.R,disc.Sigma_G)
     if (isinstance(disc,DustGrowthTwoPop)):
@@ -414,44 +547,49 @@ def main():
     ylims = plt.ylim()
     ylims = (ylims[0]*1e-3, ylims[1])
     plt.close()
-    optically_thin = (disc.R > disc.Rot(driver.photoevap))
-    disc._Sigma[optically_thin] *= 0.0 # Turned off for interpolation testing
-    if (isinstance(disc,DustGrowthTwoPop)):
-        disc.Rdust()
-    M_visc_out = 2*np.pi * disc.grid.Rc[0] * disc.Sigma_G[0] * driver._gas.viscous_velocity(disc)[0] * (AU**2)
-    driver.photoevap.optically_thin_weighting(disc, Track=True)
-    disc._Mdot_acc = np.append(disc._Mdot_acc,[-M_visc_out*(yr/Msun)])
+
+    # Truncate disc at base of wind
+    Dt_nv = np.zeros_like(disc.R)
+    if (driver.photoevap is not None):
+        optically_thin = (disc.R > disc.Rot(driver.photoevap))
+    else:
+        photoevap = photoevaporation.FRIEDExternalEvaporationMS(disc)
+        optically_thin = (disc.R > disc.Rot(photoevap))
+    disc._Sigma[optically_thin] = 0.0
+    if (driver.photoevap is not None):
+        # Perform estimate of evolution for non-viscous case
+        (_, _, M_cum, Dt_nv) = driver.photoevap.get_timescale(disc)
     
-    M_d0 = model['disc']['mass'] / (1-np.exp(-model['grid']['R1']/model['disc']['Rc']))
-    t_visc = M_d0 / (-2 * M_visc_out*(yr/Msun))
-
     """Could consider more whether dust left behind or drifts in - likely to mainly be entrained and lost due to size"""
-
-    # Perform estimate of evolution for non-viscous case
-    (_, _, M_cum, Dt_nv) = driver.photoevap.get_timescale(disc)
     
     # Run model and retrieve disc properties
-    run(driver, io_control, output_name, plot_name, ylims, model['uv']['photoevaporation'])
+    run(driver, io_control, output_name, plot_name, ylims, model['uv']['photoevaporation'], np.array(model['tracking']['radii_thresholds']))
     outer_radii = driver.disc._Rout
     ot_radii = driver.disc._Rot
     disc_masses = driver.disc._Mtot
-    Mevap = driver.photoevap._Mdot
+    if (driver.photoevap is not None):
+        Mevap = driver.photoevap._Mdot
     Macc = driver.disc._Mdot_acc
     if (isinstance(disc,DustGrowthTwoPop)):
         dust_radii = driver.disc._Rdust
         dust_masses = driver.disc._Mdust
-
+        if (driver.photoevap is not None):
+            dust_wind = driver.disc._Mwind
+        dust_split = np.split(dust_radii,range(1,np.shape(dust_radii)[1]),axis=1)
     # Save radius data
-    #plot_times=np.insert(np.array(model['output']['plot_times']),0,0)
     plot_times = np.array(model['output']['plot_times'])
-    if (isinstance(disc,DustGrowthTwoPop)):
-        outputdata = np.column_stack((plot_times[0:np.size(outer_radii)-1:1],outer_radii[1:],ot_radii[1:],disc_masses[1:],Mevap[1:],Macc[1:],dust_radii[1:],dust_masses[1:]))
+    if (driver.photoevap is None and isinstance(disc,DustGrowthTwoPop)):
+        outputdata = np.column_stack((plot_times[0:np.size(outer_radii):1],outer_radii,np.zeros_like(outer_radii),disc_masses,np.zeros_like(outer_radii),Macc,dust_masses,np.zeros_like(outer_radii),*dust_split))
+    elif (driver.photoevap is None):
+        outputdata = np.column_stack((plot_times[0:np.size(outer_radii):1],outer_radii,np.zeros_like(outer_radii),disc_masses,np.zeros_like(outer_radii),Macc))
+    elif (isinstance(disc,DustGrowthTwoPop)):
+        outputdata = np.column_stack((plot_times[0:np.size(outer_radii):1],outer_radii,ot_radii[1:],disc_masses,Mevap,Macc,dust_masses,dust_wind,*dust_split))
     else:
-        outputdata = np.column_stack((plot_times[0:np.size(outer_radii)-1:1],outer_radii[1:],ot_radii[1:],disc_masses[1:],Mevap[1:],Macc[1:]))
+        outputdata = np.column_stack((plot_times[0:np.size(outer_radii):1],outer_radii,ot_radii[1:],disc_masses,Mevap,Macc))
     np.savetxt(model['output']['directory']+"/"+model['output']['plot_name']+"_discproperties.dat",outputdata)
 
     # Call separate plotting function
-    timeplot(model, outputdata[1:,:], np.column_stack((Dt_nv/(2*np.pi), disc.grid.Rc)), t_visc) 
+    timeplot(model, outputdata[1:,:], np.column_stack((Dt_nv/(2*np.pi), disc.grid.Rc))) 
 
 if __name__ == "__main__":
     main() 
