@@ -49,5 +49,9 @@
   "uv" : {
     "photoevaporation" : "FRIED",
     "uv_field" : 1000
+  },
+
+  "tracking" : {
+    "radii_thresholds" : [0.8, 0.9]
   }
 }
