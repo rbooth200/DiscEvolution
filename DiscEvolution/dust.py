@@ -38,6 +38,8 @@ class DustyDisc(AccretionDisc):
         # Global, time dependent properties
         self._Mdust = np.array([])
         self._Rdust = np.array([])
+        self._Mwind = np.array([])
+        self._Mwind_cum  = 0.
 
     def Stokes(self, Sigma=None, size=None):
         """Stokes number of the particle"""
@@ -129,6 +131,18 @@ class DustyDisc(AccretionDisc):
         self._Rdust = np.append(self._Rdust,[R_outer])
         return self._Rdust[-1]
 
+    def Rdust_new(self,threshold):
+        Re = self.R_edge * AU
+        dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
+        dM_dust = self.Sigma_D.sum(0) * dA
+        M_cum = np.cumsum(dM_dust)
+        outside = M_cum[:, np.newaxis] > (M_cum[-1] * np.array(threshold))
+        R_outer = self.R[np.argmax(outside,axis=0)]
+        if (np.size(self._Rdust) > 0): 
+            self._Rdust = np.vstack((self._Rdust,[R_outer]))
+        else:
+            self._Rdust = [R_outer]
+        return self._Rdust[-1]
     
     def update(self, dt):
         """Update the disc properites and age"""
@@ -187,8 +201,6 @@ class FixedSizeDust(DustyDisc):
 
         self._area = np.pi * self._a**2
 
-        self.Mdust()
-
 class DustGrowthTwoPop(DustyDisc):
     """Two-population dust growth model of Birnstiel (2011).
 
@@ -223,7 +235,7 @@ class DustGrowthTwoPop(DustyDisc):
     """
     def __init__(self, grid, star, eos, eps, Sigma=None,
                  rho_s=1., Sc=1., uf_0=100., uf_ice=1e3, f_ice=1, thresh=0.1,
-                 a0=1e-5, amin=1e-5, f_drift=0.55, f_frag=0.37, feedback=True):
+                 a0=1e-5, amin=0, f_drift=0.55, f_frag=0.37, feedback=True):
         super(DustGrowthTwoPop, self).__init__(grid, star, eos,
                                                Sigma, rho_s, Sc, feedback)
 
@@ -246,6 +258,7 @@ class DustGrowthTwoPop(DustyDisc):
         self._eps[1] = 0
         self._a[0]   = amin
         self._a[1]   = a0
+        self._monomer = a0
 
         self._amin = amin 
         
@@ -258,7 +271,6 @@ class DustGrowthTwoPop(DustyDisc):
 
         self.update(0)
 
-        self.Mdust()
         self._threshold_d = np.amin(self.Sigma_D.sum(0))
 
     def ASCII_header(self):
@@ -331,11 +343,16 @@ class DustGrowthTwoPop(DustyDisc):
 
         return ad, af
 
+    """
     def _t_grow(self, eps):
         t_grow = np.zeros_like(eps)
         not_dustless = (eps > 0)
         t_grow[not_dustless] = 1 / (self.Omega_k[not_dustless] * eps[not_dustless])
         return t_grow
+    """
+
+    def _t_grow(self, eps):
+        return 1 / (self.Omega_k * eps)
 
     def do_grain_growth(self, dt):
         """Apply the grain growth"""
@@ -343,6 +360,7 @@ class DustGrowthTwoPop(DustyDisc):
         # Size and total gas fraction
         a = self._a[1]        
         eps_tot = self.dust_frac.sum(0)
+        #eps_tot = np.minimum(eps_tot,1.0)
         
         afrag_t = self._frag_limit()
         adrift, afrag_d =  self._drift_limit(eps_tot)
@@ -351,6 +369,7 @@ class DustGrowthTwoPop(DustyDisc):
         afrag = np.minimum(afrag_t, afrag_d)
         a0    = np.minimum(afrag, adrift)
 
+        """
         # ignore empty cells:
         ids = eps_tot > 0
         # Update the particle distribution
@@ -362,7 +381,21 @@ class DustGrowthTwoPop(DustyDisc):
         # amin = a + np.minimum(0, afrag-a)*np.expm1(-dt/t_grow)
         
         self._a[1, ids] = np.maximum(amax[ids], self._amin)
+        """
 
+        # Update the particle distribution
+        #   Maximum size due to growth:
+        #print(a0.tolist())
+        #print(a.tolist())
+        #print(np.exp(dt/t_grow).tolist())
+        amax = np.minimum(a0, a*np.exp(dt/t_grow))
+        #   Reduce size due to erosion / fragmentation if grains have grown
+        #   above this due to ice condensation
+        # amin = a + np.minimum(0, afrag-a)*np.expm1(-dt/t_grow)
+        # ignore empty cells:
+        ids = eps_tot > 0
+        self._a[1, ids] = np.maximum(amax[ids], self._amin)
+        
         # Update the mass-fractions in each population
         fm   = self._fmass[1*(afrag < adrift)]
         self._fm[ids] = fm[ids]
@@ -371,8 +404,6 @@ class DustGrowthTwoPop(DustyDisc):
         self._eps[1][ids] = (   fm *eps_tot)[ids]
 
         """Is this mass fraction behaviour suitable in the case of growth limited (early on in outer disc, but when PE strongest?)"""
-        """Why does this even need calibrating?"""
-
 
         # Set the average area:
         #self._area = np.pi * self.a_BT(eps_tot)**2
@@ -533,6 +564,9 @@ class SingleFluidDrift(object):
             
         # Do the update
         deps = - np.diff(flux*grid.Re) / ((Sigma+1e-300) * 0.5*grid.dRe2)
+        """d_Sigma_D = - np.diff(flux*grid.Re) / (0.5*grid.dRe2)
+        print ("Net Flux: {}".format(np.amax(d_Sigma_D)))
+        deps = ((Sigma*eps_i + d_Sigma_D*dt) / (Sigma + d_Sigma_D*dt + 1e-300) - eps_i)/dt         # Attempt to make this account for update in total sigma -ADS"""
         if self._diffuse:
             St2 = St_i**2
             try:
@@ -552,12 +586,14 @@ class SingleFluidDrift(object):
         SigmaD = disc.Sigma_D
         Om_k   = disc.Omega_k
         a      = disc.grain_size
+        R      = disc.R
 
         # Average to cell edges:        
         Om_kav  = 0.5*(Om_k      [1:] + Om_k      [:-1])
         Sig_av  = 0.5*(Sigma     [1:] + Sigma     [:-1]) + 1e-300
         SigD_av = 0.5*(SigmaD[...,1:] + SigmaD[...,:-1])
         a_av    = 0.5*(a    [..., 1:] + a     [...,:-1])
+        R_av    = 0.5*(R         [1:] + R         [:-1])
 
         # Compute the density factors needed for the effect of feedback on
         # the radial drift velocity.
@@ -605,12 +641,20 @@ class SingleFluidDrift(object):
         DeltaV = (2*v_gas / (St_av + St_av**-1) 
                   - u_gas / (1     + St_av**-2))
 
+        # Fastest we can move radially is at the free-fall speed ie rt(2)*v_k (large St) ...
+        # ... or at St*v_k (small St)
+        St_eff = np.minimum(St_av,np.sqrt(2)) # Take lower of two bounds
+        v_k = Om_kav*R_av
+        v_terminal = - St_eff * v_k
+        DeltaV = np.maximum(DeltaV , v_terminal)
+
         # epsDeltaV = v_COM - v_gas (= 0 if dust mass is neglected)
         if disc.feedback:
             self._epsDeltaV = (eps_av * DeltaV).sum(0)
         else:
             self._epsDeltaV = 0
 
+        i_max = np.argmax(-DeltaV / R_av**(0.5))
         return DeltaV
 
     def __call__(self, dt, disc, gas_tracers=None, dust_tracers=None):
@@ -626,23 +670,36 @@ class SingleFluidDrift(object):
         if gas_tracers is not None:
             gas_tracers[:] += dt * self._fluxes(disc, gas_tracers, 0, 0, dt)
 
-
         # Update the dust fraction, size and tracers
         d_tr = 0
         for eps_k, dV_k, a_k, St_k in zip(disc.dust_frac, DeltaV,
                                           disc.grain_size, disc.Stokes()):
+
+            pop_fraction = eps_k / eps.sum(0) # Proportion of the dust in the small/large population
+
             if dust_tracers is not None:
                 t_k = dust_tracers * eps_k * eps_inv
                 d_tr  += dt*self._fluxes(disc, t_k, dV_k, St_k, dt)
                 
             # multiply a_k by the dust-to-gas ratio, so that constant functions
             # are advected perfectly
-            eps_a = a_k * eps_k
-            eps_a +=  dt*self._fluxes(disc, eps_a, dV_k, St_k, dt)
+            #eps_a = a_k * eps_k
+            #eps_a +=  dt*self._fluxes(disc, eps_a, dV_k, St_k, dt)
             
             eps_k[:] += dt*self._fluxes(disc, eps_k, dV_k, St_k, dt)
 
+            eps_k[:] = np.fmin(eps_k[:],pop_fraction * 1.0) # Limit the total dust fraction to 1 in proportion with fraction in this population 
+            
             #a_k[:] = eps_a / (eps_k + 1e-300)
+
+            # Diverging eps diagnostics            
+            """print ("After flux: {}".format(np.amax(eps_k)))
+            break_i = np.argmax(eps_k)
+            dust_i = disc.Sigma_D[:,break_i].sum()
+            print ("Dust mass: {}".format(dust_i))
+            print ("Gas mass: {}".format(disc.Sigma_G[break_i]))
+            if ((dust_i > 0) and (eps_k[break_i].sum() > 1.01)):
+                print ("Warning")"""
 
         if dust_tracers is not None:
             dust_tracers[:] += d_tr

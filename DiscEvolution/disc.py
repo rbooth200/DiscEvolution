@@ -32,8 +32,6 @@ class AccretionDisc(object):
         self._Rout = np.array([])
         self._Rot = np.array([])
         self._Mtot = np.array([])
-        self.Mtot()
-        self.Rout()
         self._Mdot_acc = np.array([])
 
     def ASCII_header(self):
@@ -102,7 +100,14 @@ class AccretionDisc(object):
 
     @property
     def P(self):
-        return self.midplane_gas_density * self.cs**2 
+        sim_P = self.midplane_gas_density * self.cs**2
+        """not_empty = sim_P > 1e-10
+        empty = sim_P <= 1e-10
+        print(np.sum(empty))
+        print(np.sum(not_empty))
+        P_adj = sim_P
+        P_adj[empty] = sim_P[not_empty][-1]"""
+        return sim_P
 
     @property
     def midplane_gas_density(self):

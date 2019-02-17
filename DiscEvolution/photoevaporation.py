@@ -70,15 +70,6 @@ class ExternalPhotoevaporationBase(object):
             half_empty = -(np.sum(empty) + 1) # ID (from end) of half depleted cell
 
             disc._Sigma[half_empty] *= -1.0*excess_t[half_empty] / (Dt[half_empty]-Dt[half_empty+1]) # Work out fraction left in cell 
-            #mass_left = -1.0*excess_t[half_empty] / (Dt[half_empty]-Dt[half_empty+1]) # Work out fraction left in cell 
-            """
-            if (half_empty==disc.i_edge):
-                disc.mass_lost += dM_tot[half_empty] * (1.0-mass_left)
-            else:
-                disc.mass_lost = dM_tot[half_empty] * (1.0-mass_left)
-                disc.i_edge = half_empty
-            disc.tot_mass_lost += dM_tot[half_empty] * (1.0-mass_left)
-            """
         
     def optically_thin_weighting(self, disc, Track=False):
         # Retrieve unweighted rates
@@ -110,6 +101,12 @@ class ExternalPhotoevaporationBase(object):
             f_m = np.zeros_like(disc.Sigma)
             f_m[not_dustless] = disc.dust_frac[1,:].flatten()[not_dustless]/disc.integ_dust_frac[not_dustless]
 
+            # Update the maximum entrained size
+            self._amax = self.Facchini_limit(disc,np.sum(dM_dot)*(dM_dot>0) *(yr/Msun))
+
+            # Work out the total mass in entrained dust
+            M_ent = self.dust_entrainment(disc)
+
         # Annulus Areas
         Re = disc.R_edge * AU
         dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
@@ -119,11 +116,7 @@ class ExternalPhotoevaporationBase(object):
         disc._Sigma -= dM_evap / dA # This amount of mass is lost in GAS
         
         if (isinstance(disc,DustyDisc)):
-            # Update the maximum entrained size
-            self._amax = self.Facchini_limit(disc,dM_dot *(yr/Msun))
-
-            # Work out the total mass in entrained dust, and remove proportionally to gas loss 
-            M_ent = self.dust_entrainment(disc)
+            # Remove dust mass proportionally to gas loss 
             M_ent_w = np.zeros_like(M_ent)
             M_ent_w[(dM_gas > 0)] = M_ent[(dM_gas > 0)] * dM_evap[(dM_gas > 0)] / dM_gas[(dM_gas > 0)]
             disc._Sigma -= M_ent_w / dA
@@ -136,11 +129,14 @@ class ExternalPhotoevaporationBase(object):
             disc._eps[0][not_empty] = new_dust_frac[not_empty] * (1.0-f_m[not_empty])
             disc._eps[1][not_empty] = new_dust_frac[not_empty] * f_m[not_empty]
 
+            # Record mass loss
+            disc._Mwind_cum += M_ent_w.sum(0)
+
     def dust_entrainment(self, disc):
         # Representative sizes
         a_ent = self._amax
-        St_eq = disc._eos.alpha/2
-        a_eq = 2/np.pi * St_eq * disc.Sigma_G/disc._rho_s
+        #St_eq = disc._eos.alpha/2
+        #a_eq = 2/np.pi * St_eq * disc.Sigma_G/disc._rho_s
         a = disc.grain_size
         amax = a[1,:].flatten()
 
@@ -157,16 +153,7 @@ class ExternalPhotoevaporationBase(object):
         M_ent[not_empty] = M_dust.sum(0)[not_empty] * np.minimum(np.ones_like(amax)[not_empty],[(a_ent[not_empty]/amax[not_empty])**(1/2)]).flatten() # Take as entrained lower of all dust mass, or the fraction from MRN
         """Consider different distributions for weighting?"""
 
-        return M_ent
-
-    def __call__(self, disc, dt, age):
-        """Removes gas and dust from the edge of a disc"""
-        if (isinstance(self,FixedExternalEvaporation)):
-            self.timescale_remove(disc, dt)
-        elif (isinstance(self,FRIEDExternalEvaporationM)):
-            self.timescale_remove(disc, dt)
-        else:
-            self.weighted_removal(disc, dt)      
+        return M_ent     
 
     def Facchini_limit(self, disc, Mdot):
         """
@@ -187,6 +174,16 @@ class ExternalPhotoevaporationBase(object):
         a_entr *= Msun / AU**2 / yr
         return a_entr 
 
+    def __call__(self, disc, dt, age):
+        """Removes gas and dust from the edge of a disc"""
+        if (isinstance(self,FixedExternalEvaporation)):
+            if (self._Mdot > 0):
+                self.timescale_remove(disc, dt)
+        elif (isinstance(self,FRIEDExternalEvaporationM)):
+            self.timescale_remove(disc, dt)
+        else:
+            self.weighted_removal(disc, dt)
+
 class FixedExternalEvaporation(ExternalPhotoevaporationBase):
     """External photoevaporation flow with a constant mass loss rate, which
     entrains dust below a fixed size.
@@ -196,9 +193,9 @@ class FixedExternalEvaporation(ExternalPhotoevaporationBase):
         amax : maximum grain size entrained, default = 10 micron
     """
 
-    def __init__(self, Mdot=1e-8, amax=1e-3):
+    def __init__(self, disc, Mdot=1e-8, amax=0):
         self._Mdot = Mdot
-        self._amax = amax
+        self._amax = amax * np.ones_like(disc.R)
 
     def mass_loss_rate(self, disc, not_empty):
         return self._Mdot*np.ones_like(disc.Sigma[not_empty])

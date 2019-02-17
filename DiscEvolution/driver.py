@@ -68,7 +68,7 @@ class DiscEvolutionDriver(object):
             Dt = dM_gas[(dM_dot>0)] / dM_dot[(dM_dot>0)]
             Dt_min = np.min(Dt)
             dt = min(dt,Dt_min)
-
+        
         if (self.photoevap is not None):
             self.photoevap(disc,dt,self.t) # Must apply PE here so that the timescales, if limiting, are correct 
 
