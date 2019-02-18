@@ -1,23 +1,40 @@
 #!/bin/bash
 
-j=1
+n=1
 while [ -e $"DiscConfig$j.json" ]
 do
- j=$((j+1))
+ n=$((n+1))
 done
 
-#masses="0.2 0.1 0.05 0.02 0.01 0.005 0.002"
-radii="200 100 80 30 10"
+radii="100 10"
+masses="0.1 0.03"
+UV="0 10 1000"
+m_star="1.0 0.3"
+alpha="0.001"
 
-for i in $radii
-do
-	echo "Number assigned to this run:"
-	echo $j
-    # ID, radius, alpha, UV
-	python config_generator.py $j $i $1 $2 $3
-	python ../KeyScripts/run_model.py -m DiscConfig$j.json >> terminal_output$j.txt
-	#ffmpeg -framerate 5 -i entrain_nodrift_"$j"_profiles/entrain_nodrift_"$j"_%01d.png entrain_$j.avi 
-	j=$((j+1))
+# Longer term, more masses, radii? Finer UV chop and go to 10^4? More M*s? Definitely another alpha.
+
+declare -a PID
+
+for m in $alpha
+do for l in $m_star
+    do for k in $UV
+        do for j in $masses
+            do for i in $radii
+                do
+                	echo "Number assigned to this run:"
+                    echo $n
+                    # ID, radius, disc mass, UV, star mass, alpha
+	                python config_generator.py $n $i $j $k $l $m 
+	                nice -n 10 python ../KeyScripts/run_model.py -m DiscConfig$n.json >> terminal_output$n.txt &
+                    	PID[n]=$!
+	                n=$((n+1))
+			echo ${PID[*]}             
+                done
+                wait ${PID[*]}
+            done
+        done
+    done
 done
 
 chmod +x run_many

@@ -32,7 +32,7 @@ from DiscEvolution.io import Event_Controller
 from DiscEvolution.disc_utils import mkdir_p
 import DiscEvolution.photoevaporation as photoevaporation
 import FRIED.photorate as photorate
-from cycler import cycler
+import subprocess
 
 ###############################################################################
 # Global Constants
@@ -111,7 +111,7 @@ def setup_model(model, disc):
         diffuse = None
 
     # Inititate the correct photoevaporation routine
-    if (model['uv']['photoevaporation'] == "FRIED"):
+    if (model['uv']['photoevaporation'] == "FRIED" and disc.UV>0):
         photoevap = photoevaporation.FRIEDExternalEvaporationMS(disc) # Using 2DMS at 400
     elif (model['uv']['photoevaporation'] == "Constant"):
         photoevap = photoevaporation.FixedExternalEvaporation(disc, Mdot=1e-9)
@@ -201,7 +201,7 @@ def run(model, io, base_name, plot_name, ylims, mass_loss_mode, dust_radii_thres
             grid = model.disc.grid
 
             # Plot of initial evolutionary timescales
-            if (i < 0 and isinstance(model.disc,DustGrowthTwoPop)):
+            if (i < 0 and isinstance(model.disc,DustGrowthTwoPop) and model.photoevap is not None):
                 plt.figure()
                 plt.rcParams['text.usetex'] = "True"
                 plt.rcParams['font.family'] = "serif"
@@ -552,10 +552,10 @@ def main():
     Dt_nv = np.zeros_like(disc.R)
     if (driver.photoevap is not None):
         optically_thin = (disc.R > disc.Rot(driver.photoevap))
-    else:
+        """else:
         photoevap = photoevaporation.FRIEDExternalEvaporationMS(disc)
-        optically_thin = (disc.R > disc.Rot(photoevap))
-    disc._Sigma[optically_thin] = 0.0
+        optically_thin = (disc.R > disc.Rot(photoevap))"""
+        disc._Sigma[optically_thin] = 0.0
     if (driver.photoevap is not None):
         # Perform estimate of evolution for non-viscous case
         (_, _, M_cum, Dt_nv) = driver.photoevap.get_timescale(disc)
@@ -589,7 +589,10 @@ def main():
     np.savetxt(model['output']['directory']+"/"+model['output']['plot_name']+"_discproperties.dat",outputdata)
 
     # Call separate plotting function
-    timeplot(model, outputdata[1:,:], np.column_stack((Dt_nv/(2*np.pi), disc.grid.Rc))) 
+    timeplot(model, outputdata[1:,:], np.column_stack((Dt_nv/(2*np.pi), disc.grid.Rc)))
+
+    # Compile video
+    subprocess.call(['ffmpeg', '-framerate', '5', '-i', model['output']['plot_name']+'_profiles/'+model['output']['plot_name']+'_%01d.png', model['output']['plot_name']+'.avi'])
 
 if __name__ == "__main__":
     main() 
