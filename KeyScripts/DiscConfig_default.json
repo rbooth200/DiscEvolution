@@ -10,7 +10,7 @@
     "alpha"   : 1e-3,
     "mass"    : 0.1,
     "Rc"      : 100.0,
-    "d2g"     : 0.00,
+    "d2g"     : 0.01,
     "Schmidt" : 1.0,
     "profile" : "LBP"
     },
@@ -30,12 +30,12 @@
 
   "transport" : {
     "gas"          : true, 
-    "radial drift" : false,
-    "diffusion"	   : false		   
+    "radial drift" : true,
+    "diffusion"	   : true		   
   },
 
   "output" : {
-    "directory" : "gas_only",
+    "directory" : "dusty_disc",
     "base"	: "disc",
     "format"    : "ascii",
     "first"     : 0.0,
@@ -43,7 +43,7 @@
     "interval"  : 1e5,
     "plot"      : true,
     "plot_times" : [0,1e3,3e3,1e4,3e4,1e5],
-    "plot_name" : "gas_only"
+    "plot_name" : "dusty_disc"
   },
 
   "uv" : {
