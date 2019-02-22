@@ -235,7 +235,7 @@ class DustGrowthTwoPop(DustyDisc):
     """
     def __init__(self, grid, star, eos, eps, Sigma=None,
                  rho_s=1., Sc=1., uf_0=100., uf_ice=1e3, f_ice=1, thresh=0.1,
-                 a0=1e-5, amin=0, f_drift=0.55, f_frag=0.37, feedback=True):
+                 a0=1e-5, amin=1e-5, f_drift=0.55, f_frag=0.37, feedback=True):
         super(DustGrowthTwoPop, self).__init__(grid, star, eos,
                                                Sigma, rho_s, Sc, feedback)
 
@@ -343,14 +343,6 @@ class DustGrowthTwoPop(DustyDisc):
 
         return ad, af
 
-    """
-    def _t_grow(self, eps):
-        t_grow = np.zeros_like(eps)
-        not_dustless = (eps > 0)
-        t_grow[not_dustless] = 1 / (self.Omega_k[not_dustless] * eps[not_dustless])
-        return t_grow
-    """
-
     def _t_grow(self, eps):
         return 1 / (self.Omega_k * eps)
 
@@ -385,9 +377,6 @@ class DustGrowthTwoPop(DustyDisc):
 
         # Update the particle distribution
         #   Maximum size due to growth:
-        #print(a0.tolist())
-        #print(a.tolist())
-        #print(np.exp(dt/t_grow).tolist())
         amax = np.minimum(a0, a*np.exp(dt/t_grow))
         #   Reduce size due to erosion / fragmentation if grains have grown
         #   above this due to ice condensation
@@ -494,6 +483,14 @@ class SingleFluidDrift(object):
         step = np.inf
         
         dV = abs(self._compute_deltaV(disc))
+
+        """alpha = disc.alpha/disc.Sc
+        #St_frag = (1/(3*alpha)) * (disc._uf/disc.cs)**2
+        where_slow = np.argmin((disc.grid.dRc / dV)[1,:].flatten())
+        print (disc.R_edge[1:-1][where_slow])
+        print (disc.Stokes()[1][where_slow])
+        print (disc._gammaP()[where_slow])"""
+
         return 0.5 * (disc.grid.dRc / dV).min()
     
     def _donor_flux(self, Ree, deltaV_i, Sigma, eps_i):
@@ -708,8 +705,6 @@ class SingleFluidDrift(object):
         """Compute the radial drift velocity for the disc"""
         DeltaV = self._compute_deltaV(disc)
         return DeltaV - self._epsDeltaV
-
-
     
 if __name__ == "__main__":
     import matplotlib.pyplot as plt

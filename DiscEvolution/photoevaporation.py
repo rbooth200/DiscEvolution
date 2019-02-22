@@ -151,6 +151,14 @@ class ExternalPhotoevaporationBase(object):
 
         # Calculate mass of each population that is entrained
         M_ent[not_empty] = M_dust.sum(0)[not_empty] * np.minimum(np.ones_like(amax)[not_empty],[(a_ent[not_empty]/amax[not_empty])**(1/2)]).flatten() # Take as entrained lower of all dust mass, or the fraction from MRN
+        """broken = np.isnan(M_ent[not_empty])
+        print(a_ent[not_empty][broken].tolist())
+        print(amax[not_empty][broken].tolist())
+        print(disc.R[not_empty][broken].tolist())
+        rd, rdf = disc._drift_limit(disc.dust_frac.sum(0))
+        #print(disc._frag_limit()[not_empty][broken].tolist())
+        print(disc._a[1,:].flatten()[522:527].tolist())
+        #print(np.linspace(1,1024,1024,endpoint=True)[not_empty][broken])"""
         """Consider different distributions for weighting?"""
 
         return M_ent     

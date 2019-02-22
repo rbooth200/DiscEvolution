@@ -72,7 +72,7 @@ def setup_disc(model):
     else:
         Sigma = 1.0 / (grid.Rc) # Power Law
     Sigma *= p['mass'] / np.trapz(Sigma, np.pi*grid.Rc**2)
-    Sigma *= Msun / AU**2
+    Sigma *= Mjup / AU**2
 
     eos.update(0, Sigma)
 
@@ -130,12 +130,19 @@ def setup_output(model):
     out = model['output']
 
     # Setup of the output controller
-    output_times = np.arange(out['first'], out['last'], out['interval'])
+    """output_times = np.arange(out['first'], out['last'], out['interval'])
     if not np.allclose(out['last'], output_times[-1], 1e-12):
         output_times = np.append(output_times, out['last'])
 
-    output_times *= yr
-    
+    output_times *= yr"""
+
+    # Logarithmic version
+    first_log = np.log10(out['first'])
+    last_log  = np.log10(out['last'])
+    output_times = np.logspace(first_log,last_log,10*(last_log-first_log)+1,endpoint=True,base=10,dtype=int) * yr
+    output_times = np.insert(output_times,0,0)
+
+    # Setup of the plot controller
     if out['plot']:
         plot = np.array(out["plot_times"]) * yr
     else:
@@ -419,7 +426,7 @@ def run(model, io, base_name, plot_name, ylims, mass_loss_mode, dust_radii_thres
 
         io.pop_events(model.t)
 
-def timeplot(model, plotting_data, nv_data, data_2=None):
+def timeplot(model, plotting_data, nv_data, data_2=None,logtest=False):
     # Extract plot name
     plot_name = model['output']['plot_name']
     # Calculate the viscous timescale using the x=0 T=1 limit of the eqn in Clarke 2007
@@ -508,6 +515,15 @@ def timeplot(model, plotting_data, nv_data, data_2=None):
        ax.yaxis.set_label_position("right")
        plt.tick_params(axis='both', which='major', labelsize=12)
 
+       def logistic(t, t0, k):
+           return 1 / (1 + (t/t0)**(-k))
+
+       if logtest:
+           norm_acc = accretion_loss/accretion_loss[-1]
+           popt, pcov = scp.optimize.curve_fit(logistic, plotting_data[norm_acc<0.5,0], norm_acc[norm_acc<0.5], p0=[1e5,1.5])
+           plt.semilogx(plotting_data[:,0], accretion_loss[-1]*logistic(plotting_data[:,0], *popt), linestyle='--')
+           print(popt)
+
        ### SUBPLOT 3 - Either redundant plot or residuals of mass loss
        ax = plt.subplot(3,no_cols,2+2*no_cols)
        if (data_2 is None):
@@ -522,7 +538,11 @@ def timeplot(model, plotting_data, nv_data, data_2=None):
 
     # Save Figure
     plt.suptitle('Evolution of the disc',fontsize='24')
-    plt.savefig(model['output']['plot_name']+"_time.png")
+    if logtest:
+        plt.savefig(model['output']['plot_name']+"_logtest.png")
+        plt.show()
+    else:
+        plt.savefig(model['output']['plot_name']+"_time.png")
     plt.close()
 
 def main():
@@ -552,15 +572,24 @@ def main():
     Dt_nv = np.zeros_like(disc.R)
     if (driver.photoevap is not None):
         optically_thin = (disc.R > disc.Rot(driver.photoevap))
-        """else:
+
+        """Could consider more whether dust left behind or drifts in
+           - under strong mass loss likelyto mainly be entrained and lost at monomer size
+           - at weaker mass loss may be left behind - but I don't like how it behaves at the moment so assuming it isn't"""
+        disc._Sigma[optically_thin] = 0
+        """disc._Sigma[optically_thin] = disc.Sigma_D.sum(0)[optically_thin]
+        f_ratio = disc.dust_frac[1,optically_thin] / disc.dust_frac[1,optically_thin]
+        disc.dust_frac[1,optically_thin] = 0.99999*f_ratio*np.ones_like(disc.dust_frac[1,optically_thin])
+        disc.dust_frac[0,optically_thin] = 0.99999*(1-f_ratio)*np.ones_like(disc.dust_frac[0,optically_thin])"""
+    """Lines to truncate with no mass loss if required for direct comparison"""
+    """else:
         photoevap = photoevaporation.FRIEDExternalEvaporationMS(disc)
         optically_thin = (disc.R > disc.Rot(photoevap))"""
-        disc._Sigma[optically_thin] = 0.0
+
+
     if (driver.photoevap is not None):
         # Perform estimate of evolution for non-viscous case
-        (_, _, M_cum, Dt_nv) = driver.photoevap.get_timescale(disc)
-    
-    """Could consider more whether dust left behind or drifts in - likely to mainly be entrained and lost due to size"""
+        (_, _, M_cum, Dt_nv) = driver.photoevap.get_timescale(disc)    
     
     # Run model and retrieve disc properties
     run(driver, io_control, output_name, plot_name, ylims, model['uv']['photoevaporation'], np.array(model['tracking']['radii_thresholds']))
