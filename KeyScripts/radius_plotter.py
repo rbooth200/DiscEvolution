@@ -1,4 +1,4 @@
-from run_model import timeplot
+import run_model
 import numpy as np
 
 import argparse
@@ -15,4 +15,5 @@ model = json.load(open(loadfile, 'r'))
 inputdata = np.loadtxt(model['output']['directory']+"/"+model['output']['plot_name']+"_discproperties.dat")
 #input_ref = np.loadtxt(model_ref['output']['directory']+"/"+model_ref['output']['plot_name']+"_discproperties.dat")
 
-timeplot(model, inputdata, None, data_2 = None, logtest=False)
+disc, _, _, _, _, _, Dt_nv = run_model.setup_wrapper(model)
+run_model.timeplot(model, inputdata, np.column_stack((Dt_nv/(2*np.pi), disc.grid.Rc)), data_2 = None, logtest=False)

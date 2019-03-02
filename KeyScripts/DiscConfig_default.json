@@ -51,7 +51,8 @@
     "uv_field" : 1000
   },
 
-  "tracking" : {
-    "radii_thresholds" : [0.8, 0.9]
+  "dust" : {
+    "radii_thresholds" : [0.8, 0.9],
+    "ice_frag_v" : 1000
   }
 }

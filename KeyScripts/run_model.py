@@ -83,7 +83,7 @@ def setup_disc(model):
 
     # If non-zero dust, set up a two population model, else use a simple accretion disc
     if (model['disc']['d2g']>0):
-        disc = DustGrowthTwoPop(grid, star, eos, p['d2g'], Sigma=Sigma, Sc=model['disc']['Schmidt'], feedback=feedback)
+        disc = DustGrowthTwoPop(grid, star, eos, p['d2g'], Sigma=Sigma, Sc=model['disc']['Schmidt'], feedback=feedback, uf_ice=model['dust']['ice_frag_v'])
     else:
         disc = AccretionDisc(grid, star, eos, Sigma=Sigma)
 
@@ -166,7 +166,7 @@ def setup_output(model):
     return base_name, EC
     
     
-def run(model, io, base_name, plot_name, ylims, mass_loss_mode, dust_radii_thresholds, verbose=True, n_print=1000):
+def run(model, io, base_name, plot_name, ylims, mass_loss_mode, dust_radii_thresholds, all_in, verbose=True, n_print=1000):
     i=-1 # Initialise the plotting number
     while not io.finished():
         ti = io.next_event_time()
@@ -422,6 +422,9 @@ def run(model, io, base_name, plot_name, ylims, mass_loss_mode, dust_radii_thres
                 plt.savefig(plot_name+"_profiles/"+plot_name+"_novisc_{}.png".format(i))
             plt.close()
 
+            # Save state
+            save_summary(model,all_in)
+
             np.seterr(**err_state)
 
         io.pop_events(model.t)
@@ -431,7 +434,7 @@ def timeplot(model, plotting_data, nv_data, data_2=None,logtest=False):
     plot_name = model['output']['plot_name']
     # Calculate the viscous timescale using the x=0 T=1 limit of the eqn in Clarke 2007
     M_d0 = model['disc']['mass'] / (1-np.exp(-model['grid']['R1']/model['disc']['Rc']))
-    t_visc = M_d0 / (2 * plotting_data[:,5][0])
+    t_visc = M_d0*Mjup/Msun / (2 * plotting_data[:,5][0])
 
     # Work out how many plots needed
     no_data = np.shape(plotting_data)[1]
@@ -447,44 +450,51 @@ def timeplot(model, plotting_data, nv_data, data_2=None,logtest=False):
     plt.rcParams['text.usetex'] = "True"
     plt.rcParams['font.family'] = "serif"
 
+    def add_ref_t(ax,t):
+        xlims = ax.get_xlim()
+        ylims = ax.get_ylim()
+        ax.semilogx([t,t],plt.ylim(), linestyle='-.', color='purple')
+        ax.set_xlim(xlims)
+        ax.set_ylim(ylims)
+
     ### SUBPLOT 1 - Gas Radius
     plt.subplot(3,no_cols,1)
     if (np.max(plotting_data[:,2])>0):
-        plt.semilogx(plotting_data[:,0], plotting_data[:,2], marker='x',color='blue',linestyle='None',label='$R(\dot{M}_{max})$')
+        plt.semilogx(plotting_data[1:,0], plotting_data[1:,2], marker='x',color='blue',linestyle='None',label='$R(\dot{M}_{max})$')
     else:
-        plt.semilogx(plotting_data[:,0], plotting_data[:,1], marker='x',color='blue',linestyle='None',label='$R(\Sigma=10^{-5})$')
+        plt.semilogx(plotting_data[1:,0], plotting_data[1:,1], marker='x',color='blue',linestyle='None',label='$R(\Sigma=10^{-5})$')
     if (isinstance(nv_data,np.ndarray)) :
         xlims=plt.xlim()
         ylims=plt.ylim()   
-        plt.semilogx(nv_data[:,0], nv_data[:,1], color='black',linestyle='--',label='Expected from initial timescale')
+        plt.semilogx(nv_data[1:,0], nv_data[1:,1], color='black',linestyle='--',label='Expected from initial timescale')
         plt.xlim(xlims)
         plt.ylim(ylims)
         plt.legend()
-    xlims = plt.xlim()
-    plt.semilogx([t_visc,t_visc],plt.ylim(), linestyle='-.', color='purple')
-    plt.xlim(xlims)
+    add_ref_t(plt.gca(),t_visc)
     plt.ylabel('Disc Radius / AU',fontsize=16)
+    plt.tick_params(axis='x', which='major', top=False, bottom=True, direction='inout', size=7)
+    plt.tick_params(axis='x', which='minor', top=False, bottom=True, direction='inout', size=4)
     plt.tick_params(axis='both', which='major', labelsize=12)
 
     ### SUBPLOT 2 - Gas Mass
     plt.subplot(3,no_cols,1+no_cols)
-    plt.semilogx(plotting_data[:,0], plotting_data[:,3]/Mjup, marker='x',color='blue',linestyle='None',label='Total')
-    xlims = plt.xlim()
-    plt.semilogx([t_visc,t_visc],plt.ylim(), linestyle='-.', color='purple')
-    plt.xlim(xlims)
+    plt.semilogx(plotting_data[1:,0], plotting_data[1:,3]/Mjup, marker='x',color='blue',linestyle='None',label='Total')
+    add_ref_t(plt.gca(),t_visc)
     plt.ylabel('Total Mass / $M_J$',fontsize=16)
+    plt.tick_params(axis='x', which='major', top=True, bottom=True, direction='inout', size=7)
+    plt.tick_params(axis='x', which='minor', top=True, bottom=True, direction='inout', size=4)
     plt.tick_params(axis='both', which='major', labelsize=12)
 
     ### SUBPLOT 3 - Mass Loss Rates
     plt.subplot(3,no_cols,1+2*no_cols)
     plt.loglog(plotting_data[:,0],plotting_data[:,4],label='$\dot{M}_{evap}$',linestyle='--',color='black')
     plt.loglog(plotting_data[:,0],plotting_data[:,5],label='$\dot{M}_{acc}$',linestyle='-',color='black')
-    xlims = plt.xlim()
-    plt.semilogx([t_visc,t_visc],plt.ylim(), linestyle='-.', color='purple')
-    plt.xlim(xlims)
+    add_ref_t(plt.gca(),t_visc)
     plt.legend()
     plt.xlabel('Time / years',fontsize=16)
     plt.ylabel('$\dot{M} /M_\odot\mathrm{yr}^{-1}$',fontsize=16)
+    plt.tick_params(axis='x', which='major', top=True, bottom=True, direction='inout', size=7)
+    plt.tick_params(axis='x', which='minor', top=True, bottom=True, direction='inout', size=4)
     plt.tick_params(axis='both', which='major', labelsize=12)
 
     # Dust plots
@@ -495,24 +505,28 @@ def timeplot(model, plotting_data, nv_data, data_2=None,logtest=False):
        i_range = np.arange(0,np.shape(plotting_data)[1]-8,1)
        ax.set_prop_cycle('color', cmap(i_range/(i_range[-1]+1)))
        for i in i_range:
-           ax.semilogx(plotting_data[:,0], plotting_data[:,i+8], marker='x',linestyle='None',label='{}\%'.format(100*np.array(model['tracking']['radii_thresholds'])[i]))
+           ax.semilogx(plotting_data[1:,0], plotting_data[1:,i+8], marker='x',linestyle='None',label='{}\%'.format(100*np.array(model['dust']['radii_thresholds'])[i]))
        plt.legend()
        plt.ylabel('Dust Radius / AU',fontsize=16)
        ax.yaxis.tick_right()
        ax.yaxis.set_label_position("right")
+       plt.tick_params(axis='x', which='major', top=False, bottom=True, direction='inout', size=7)
+       plt.tick_params(axis='x', which='minor', top=False, bottom=True, direction='inout', size=4)
        plt.tick_params(axis='both', which='major', labelsize=12)
 
        ### SUBPLOT 2 - Dust Masses
        ax = plt.subplot(3,no_cols,2+no_cols)
-       plt.semilogx(plotting_data[:,0], plotting_data[:,6]/Mjup, marker='x',color='blue',linestyle='None',label='Mass left in Disc')
-       plt.semilogx(plotting_data[:,0], plotting_data[:,7]/Mjup, marker='x',color='red',linestyle='None',label='Mass lost in Wind')
-       accretion_loss = (plotting_data[:,6][0]-plotting_data[:,6])/Mjup - plotting_data[:,7]/Mjup
-       plt.semilogx(plotting_data[:,0], accretion_loss, marker='x',color='green',linestyle='None',label='Mass lost in Accretion')
+       plt.semilogx(plotting_data[1:,0], plotting_data[1:,6]/Mjup, marker='x',color='blue',linestyle='None',label='Mass left in Disc')
+       plt.semilogx(plotting_data[1:,0], plotting_data[1:,7]/Mjup, marker='x',color='red',linestyle='None',label='Mass lost in Wind')
+       accretion_loss = (plotting_data[0,6]-plotting_data[:,6])/Mjup - plotting_data[:,7]/Mjup
+       plt.semilogx(plotting_data[1:,0], accretion_loss[1:], marker='x',color='green',linestyle='None',label='Mass lost in Accretion/Drift')
        plt.legend()
        plt.xlabel('Time / years',fontsize=16)
        plt.ylabel('Dust Mass $M_d$ / $M_J$',fontsize=16)
        ax.yaxis.tick_right()
        ax.yaxis.set_label_position("right")
+       plt.tick_params(axis='x', which='major', top=True, bottom=True, direction='inout', size=7)
+       plt.tick_params(axis='x', which='minor', top=True, bottom=True, direction='inout', size=4)
        plt.tick_params(axis='both', which='major', labelsize=12)
 
        def logistic(t, t0, k):
@@ -521,38 +535,53 @@ def timeplot(model, plotting_data, nv_data, data_2=None,logtest=False):
        if logtest:
            norm_acc = accretion_loss/accretion_loss[-1]
            popt, pcov = scp.optimize.curve_fit(logistic, plotting_data[norm_acc<0.5,0], norm_acc[norm_acc<0.5], p0=[1e5,1.5])
-           plt.semilogx(plotting_data[:,0], accretion_loss[-1]*logistic(plotting_data[:,0], *popt), linestyle='--')
+           plt.semilogx(plotting_data[1:,0], accretion_loss[-1]*logistic(plotting_data[1:,0], *popt), linestyle='--')
            print(popt)
 
-       ### SUBPLOT 3 - Either redundant plot or residuals of mass loss
+       print ("Fraction lost to wind: {:.3f}".format(plotting_data[-1,7] / plotting_data[0,6]))
+       print ("Fraction lost to star: {:.3f}".format(accretion_loss[-1]*Mjup / plotting_data[0,6]))
+
+       ### SUBPLOT 3 - Either dust loss rates or residuals of mass loss
        ax = plt.subplot(3,no_cols,2+2*no_cols)
-       if (data_2 is None):
-           ax.axis('off')
-       else:
-           accretion_loss_2 = (data_2[:,7][0]-data_2[:,7] - data_2[:,8])/Mjup
+       if (data_2 is not None):
+           accretion_loss_2 = (data_2[1:,7][0]-data_2[1:,7] - data_2[1:,8])/Mjup
            print(accretion_loss_2)
-           ax.semilogx(plotting_data[:,0], accretion_loss - accretion_loss_2, marker='x',color='blue',linestyle='None')
+           ax.semilogx(plotting_data[1:,0], accretion_loss - accretion_loss_2, marker='x',color='blue',linestyle='None')
            plt.ylabel('Relative accretion mass loss $\Delta M_{d,acc}$ / $M_J$')
            ax.yaxis.tick_right()
-           ax.yaxis.set_label_position("right")           
+           ax.yaxis.set_label_position("right")
+       else:
+           ### SUBPLOT 3 - Rate of dust loss and derivative
+           wind_rate = plotting_data[:,0]*np.gradient(plotting_data[:,7]/Mjup, plotting_data[:,0])
+           drift_rate = plotting_data[:,0]*np.gradient(accretion_loss, plotting_data[:,0])
+           plt.semilogx(plotting_data[1:,0],wind_rate[1:], color='red')
+           plt.semilogx(plotting_data[1:,0],drift_rate[1:], color='green')
+           plt.ylabel('Dust Mass Loss Rate $\\frac{dM_d}{d\log(t)}$ / $M_J$',fontsize=16)
+
+           total_rate = wind_rate + drift_rate
+           second_deriv = plotting_data[:,0]*np.gradient(total_rate, plotting_data[:,0])
+           drain_t = plotting_data[:,0][np.argmin(second_deriv)]
+           print ("Dust lost after: {:.3f} Myr".format(drain_t/1e6))
+           #plt.semilogx(plotting_data[1:,0],-second_deriv[1:])
+           #plt.ylabel('Dust Loss Rate $\\frac{d^2M_d}{d\log(t)^2}$ / $M_J$',fontsize=16)
+
+           plt.xlabel('Time / years',fontsize=16)
+           ax.yaxis.tick_right()
+           ax.yaxis.set_label_position("right")
+           plt.tick_params(axis='x', which='major', top=True, bottom=True, direction='inout', size=7)
+           plt.tick_params(axis='x', which='minor', top=True, bottom=True, direction='inout', size=4)
+           plt.tick_params(axis='both', which='major', labelsize=12)
 
     # Save Figure
     plt.suptitle('Evolution of the disc',fontsize='24')
     if logtest:
         plt.savefig(model['output']['plot_name']+"_logtest.png")
         plt.show()
-    else:
+    elif (nv_data is not None):
         plt.savefig(model['output']['plot_name']+"_time.png")
     plt.close()
 
-def main():
-    # Retrieve model from inputs
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model", "-m", type=str, default=DefaultModel)
-    args = parser.parse_args()
-    model = json.load(open(args.model, 'r'))
-    
+def setup_wrapper(model,):
     # Setup model
     disc = setup_disc(model)
     driver = setup_model(model, disc)
@@ -569,7 +598,6 @@ def main():
     plt.close()
 
     # Truncate disc at base of wind
-    Dt_nv = np.zeros_like(disc.R)
     if (driver.photoevap is not None):
         optically_thin = (disc.R > disc.Rot(driver.photoevap))
 
@@ -585,50 +613,66 @@ def main():
     """else:
         photoevap = photoevaporation.FRIEDExternalEvaporationMS(disc)
         optically_thin = (disc.R > disc.Rot(photoevap))"""
-
-
+    
+    Dt_nv = np.zeros_like(disc.R)
     if (driver.photoevap is not None):
         # Perform estimate of evolution for non-viscous case
-        (_, _, M_cum, Dt_nv) = driver.photoevap.get_timescale(disc)    
+        (_, _, M_cum, Dt_nv) = driver.photoevap.get_timescale(disc)
+
+    return disc, driver, output_name, io_control, plot_name, ylims, Dt_nv
+
+def main():
+    # Retrieve model from inputs
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", "-m", type=str, default=DefaultModel)
+    args = parser.parse_args()
+    model = json.load(open(args.model, 'r'))
     
-    # Run model and retrieve disc properties
-    run(driver, io_control, output_name, plot_name, ylims, model['uv']['photoevaporation'], np.array(model['tracking']['radii_thresholds']))
+    # Do all setup
+    disc, driver, output_name, io_control, plot_name, ylims, Dt_nv = setup_wrapper(model)
+    
+    # Run model
+    run(driver, io_control, output_name, plot_name, ylims, model['uv']['photoevaporation'], np.array(model['dust']['radii_thresholds']), model)
+    
+    # Save disc properties
+    outputdata = save_summary(driver,model)
+
+    # Call separate plotting function
+    timeplot(model, outputdata, np.column_stack((Dt_nv/(2*np.pi), disc.grid.Rc)))
+
+    # Compile video
+    subprocess.call(['ffmpeg', '-framerate', '5', '-i', model['output']['plot_name']+'_profiles/'+model['output']['plot_name']+'_%01d.png', model['output']['plot_name']+'.avi'])
+
+def save_summary(driver,model):
+    # Retrieve disc properties
     outer_radii = driver.disc._Rout
     ot_radii = driver.disc._Rot
     disc_masses = driver.disc._Mtot
     if (driver.photoevap is not None):
         Mevap = driver.photoevap._Mdot
     Macc = driver.disc._Mdot_acc
-    if (isinstance(disc,DustGrowthTwoPop)):
+    if (isinstance(driver.disc,DustGrowthTwoPop)):
         dust_radii = driver.disc._Rdust
         dust_masses = driver.disc._Mdust
         if (driver.photoevap is not None):
             dust_wind = driver.disc._Mwind
         dust_split = np.split(dust_radii,range(1,np.shape(dust_radii)[1]),axis=1)
-    # Save radius data
+
+    # Save data
     plot_times = np.array(model['output']['plot_times'])
-    if (driver.photoevap is None and isinstance(disc,DustGrowthTwoPop)):
+    if (driver.photoevap is None and isinstance(driver.disc,DustGrowthTwoPop)):
         outputdata = np.column_stack((plot_times[0:np.size(outer_radii):1],outer_radii,np.zeros_like(outer_radii),disc_masses,np.zeros_like(outer_radii),Macc,dust_masses,np.zeros_like(outer_radii),*dust_split))
     elif (driver.photoevap is None):
         outputdata = np.column_stack((plot_times[0:np.size(outer_radii):1],outer_radii,np.zeros_like(outer_radii),disc_masses,np.zeros_like(outer_radii),Macc))
-    elif (isinstance(disc,DustGrowthTwoPop)):
+    elif (isinstance(driver.disc,DustGrowthTwoPop)):
         outputdata = np.column_stack((plot_times[0:np.size(outer_radii):1],outer_radii,ot_radii[1:],disc_masses,Mevap,Macc,dust_masses,dust_wind,*dust_split))
     else:
         outputdata = np.column_stack((plot_times[0:np.size(outer_radii):1],outer_radii,ot_radii[1:],disc_masses,Mevap,Macc))
     np.savetxt(model['output']['directory']+"/"+model['output']['plot_name']+"_discproperties.dat",outputdata)
 
-    # Call separate plotting function
-    timeplot(model, outputdata[1:,:], np.column_stack((Dt_nv/(2*np.pi), disc.grid.Rc)))
-
-    # Compile video
-    subprocess.call(['ffmpeg', '-framerate', '5', '-i', model['output']['plot_name']+'_profiles/'+model['output']['plot_name']+'_%01d.png', model['output']['plot_name']+'.avi'])
+    return outputdata
 
 if __name__ == "__main__":
-    main() 
-
-
+    main()
     
-
-
-
-
