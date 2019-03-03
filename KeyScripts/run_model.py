@@ -236,7 +236,7 @@ def run(model, io, base_name, plot_name, ylims, mass_loss_mode, dust_radii_thres
                 plt.loglog(grid.Rc, t_grow_max / (2*np.pi), color='blue', label='$t_{grow,max}$')
 
                 # Growth time to entrained size
-                a_ent = model.photoevap.Facchini_limit(model.disc, M_evap *(yr/Msun))
+                a_ent = photoevaporation.Facchini_limit(model.disc, M_evap *(yr/Msun))
                 t_grow_ent = t_grow_e * np.log(a_ent/model.disc._monomer)
                 plt.loglog(grid.Rc, t_grow_ent / (2*np.pi), color='blue', linestyle='--', label='$t_{grow,ent}$')
 

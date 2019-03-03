@@ -102,7 +102,7 @@ class ExternalPhotoevaporationBase(object):
             f_m[not_dustless] = disc.dust_frac[1,:].flatten()[not_dustless]/disc.integ_dust_frac[not_dustless]
 
             # Update the maximum entrained size
-            self._amax = self.Facchini_limit(disc,np.sum(dM_dot)*(dM_dot>0) *(yr/Msun))
+            self._amax = Facchini_limit(disc,np.sum(dM_dot)*(dM_dot>0) *(yr/Msun))
 
             # Work out the total mass in entrained dust
             M_ent = self.dust_entrainment(disc)
@@ -161,26 +161,7 @@ class ExternalPhotoevaporationBase(object):
         #print(np.linspace(1,1024,1024,endpoint=True)[not_empty][broken])"""
         """Consider different distributions for weighting?"""
 
-        return M_ent     
-
-    def Facchini_limit(self, disc, Mdot):
-        """
-        Equation 35 of Facchini et al (2016)
-        Note following definitions:
-         F = H / sqrt(H^2+R^2) (dimensionless)
-         v_th = \sqrt(8/pi) C_S in AU / t_dyn
-         Mdot is in units of Msun yr^-1
-         G=1 in units AU^3 Msun^-1 t_dyn^-2
-        """
-        
-        F = disc.H / np.sqrt(disc.H**2+disc.R**2)
-        rho = disc._rho_s
-        Mstar = disc.star.M # In Msun
-        v_th = np.sqrt(8/np.pi) * disc.cs
-        
-        a_entr = (v_th * Mdot) / (Mstar * 4 * np.pi * F * rho)
-        a_entr *= Msun / AU**2 / yr
-        return a_entr 
+        return M_ent
 
     def __call__(self, disc, dt, age):
         """Removes gas and dust from the edge of a disc"""
@@ -191,6 +172,25 @@ class ExternalPhotoevaporationBase(object):
             self.timescale_remove(disc, dt)
         else:
             self.weighted_removal(disc, dt)
+
+def Facchini_limit(disc, Mdot):
+    """
+    Equation 35 of Facchini et al (2016)
+    Note following definitions:
+    F = H / sqrt(H^2+R^2) (dimensionless)
+    v_th = \sqrt(8/pi) C_S in AU / t_dyn
+    Mdot is in units of Msun yr^-1
+    G=1 in units AU^3 Msun^-1 t_dyn^-2
+    """
+    
+    F = disc.H / np.sqrt(disc.H**2+disc.R**2)
+    rho = disc._rho_s
+    Mstar = disc.star.M # In Msun
+    v_th = np.sqrt(8/np.pi) * disc.cs
+    
+    a_entr = (v_th * Mdot) / (Mstar * 4 * np.pi * F * rho)
+    a_entr *= Msun / AU**2 / yr
+    return a_entr
 
 class FixedExternalEvaporation(ExternalPhotoevaporationBase):
     """External photoevaporation flow with a constant mass loss rate, which
@@ -235,7 +235,7 @@ class FRIEDExternalEvaporationS(ExternalPhotoevaporationBase):
         
     def max_size_entrained(self, disc):
         # Update maximum entrained size
-        self._amax = self.Facchini_limit(disc,self._Mdot)
+        self._amax = Facchini_limit(disc,self._Mdot)
         return self._amax
 
 class FRIEDExternalEvaporationMS(ExternalPhotoevaporationBase):
@@ -262,7 +262,7 @@ class FRIEDExternalEvaporationMS(ExternalPhotoevaporationBase):
 
     def max_size_entrained(self, disc):
         # Update maximum entrained size
-        self._amax = self.Facchini_limit(disc,self._Mdot)
+        self._amax = Facchini_limit(disc,self._Mdot)
         return self._amax
 
 class FRIEDExternalEvaporationM(ExternalPhotoevaporationBase):
@@ -293,7 +293,7 @@ class FRIEDExternalEvaporationM(ExternalPhotoevaporationBase):
 
     def max_size_entrained(self, disc):
         # Update maximum entrained size
-        self._amax = self.Facchini_limit(disc,self._Mdot)
+        self._amax = Facchini_limit(disc,self._Mdot)
         return self._amax
 
 if __name__ == "__main__":
