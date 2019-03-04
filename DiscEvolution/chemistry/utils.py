@@ -73,7 +73,7 @@ def create_abundances(names, data, masses=None, grain_prefix=''):
         if len(names) != len(masses):
             raise AttributeError("Number of masses provided must match "
                                  "the number of names.")
-        chem = ChemicalAbund(names, masses, len(data))
+        chem = ChemicalAbund(names, masses, *(data.shape))
 
     # Store the data
     for name, mapped in zip(names, mapped_names):
