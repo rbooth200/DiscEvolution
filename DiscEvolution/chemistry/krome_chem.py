@@ -80,22 +80,22 @@ class KromeIceAbund(ChemicalAbund):
     """Wrapper for ice phase chemical species used by the KROME package.
  
     args:
-        size : Number of data points to hold
+        sizes : Number of data points to hold
     """
-    def __init__(self, size=0):
+    def __init__(self, *sizes):
         super(KromeIceAbund, self).__init__(_krome_ice_names,
-                                            _krome_masses[_krome_ice], size)
+                                            _krome_masses[_krome_ice], sizes)
 
 class KromeGasAbund(ChemicalAbund):
     """Wrapper for gas phase chemical species used by the KROME package.
  
     args:
-        size : Number of data points to hold
+        sizes : Number of data points to hold
     """
-    def __init__(self, size=0):
+    def __init__(self, *sizes):
         super(KromeGasAbund, self).__init__(_krome_names[_krome_gas],
                                             _krome_masses[_krome_gas],
-                                            size)
+                                            *sizes)
 ################################################################################
 # Wrapper for combined gas/ice phase data
 ################################################################################
