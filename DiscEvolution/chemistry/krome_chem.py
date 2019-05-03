@@ -84,7 +84,7 @@ class KromeIceAbund(ChemicalAbund):
     """
     def __init__(self, *sizes):
         super(KromeIceAbund, self).__init__(_krome_ice_names,
-                                            _krome_masses[_krome_ice], sizes)
+                                            _krome_masses[_krome_ice], *sizes)
 
 class KromeGasAbund(ChemicalAbund):
     """Wrapper for gas phase chemical species used by the KROME package.

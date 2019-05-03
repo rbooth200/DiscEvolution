@@ -156,7 +156,15 @@ class MolecularIceAbund(object):
 
     def __iter__(self):
         """Iterate over species names"""
-        return iter(self.gas)
+        names = list(self.gas.names)
+        for name in self.ice.names:
+            if name not in self.gas.names:
+                names.append(name)
+        return iter(names)
+
+    def __len__(self):
+        '''Total number of unique species'''
+        return len(set(list(self.gas.names) + list(self.ice.names)))
     
         
 
