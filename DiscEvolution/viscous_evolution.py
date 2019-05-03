@@ -132,6 +132,131 @@ class ViscousEvolution(object):
         disc.Sigma[:] = Sigma_new
 
 
+
+
+
+class ViscousEvolutionFV(object):
+    """Solves the 1D viscous evoluation equation via a finite-volume method
+
+    This class handles the inclusion of dust species in the one-fluid
+    approximation. The total surface density (Sigma = Sigma_G + Sigma_D) is
+    updated under the action of viscous forces, which are taken to act only
+    on the gas phase species.
+
+    Can optionally update tracer species.
+
+    args:
+       tol       : Ratio of the time-step to the maximum stable one.
+                   Default = 0.5
+       boundary  : Type of external boundary condition:
+                     'Zero'      : Zero torque boundary
+                     'power_law' : Power-law extrapolation
+                     'Mdot'      : Constant Mdot, same as inner.
+    """
+
+    def __init__(self, tol=0.5, boundary='power_law'):
+        self._tol = tol
+        self._bound = boundary
+
+    def ASCII_header(self):
+        """header"""
+        return '# {} tol: {}'.format(self.__class__.__name__, self._tol)
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        return self.__class__.__name__, { "tol" : str(self._tol)}
+
+    def _setup_grid(self, grid):
+        """Compute the grid factors"""
+        self._Rh  = np.sqrt(grid.Rc)
+        self._dR3 = np.diff(np.sqrt(grid.Rce)**3)
+
+        self._dA = grid.Re
+        self._dV = 0.5 * np.diff(grid.Re**2)
+
+    def _init_fluxes(self, disc):
+        """Cache the important variables needed for the fluxes"""
+        nuRh = disc.nu * self._Rh
+
+        S = np.zeros(len(nuRh) + 2, dtype='f8')
+        S[1:-1] = disc.Sigma_G * nuRh
+
+        S[0] = S[1] * self._Rh[0] / self._Rh[1]
+        if self._bound == 'Zero':
+            S[-1] = 0
+        elif self._bound == 'power_law':
+            S[-1] = S[-2] ** 2 / S[-3]
+        elif self._bound == 'Mdot':
+            S[-1] = S[-2] * self._Rh[-2] / self._Rh[-1]
+        else:
+            raise ValueError("Error boundary type not recognised")
+
+        self._dS = 4.5 * np.diff(S) / self._dR3
+
+    def _fluxes(self):
+        """Compute the mass fluxes for the viscous evolution equations.
+
+        Gas update from Bath & Pringle (1981)
+        """
+        return np.diff(self._dA * self._dS) / self._dV
+
+    def _tracer_fluxes(self, tracers):
+        """Compute fluxes of a tracer.
+
+        Uses the viscous update to compute the flux of  Sigma*tracers,
+        divide by the updated Sigma to get the new tracer value.
+        """
+        shape = tracers.shape[:-1] + (tracers.shape[-1] + 2,)
+        s = np.zeros(shape, dtype='f8')
+        s[..., 1:-1] = tracers
+        s[..., 0] = s[..., 1]
+        s[..., -1] = s[..., -2]
+
+        # Upwind the tracer density 
+        ds = self._dS * np.where(self._dS <= 0, s[..., :-1], s[..., 1:])
+
+        # Compute the viscous update
+        return np.diff(self._dA * ds) / self._dV
+
+    def viscous_velocity(self, disc):
+        """Compute the radial velocity due to viscosity"""
+        self._setup_grid(disc.grid)
+        self._init_fluxes(disc)
+
+        S = disc.Sigma 
+        return 0.5 * self._dS[1:-1] / (S[1:] + S[:-1])
+
+    def max_timestep(self, disc):
+        """Courant limited time-step"""
+        grid = disc.grid
+        nu = disc.nu
+
+        dXe2 = np.diff(2 * np.sqrt(grid.Re)) ** 2
+
+        tc = ((dXe2 * grid.Rc) / (2 * 3 * nu)).min()
+        return self._tol * tc
+
+    def __call__(self, dt, disc, tracers=[]):
+        """Compute one step of the viscous evolution equation
+        args:
+            dt      : time-step
+            disc    : disc we are updating
+            tracers : Tracer species to update. Should be a list of arrays with
+                      shape = [*, disc.Ncells].
+        """
+        self._setup_grid(disc.grid)
+        self._init_fluxes(disc)
+
+        f = self._fluxes()
+        Sigma_new = disc.Sigma + dt * f
+
+        for t in tracers:
+            if t is None: continue
+            t[:] += dt*(self._tracer_fluxes(t) - t*f) / (Sigma_new + 1e-300)
+
+        disc.Sigma[:] = Sigma_new
+
+
 class LBP_Solution(object):
     """Analytical solution for the evolution of an accretion disc,
 
@@ -188,7 +313,7 @@ if __name__ == "__main__":
 
     disc = AccretionDisc(grid, star, eos, Sigma)
 
-    visc = ViscousEvolution()
+    visc = ViscousEvolutionFV()
 
     # Integrate to given times
     times = np.array([0, 1e4, 1e5, 1e6, 3e6]) * T0
