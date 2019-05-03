@@ -33,48 +33,41 @@ class Grid(object):
         self._spacing = spacing
             
     def _setup_log(self, R0, R1, N):
-        """Setup a gird in log-spacing"""
-        self._Re = np.logspace(np.log10(R0), np.log10(R1), N+1, dtype='f8')
-        self._Rc = np.sqrt(self._Re[1:] * self._Re[:-1])
+        """Setup a grid in log-spacing"""
+        lgR0 = np.log10(R0)
+        lgR1 = np.log10(R1)
+        
+        dlogR = (lgR1 - lgR0) / N
+        
+        Ree = np.power(10, lgR0 + np.arange(-2, N+3, dtype='f8') * dlogR)
+        
+        self._Re  = Ree[2:-2]
+        self._Rce = np.sqrt(Ree[2:-1] * Ree[1:-2])
+        self._Rc  = self._Rce[1:-1]
 
-        #Extended centres
-        Rce = np.empty(N+2, dtype='f8')
-        Rce[1:-1] = self._Rc
-        Rce[ 0] = Rce[ 1]**2 / Rce[ 2]
-        Rce[-1] = Rce[-2]**2 / Rce[-3]
-        self._Rce = Rce
-
-        Ree = np.empty(N+5, dtype='f8')
-        Ree[2:-2] = self._Re
-        Ree[ 1] = Ree[ 2]**2 / Ree[ 3]
-        Ree[-2] = Ree[-3]**2 / Ree[-4]
-        Ree[ 0] = Ree[ 1]**2 / Ree[ 2]
-        Ree[-1] = Ree[-2]**2 / Ree[-3]
         self._Ree = Ree
 
     def _setup_powerlaw(self, R0, R1, N, alpha):
         """Setup a power law grid"""
         alpha = float(alpha)
         alpha1 = 1/alpha
-        Rehalf = np.linspace(R0**alpha, R1**alpha, N+1, dtype='f8')
-        Rchalf = 0.5*(Rehalf[1:] + Rehalf[:-1])
-        self._Re = Rehalf**alpha1
-        self._Rc = Rchalf**alpha1
 
-        Rce = np.empty(N+2, dtype='f8')
-        Rce[1:-1] = self._Rc
-        Rce[ 0] = (2*Rchalf[ 0] - Rchalf[ 1])**alpha1
-        Rce[-1] = (2*Rchalf[-1] - Rchalf[-2])**alpha1    
+        R0a = R0**alpha
+        R1a = R1**alpha
+
+        dRa = (R1a - R0a) / N
+
+        Ree_a = R0a + np.arange(-2, N+3, dtype='f8') * dRa
+        Rce_a = 0.5*(Ree_a[2:-1] + Ree_a[1:-2])
+
+        Ree = Ree_a**alpha1
+        Rce = Rce_a**alpha1
+
+        self._Re  = Ree[2:-2]
         self._Rce = Rce
+        self._Rc  = Rce[1:-1]
 
-        Ree = np.empty(N+5, dtype='f8')
-        Ree[2:-2] = self._Re
-        Ree[ 1] = (2*Rehalf[ 1] - Rehalf[ 2])**alpha1
-        Ree[-2] = (2*Rehalf[-2] - Rehalf[-3])**alpha1
-        Ree[ 0] = (2*Rehalf[ 0] - Rehalf[ 1])**alpha1
-        Ree[-1] = (2*Rehalf[-1] - Rehalf[-2])**alpha1
         self._Ree = Ree
-
         
     def _setup_aux(self):
         self._dRe  = np.diff(self._Re)
@@ -177,7 +170,6 @@ class Grid(object):
             else:
                 raise AttributeError("Error: Attribute {} for Grid not "
                                      "known".format(key))
-        print(args, kwargs)
         return Grid(*args, **kwargs)
 
 def from_file(filename):

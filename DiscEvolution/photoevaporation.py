@@ -28,52 +28,69 @@ class ExternalPhotoevaporationBase(object):
         amax = self.max_size_entrained(disc)
 
         # Convert Msun / yr to g / dynamical time and compute mass evaporated:
-        dM_evap = Mdot * dt * Msun / (2 * np.pi)
+        Mdot = Mdot * Msun / (2*np.pi)
 
         # Disc densities / masses
         Sigma_G = disc.Sigma_G
-        Sigma_D = disc.Sigma_D
+        try:
+            Sigma_D = disc.Sigma_D
+        except AttributeError:
+            Sigma_D = np.zeros([1, len(Sigma_G)])
 
         Re = disc.R_edge * AU
         A = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
         dM_gas = Sigma_G * A
         dM_dust = Sigma_D * A
 
+        try:
+            grain_size = disc.grain_size
+        except AttributeError:
+            grain_size = np.zeros_like(Sigma_D)
+
         # Work out which cells we need to empty of gas & entrained dust
-        dM_tot = dM_gas + (dM_dust * (disc.grain_size <= amax)).sum(0)
-        M_tot = np.cumsum(dM_tot[::-1])[::-1]
-        empty = M_tot < dM_evap
+        dM_tot = dM_gas + (dM_dust * (grain_size <= amax)).sum(0)
+        dt_drain = dM_tot / (Mdot + 1e-300)
+
+        t_drain = np.cumsum(dt_drain[::-1])[::-1]
+        empty = t_drain < dt 
 
         # Remove gas / entrained dust from empty cells, set density and
         # dust fraction of remaining dust
-        for a, dM_i in zip(disc.grain_size, dM_dust):
+        for a, dM_i in zip(grain_size, dM_dust):
             dM_i[(a < amax) & empty] = 0
 
         disc.Sigma[empty] = (dM_dust / A)[..., empty].sum(0)
-        disc.dust_frac[..., empty] = \
-            dM_dust[..., empty] / (A * disc.Sigma + 1e-300)[empty]
+        try:
+            disc.dust_frac[..., empty] = \
+                dM_dust[..., empty] / (A * disc.Sigma + 1e-300)[empty]
+        except AttributeError:
+            pass
 
         # Reduce the surface density of the one cell that is partially emptied
-        cell_id = np.searchsorted(-M_tot, -dM_evap) - 1
+        cell_id = np.searchsorted(-t_drain, -dt) - 1
         if cell_id < 0: return
 
         # Compute the remaining mass to remove
         try:
-            dM_cell = dM_evap - M_tot[cell_id + 1]
+            dM_cell = Mdot[cell_id] * (dt - t_drain[cell_id+1])
+            assert dM_cell <= dM_tot[cell_id]
         except IndexError:
             # Handle case where we only remove mass from the outer-most cell
-            dM_cell = dM_evap
+            dM_cell = Mdot[-1] * dt
 
         # Compute new surface densities of final cell
         #    Assume dust fraction of species entrained does not change, while
         #    the mass of those those not entrained stays the same.
-        not_entrained = disc.grain_size[..., cell_id] > amax
+        not_entrained = grain_size[..., cell_id] > amax[cell_id]
         M_left = (dM_tot[cell_id] - dM_cell +
                   dM_dust[not_entrained, cell_id].sum())
 
         disc.Sigma[cell_id] = M_left / A[cell_id]
-        disc.dust_frac[not_entrained, cell_id] = \
-            dM_dust[not_entrained, cell_id] / M_left
+        try:
+            disc.dust_frac[not_entrained, cell_id] = \
+                dM_dust[not_entrained, cell_id] / M_left
+        except AttributeError:
+            pass
 
         ### And we're done
 
@@ -92,10 +109,52 @@ class FixedExternalEvaportation(ExternalPhotoevaporationBase):
         self._amax = amax
 
     def mass_loss_rate(self, disc):
-        return self._Mdot
+        return self._Mdot * np.ones_like(disc.Sigma)
 
     def max_size_entrained(self, disc):
-        return self._amax
+        return self._amax * np.ones_like(disc.Sigma)
+
+    def ASCII_header(self):
+        return ("FixedExternalEvaportation, Mdot: {}, amax: {}"
+                "".format(self._Mdot, self._amax))
+
+    def HDF5_attributes(self):
+        header = {}
+        header['Mdot'] = '{}'.format(self._Mdot)
+        header['amax'] = '{}'.format(self._amax)
+        return self.__class__.__name__, header
+
+    
+class TimeExternalEvaportation(ExternalPhotoevaporationBase):
+    """Mass loss via external evaporation at a constant mass-loss timescale,
+    
+        Mdot = pi R^2 Sigma / t_loss.
+
+    args:
+        time-scale : mass loss time-scale in years
+        amax : maximum grain size entrained, default = 10 micron
+    """
+
+    def __init__(self, time=1e6, amax=1e-3):
+        self._time = time
+        self._amax = amax
+
+    def mass_loss_rate(self, disc):
+        k = np.pi * AU**2 / Msun
+        return k * disc.R**2 * disc.Sigma / self._time
+
+    def max_size_entrained(self, disc):
+        return self._amax * np.ones_like(disc.Sigma)
+
+    def ASCII_header(self):
+        return ("TimeExternalEvaportation, time: {}, amax: {}"
+                "".format(self._time, self._amax))
+
+    def HDF5_attributes(self):
+        header = {}
+        header['time'] = '{}'.format(self._time)
+        header['amax'] = '{}'.format(self._amax)
+        return self.__class__.__name__, header
 
 
 if __name__ == "__main__":

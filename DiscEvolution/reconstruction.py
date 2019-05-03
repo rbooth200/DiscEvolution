@@ -61,7 +61,7 @@ class VanLeer(object):
         num = QF*QB*(cF*QB + cB*QF)
         den = (QB*QB + (cF + cB - 2)*QB*QF + QF*QF) + 1e-300
 
-        dQ_lim = np.where(QB*QF > 0, num/den, 0) / self._dxe
+        dQ_lim = np.where(QB*QF > 0, num/den, 0) / self._dxe[1:-1]
 
         # Reconstruct the face states
         Qp = Q[...,1:-1] + dQ_lim * (self._dxp[1:-1] - v_edge[1:  ]*dt/2.)

@@ -8,8 +8,12 @@ __all__ = [ "KromeAbund", "KromeIceAbund", "KromeGasAbund",
 
 # Locate the KROME library code
 import sys, os
-KROME_PATH = os.environ["KROME_PATH"]
-sys.path.append(KROME_PATH)
+try:
+    KROME_PATH = os.environ["KROME_PATH"]
+    sys.path.append(KROME_PATH)
+except KeyError:
+    raise ImportError("krome_chem module requires KROME_PATH environment "
+                      "variable to be set")
 
 import numpy as np
 import ctypes
