@@ -435,26 +435,23 @@ class SingleFluidDrift(object):
     def _donor_flux(self, Ree, deltaV_i, Sigma, eps_i):
         """Compute flux using Donor-Cell method"""
         # Add boundary cells        
-        shape_v   = eps_i.shape[:-1] + (eps_i.shape[-1]+1,)
+        shape_v   = (eps_i.shape[-1]+1,)
         shape_rho = eps_i.shape[:-1] + (eps_i.shape[-1]+2,)
         
         dV_i = np.empty(shape_v, dtype='f8')
-        dV_i[...,1:-1] = deltaV_i - self._epsDeltaV
-        dV_i[..., 0] = dV_i[..., 1] 
-        dV_i[...,-1] = dV_i[...,-2] 
+        dV_i[1:-1] = deltaV_i - self._epsDeltaV
+        dV_i[ 0] = dV_i[ 1] 
+        dV_i[-1] = dV_i[-2] 
             
-        Sig = np.zeros(shape_rho[-1], dtype='f8')
-        eps = np.zeros(shape_rho,     dtype='f8')
-        Sig[    1:-1] = Sigma
-        eps[...,1:-1] = eps_i
+        Sig_eps = np.zeros(shape_rho, dtype='f8')
+        Sig_eps[...,1:-1] = Sigma*eps_i
             
         # Upwind the density
         dc = DonorCell(Ree[1:-1], 1)
-        Sig = dc(dV_i, Sig)
-        eps = dc(dV_i, eps)
+        Sig_eps = dc(dV_i, Sig_eps)
 
         # Compute the fluxes
-        flux = Sig*eps * dV_i
+        flux = Sig_eps * dV_i
         return flux
         
     def _van_leer_flux(self, Ree, deltaV_i, Sigma, eps_i, dt):
@@ -468,23 +465,18 @@ class SingleFluidDrift(object):
         dV_i[  :2] = dV_i[2]
         dV_i[-2: ] = dV_i[-3] 
             
-        Sig = np.zeros(shape_rho[-1], dtype='f8')
-        eps = np.zeros(shape_rho,     dtype='f8')
-        Sig[    2:-2] = Sigma
-        eps[...,2:-2] = eps_i
+        Sig_eps = np.zeros(shape_rho, dtype='f8')
+        Sig_eps[...,2:-2] = Sigma*eps_i
 
-        Sig[     1] = Sig[ 2]
-        Sig[    -2] = Sig[-3]
-        eps[..., 1] = eps[..., 2]
-        eps[...,-2] = eps[...,-3]
+        Sig_eps[..., 1] = np.where(dV_i[ 1] < 0, Sig_eps[..., 2], 0)
+        Sig_eps[...,-2] = np.where(dV_i[-2] > 0, Sig_eps[...,-3], 0)
         
         # Upwind the density
         vl = VanLeer(Ree, 1)
-        Sig = vl(dV_i, Sig, dt)
-        eps = vl(dV_i, eps, dt)
+        Sig_eps = vl(dV_i, Sig_eps, dt)
 
         # Compute the fluxes
-        flux = Sig*eps * dV_i[1:-1]
+        flux = Sig_eps * dV_i[1:-1]
         return flux
         
     def _fluxes(self, disc, eps_i, deltaV_i, St_i, dt=0):
