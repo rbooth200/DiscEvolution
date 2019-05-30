@@ -15,7 +15,9 @@ class ChemicalAbund(object):
         masses  : array, molecular masses in atomic mass units
         size    : Number of data points to hold chemistry for
     """
-    def __init__(self, species, masses,size=0):
+    def __init__(self, species, masses,*sizes):
+        # Sizes is dimension zero if not specified
+        sizes = sizes if sizes else (0,)
         if len(masses) != len(species):
             raise AttributeError("Number of masses must match the number of"
                                  "species")
@@ -25,7 +27,7 @@ class ChemicalAbund(object):
         self._mass    = masses
         self._Nspec = len(self._names)
 
-        self._data = np.zeros([self.Nspec, size], dtype='f8')
+        self._data = np.zeros((self.Nspec,) + sizes, dtype='f8')
 
     def __getitem__(self, k):
         return self._data[self._indexes[k]]
@@ -68,14 +70,31 @@ class ChemicalAbund(object):
             raise AttributeError("Error: shape must be [Nspec, *]")
         self._data = data
 
-    def resize(self, n):
-        """Resize the data array, keeping any elements that we already have"""
-        dn = n - self.size
-        if dn < 0:
-            self._data = self._data[:,:n].copy()
-        else:
-            self._data = np.concatenate([self._data,
-                                         np.empty([self.Nspec,dn], dtype='f8')])
+   #def resize(self, n):
+    #    '''Resize the data array, keeping any elements that we already have'''
+    #    dn = n - self.size
+    #    if dn < 0:
+    #        self._data = self._data[:,:n].copy()
+    #    else:
+    #        self._data = np.concatenate([self._data,
+    #                                     np.empty([self.Nspec,dn],dtype='f8')])
+    def resize(self, shape):
+        '''Resize the data array, keeping any elements that we already have'''
+        try:
+            shape = (self.Nspec, ) + tuple(shape)
+        except TypeError:
+            if type(shape) != type(1):
+                raise TypeError("shape must be int, or array of int")
+            shape = (self.Nspec, shape)
+
+        new_data = np.zeros(shape, dtype='f8')
+        
+        idx = [ slice(0, min(ni)) for ni in zip(shape, self._data.shape)]
+
+        # Copy accross the old data
+        new_data[idx] = self._data[idx]
+
+        self._data = new_data
 
     def append(self, other):
         """Append chemistry data from another container"""
@@ -137,7 +156,15 @@ class MolecularIceAbund(object):
 
     def __iter__(self):
         """Iterate over species names"""
-        return iter(self.gas)
+        names = list(self.gas.names)
+        for name in self.ice.names:
+            if name not in self.gas.names:
+                names.append(name)
+        return iter(names)
+
+    def __len__(self):
+        '''Total number of unique species'''
+        return len(set(list(self.gas.names) + list(self.ice.names)))
     
         
 

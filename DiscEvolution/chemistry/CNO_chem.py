@@ -13,11 +13,11 @@ from .base_chem import TimeDependentChem, EquilibriumChem
 class SimpleCNOAtomAbund(ChemicalAbund):
     """Class to hold the raw atomic abundaces of C/O/Si for the CNO chemistry"""
 
-    def __init__(self, size=0):
+    def __init__(self, *sizes):
         atom_ids = ['C', 'N', 'O', 'Si']
         masses = [12., 14., 16., 28.]
 
-        super(SimpleCNOAtomAbund, self).__init__(atom_ids, masses, size)
+        super(SimpleCNOAtomAbund, self).__init__(atom_ids, masses, *sizes)
 
     def set_solar_abundances(self, muH=1.28):
         """Solar mass fractions of C, O and Si.
@@ -32,13 +32,13 @@ class SimpleCNOAtomAbund(ChemicalAbund):
 class SimpleCNOMolAbund(ChemicalAbund):
     """Class that holds the abundances of molecules needed for C/O chemistry"""
 
-    def __init__(self, size=0):
+    def __init__(self, *sizes):
         mol_ids = ['CO', 'CH4', 'CO2', 'H2O', 'N2', 'NH3',
                    'C-grain', 'Si-grain']
         mol_mass = [28., 16., 44., 18., 28., 17.,
                     12., 100.]
 
-        super(SimpleCNOMolAbund, self).__init__(mol_ids, mol_mass, size)
+        super(SimpleCNOMolAbund, self).__init__(mol_ids, mol_mass, *sizes)
 
         # Atomic make up of the molecules:
         self._n_spec = {'CO': {'C': 1, 'O': 1, },

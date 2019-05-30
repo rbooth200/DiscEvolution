@@ -54,6 +54,7 @@ def atomic_composition(mol, charge=False):
 
     atoms = defaultdict(int)
     for atom in keys:
+        if mol == '': break
         for chunk in re.findall(atom + '\d*', mol, re.IGNORECASE):
             if len(chunk) > len(atom):
                 N = int(chunk[len(atom):])

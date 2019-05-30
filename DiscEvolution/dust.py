@@ -494,9 +494,9 @@ class SingleFluidDrift(object):
         grid = disc.grid
 
         if self._van_leer:
-            flux = self._van_leer_flux(grid.Ree, deltaV_i, eps_i, Sigma, dt)
+            flux = self._van_leer_flux(grid.Ree, deltaV_i, Sigma, eps_i, dt)
         else:
-            flux = self._donor_flux(grid.Ree, deltaV_i, eps_i, Sigma)
+            flux = self._donor_flux(grid.Ree, deltaV_i, Sigma, eps_i)
             
         # Do the update
         deps = - np.diff(flux*grid.Re) / ((Sigma+1e-300) * 0.5*grid.dRe2)

@@ -59,6 +59,9 @@ class Grid(object):
 
         Ree_a = R0a + np.arange(-2, N+3, dtype='f8') * dRa
         Rce_a = 0.5*(Ree_a[2:-1] + Ree_a[1:-2])
+        print (Ree_a[:3])
+        print (R0a, R0a-dRa, R0a-2*dRa, R0a + (N+1) * dRa, R1a)
+        print (Rce_a[:2])
 
         Ree = Ree_a**alpha1
         Rce = Rce_a**alpha1
@@ -170,6 +173,7 @@ class Grid(object):
             else:
                 raise AttributeError("Error: Attribute {} for Grid not "
                                      "known".format(key))
+        print(args, kwargs)
         return Grid(*args, **kwargs)
 
 def from_file(filename):

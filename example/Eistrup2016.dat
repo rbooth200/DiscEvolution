@@ -1,0 +1,21 @@
+### Initial chemical abundances from Eistrup et al. 2016, A&A, 595, A83
+# Species   Abundance	Binding_Energy
+H 	    9.1e-5	0.
+H2	    0.4999545	600.
+HE	    0.098	100.
+N	    0		800.
+O	    0		800.
+C	    0		800.
+S	    0		1100.
+H2O	    3.0e-4	5770.
+CO	    6.0e-5      855.
+CO2	    6.0e-5      2990.
+CH4 	    1.8e-5      1090.
+N2	    2.1e-5      790.
+NH3	    2.1e-5      3130.
+CH3OH	    4.5e-5	4930.
+H2S	    6.0e-6	2743.
+O2	    0		1000.
+HCN	    0		3610.
+NO          0		1600.
+NA	    3.5e-5	NaN

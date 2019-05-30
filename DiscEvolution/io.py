@@ -394,44 +394,49 @@ class Hdf5DiscSnap(DiscSnap):
                                     "requires h5py, which could not be found.")
             raise ImportError(msg)
 
-        with h5py.File(filename, "r") as f:
-            self._t = float(np.array(f['time']))
 
-            data = f['data']             
-            self._R     = np.array(data['radius'])
-            self._Sigma = np.array(data['surface density'])
-            self._T     = np.array(data['temperature'])
+        self._h5File = f = h5py.File(filename, "r")
+        
+        self._t = float(np.array(f['time']))
+        
+        data = f['data']             
+        self._R     = np.array(data['radius'])
+        self._Sigma = np.array(data['surface density'])
+        self._T     = np.array(data['temperature'])
             
-            try:
-                dust = data['dust']
-                self._a   = np.array(dust['grain size'])
-                self._eps = np.array(dust['mass fraction'])
-            except KeyError:
-                pass
+        try:
+            dust = data['dust']
+            self._a   = np.array(dust['grain size'])
+            self._eps = np.array(dust['mass fraction'])
+        except KeyError:
+            pass
 
-            try:
-                chem = data['chemistry']
+        try:
+            chem = data['chemistry']
+            
+            gas = chem['gas']
+            names, masses = np.array(gas['names']), np.array(gas['masses'])
+            names = np.array([n.decode() for n in names])                
+            gas = create_abundances(names,
+                                    np.rec.fromarrays(gas['mass fraction'],
+                                                      names=tuple(names)),
+                                    masses=masses)
+
+            ice = chem['ice']
+            names, masses = np.array(ice['names']), np.array(ice['masses'])
+            names = np.array([n.decode() for n in names])
+            ice = create_abundances(names,
+                                    np.rec.fromarrays(ice['mass fraction'],
+                                                      names=tuple(names)),
+                                    masses=masses)
+
+            self._chem = MolecularIceAbund(gas, ice)
+        except KeyError:
+            pass
                 
-                gas = chem['gas']
-                names, masses = np.array(gas['names']), np.array(gas['masses'])
-                names = np.array([n.decode() for n in names])                
-                gas = create_abundances(names,
-                                        np.rec.fromarrays(gas['mass fraction'],
-                                                          names=tuple(names)),
-                                        masses=masses)
-
-                ice = chem['ice']
-                names, masses = np.array(ice['names']), np.array(ice['masses'])
-                names = np.array([n.decode() for n in names])
-                ice = create_abundances(names,
-                                        np.rec.fromarrays(ice['mass fraction'],
-                                                          names=tuple(names)),
-                                        masses=masses)
-
-                self._chem = MolecularIceAbund(gas, ice)
-            except KeyError:
-                pass
-                
+    @property
+    def h5File(self):
+        return self._h5File
 
 
 class Reader(object):

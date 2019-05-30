@@ -30,6 +30,7 @@ class DiscEvolutionDriver(object):
     """
     def __init__(self, disc,
                  gas=None, dust=None, diffusion=None, chemistry=None,
+                 photoevaporation=None,
                  t0=0.):
 
         self._disc = disc
@@ -38,6 +39,7 @@ class DiscEvolutionDriver(object):
         self._dust      = dust
         self._diffusion = diffusion
         self._chemistry = chemistry
+        self._photoevap = photoevaporation
 
         self._t = t0
         self._nstep = 0
@@ -118,6 +120,9 @@ class DiscEvolutionDriver(object):
             # changed
             disc.update_ices(disc.chem.ice)
 
+        if self._photoevap:
+            self._photoevap(disc, dt)
+
         # Now we should update the auxillary properties, do grain growth etc
         disc.update(dt)
 
@@ -149,6 +154,10 @@ class DiscEvolutionDriver(object):
     @property
     def chemistry(self):
         return self._chemistry
+    @property
+    def photoevaporation(self):
+        return self.photoevap
+    
 
     def dump_ASCII(self, filename):
         """Write the current state to a file, including header information"""
@@ -164,6 +173,8 @@ class DiscEvolutionDriver(object):
             head += self._diffusion.ASCII_header() + '\n'
         if self._chemistry:
             head += self._chemistry.ASCII_header() + '\n'
+        if self._photoevap:
+            head += self._photoevap.ASCII_header() + '\n'
 
         # Write it all to disc
         io.dump_ASCII(filename, self._disc, self.t, head)
@@ -175,6 +186,7 @@ class DiscEvolutionDriver(object):
         if self._dust:      headers.append(self._dust.HDF5_attributes())
         if self._diffusion: headers.append(self._diffusion.HDF5_attributes())
         if self._chemistry: headers.append(self._chemistry.HDF5_attributes())
+        if self._photoevap: headers.append(self._photoevap.HDF5_attributes())
 
         io.dump_hdf5(filename, self._disc, self.t, headers)
 

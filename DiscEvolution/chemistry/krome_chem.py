@@ -8,8 +8,12 @@ __all__ = [ "KromeAbund", "KromeIceAbund", "KromeGasAbund",
 
 # Locate the KROME library code
 import sys, os
-KROME_PATH = os.environ["KROME_PATH"]
-sys.path.append(KROME_PATH)
+try:
+    KROME_PATH = os.environ["KROME_PATH"]
+    sys.path.append(KROME_PATH)
+except KeyError:
+    raise ImportError("krome_chem module requires KROME_PATH environment "
+                      "variable to be set")
 
 import numpy as np
 import ctypes
@@ -80,22 +84,22 @@ class KromeIceAbund(ChemicalAbund):
     """Wrapper for ice phase chemical species used by the KROME package.
  
     args:
-        size : Number of data points to hold
+        sizes : Number of data points to hold
     """
-    def __init__(self, size=0):
+    def __init__(self, *sizes):
         super(KromeIceAbund, self).__init__(_krome_ice_names,
-                                            _krome_masses[_krome_ice], size)
+                                            _krome_masses[_krome_ice], *sizes)
 
 class KromeGasAbund(ChemicalAbund):
     """Wrapper for gas phase chemical species used by the KROME package.
  
     args:
-        size : Number of data points to hold
+        sizes : Number of data points to hold
     """
-    def __init__(self, size=0):
+    def __init__(self, *sizes):
         super(KromeGasAbund, self).__init__(_krome_names[_krome_gas],
                                             _krome_masses[_krome_gas],
-                                            size)
+                                            *sizes)
 ################################################################################
 # Wrapper for combined gas/ice phase data
 ################################################################################
@@ -124,6 +128,13 @@ class KromeCallBack(object):
 
 class UserDust2GasCallBack(KromeCallBack):
     """Sets the user_dust2gas ratio argument"""
+    def __init__(self, grain_size = 1e-5):
+        self._asize = grain_size
+    def init_krome(self, krome, grain_size=1e-5):
+        try:
+            krome.lib.krome_set_user_asize(grain_size)
+        except AttributeError:
+            pass
     def __call__(self, krome, T, rho, dust_frac, **kwargs):
         krome.lib.krome_set_user_dust2gas(dust_frac/(1-dust_frac))
 
@@ -214,6 +225,63 @@ class KromeChem(object):
             ice_data[i] = n[_krome_ice]
 
 
+    def explore_rates(self, T, rho, dust_frac, chem, cells, xvar, 
+                      process_rates=None,
+                      **kwargs):
+        """Wrapper for the krome_explore_rates function"""
+
+        # Load the reaction names
+        reaction_names = []
+        
+        reactionfile = os.path.join(KROME_PATH, 'reactions_verbatim.dat')
+        with open(reactionfile) as f:
+            for l in range(_krome.krome_nrea):
+                reaction_names.append(f.readline().strip())
+
+        m_gas = chem.gas.masses * m_H
+        m_ice = chem.ice.masses * m_H
+
+        n = np.empty(_nmols + _ngrain, dtype='f8')
+
+        gas_data = chem.gas.data.T
+        ice_data = chem.ice.data.T
+        
+        rate_data = []
+        for i in cells:
+            T_i, rho_i, eps_i = T[i], rho[i], dust_frac[i]
+            
+            rho_i /= 1 - eps_i
+
+            # Compute the number density
+            n[_krome_gas] = (gas_data[i] / m_gas) * rho_i
+            n[_krome_ice] = (ice_data[i] / m_ice) * rho_i
+
+            if self._call_back is not None:
+                opt = { kw : arg[i] for (kw, arg) in kwargs.items() }
+                self._call_back(_krome, T_i, n, eps_i, **opt)
+
+            # Create space for the result
+            flux = np.zeros(_krome.krome_nrea, dtype='f8')
+
+            # Do not send dummy grain species.
+            _krome.lib.krome_get_flux(n[:-_ngrain], T_i, flux)
+ 
+            if process_rates:
+                flux = process_rates(flux, reaction_names)
+
+            #Create the result
+            maxflux = flux.max()
+            sumflux = flux.sum()
+
+            format = '{:8d} ' +'{:17E} '*5 + '{:3} {:50}\n'
+            result = ''
+            for j in range(_krome.krome_nrea):
+                result += format.format(j+1, xvar, T_i, flux[j], 
+                                        flux[j]/maxflux, flux[j]/sumflux,
+                                        " ", reaction_names[j])
+            rate_data.append(result)
+        return rate_data
+
 def main():
     import matplotlib.pyplot as plt
     from ..eos import LocallyIsothermalEOS
@@ -274,11 +342,11 @@ def main():
 
     print("Gas / Total Mean Mol. Weight:", abund.gas.mu()[0], abund.mu()[0])
 
-    times = np.array([1e0, 1e2, 1e4, 1e6])*2*np.pi
+    times = np.array([1e0,1e1,1e2,1e3,1e4,1e5,1e6])*2*np.pi
 
     KC = KromeChem(call_back=UserDust2GasCallBack())
 
-    f, (ax1, ax2, ax3) = plt.subplots(3,1, sharex=True)
+    f, (ax1, ax2, ax3, ax4) = plt.subplots(4,1, sharex=True)
     
     ax1.loglog(R, Sigma)
     ax1.set_xlabel('R [au]')
@@ -289,7 +357,11 @@ def main():
     ax2.set_ylabel('T [K]')
 
     ax3.set_xlabel('R [au]')
-    ax3.set_ylabel('X_i')
+    ax3.set_ylabel('[CO]')
+
+    ax4.set_xlabel('R [au]')
+    ax4.set_ylabel('[H2O]')
+
 
     l, = ax3.loglog(R, abund.gas.number_abund('CO'), ls='-',
                     label=str(0.) + 'yr')
@@ -311,6 +383,15 @@ def main():
                         label=str(round(t/(2*np.pi),2)) + 'yr')
         ax3.loglog(R, abund.ice.number_abund('CO'), ls='--',
                    c=l.get_color())
+
+        l, = ax3.loglog(R, abund.gas.number_abund('CO'), ls='-',
+                        label=str(round(t/(2*np.pi),2)) + 'yr')
+        ax3.loglog(R, abund.ice.number_abund('CO'), ls='--',
+                   c=l.get_color())
+
+        l, = ax4.loglog(R, abund.gas.number_abund('H2O'), ls='-')
+        ax4.loglog(R, abund.ice.number_abund('H2O'), ls='--', c=l.get_color())
+
 
 
     print("Gas / Total Mean Mol. Weight:", abund.gas.mu()[0], abund.mu()[0])

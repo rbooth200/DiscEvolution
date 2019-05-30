@@ -25,7 +25,7 @@ class DonorCell(object):
     def __call__(self, v_edge, Q, dt=0.):
         '''Compute the upwinded face value'''
         Qp = Qm = Q
-        return np.where(v_edge > 0, Qp[:-1], Qm[1:])
+        return np.where(v_edge > 0, Qp[...,:-1], Qm[...,1:])
 
     
 class VanLeer(object):
@@ -45,29 +45,29 @@ class VanLeer(object):
         self._cF = (xc[2:] - xc[1:-1]) / (xe[2:-1] - xc[1:-1])
         self._cB = (xc[2:] - xc[1:-1]) / (xc[2:  ] - xe[2:-1])
 
-        self._dx = np.diff(xe[1:-1])
-        self._dxp = (self._xe[1:]  - self._xc)
-        self._dxm = (self._xe[:-1] - self._xc)
-        
+        self._dxe = np.diff(xe)
+        self._dxp = (self._xe[1:]  - self._xc) 
+        self._dxm = (self._xe[:-1] - self._xc) 
+
 
     def __call__(self, v_edge, Q, dt=0.):
         '''Compute the upwinded face value (optionally time-centered)'''
         # Compute the limited slopes
-        dQ = Q[1:] - Q[:-1]
-        QF, QB = dQ[1:], dQ[:-1]
+        dQ = Q[...,1:] - Q[...,:-1]
+        QF, QB = dQ[...,1:], dQ[...,:-1]
 
         cF, cB = self._cF, self._cB
 
         num = QF*QB*(cF*QB + cB*QF)
         den = (QB*QB + (cF + cB - 2)*QB*QF + QF*QF) + 1e-300
 
-        dQ_lim = np.where(QB*QF > 0, num/den, 0) / self._dx
+        dQ_lim = np.where(QB*QF > 0, num/den, 0) / self._dxe[1:-1]
 
         # Reconstruct the face states
-        Qp = Q[1:-1] + dQ_lim * (self._dxp[1:-1] - v_edge[1:  ]*dt/2.)
-        Qm = Q[1:-1] + dQ_lim * (self._dxm[1:-1] - v_edge[ :-1]*dt/2.)
+        Qp = Q[...,1:-1] + dQ_lim * (self._dxp[1:-1] - v_edge[1:  ]*dt/2.)
+        Qm = Q[...,1:-1] + dQ_lim * (self._dxm[1:-1] - v_edge[ :-1]*dt/2.)
 
-        return np.where(v_edge[1:-1] > 0, Qp[:-1], Qm[1:])
+        return np.where(v_edge[1:-1] > 0, Qp[...,:-1], Qm[...,1:])
 
 
 class Weno3(object):

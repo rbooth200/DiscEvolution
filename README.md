@@ -24,7 +24,8 @@ file.
 The code is not intended to be used as a stand alone tool, but includes a set of different modules 
 that can be used to include different physics when modelling the evolution of protoplanetary discs.
 As such, it contains a series of classes each of which handle one aspect of the disc's evolution, 
-such as viscous evolution or grain growth. A driver class for running a model, along with an example model can be found in the driver module. Further examples can be found in the scripts directory.
+such as viscous evolution or grain growth. An example model, along with a script to drive the main
+code is included in the "example" directory.
 
 In addition to the physics, there are a number of core classes upon which the physics modules are built.
 
