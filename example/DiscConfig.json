@@ -17,7 +17,7 @@
   
   "chemistry" : {
     "on"   : false, 
-    "type" : "krome", 
+    "type" : "Madhu", 
     "fix_mu" : false,
     "mu"     : 2.4,
     "crate" : 1e-17,

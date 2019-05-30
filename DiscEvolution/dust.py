@@ -460,13 +460,13 @@ class SingleFluidDrift(object):
     def _van_leer_flux(self, Ree, deltaV_i, Sigma, eps_i, dt):
         """Compute flux using Van-Leer reconstruction"""
         # Add boundary cells
-        shape_v   = eps_i.shape[:-1] + (eps_i.shape[-1]+3,)
+        shape_v   = (eps_i.shape[-1]+3,)
         shape_rho = eps_i.shape[:-1] + (eps_i.shape[-1]+4,)
         
         dV_i = np.empty(shape_v, dtype='f8')
-        dV_i[..., 2:-2] = deltaV_i - self._epsDeltaV
-        dV_i[...,  :2] = dV_i[..., 2] 
-        dV_i[...,-2: ] = dV_i[...,-3] 
+        dV_i[2:-2] = deltaV_i - self._epsDeltaV
+        dV_i[  :2] = dV_i[2]
+        dV_i[-2: ] = dV_i[-3] 
             
         Sig = np.zeros(shape_rho[-1], dtype='f8')
         eps = np.zeros(shape_rho,     dtype='f8')
@@ -476,7 +476,7 @@ class SingleFluidDrift(object):
         Sig[     1] = Sig[ 2]
         Sig[    -2] = Sig[-3]
         eps[..., 1] = eps[..., 2]
-        Sig[...,-2] = eps[...,-3]
+        eps[...,-2] = eps[...,-3]
         
         # Upwind the density
         vl = VanLeer(Ree, 1)

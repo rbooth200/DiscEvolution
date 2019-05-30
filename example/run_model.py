@@ -28,6 +28,13 @@ from DiscEvolution.driver import DiscEvolutionDriver
 from DiscEvolution.io import Event_Controller, DiscReader
 from DiscEvolution.disc_utils import mkdir_p
 
+from DiscEvolution.chemistry import (
+    ChemicalAbund, MolecularIceAbund, SimpleCNOAtomAbund, SimpleCNOMolAbund,
+    SimpleCNOChemOberg, TimeDepCNOChemOberg,
+    EquilibriumCNOChemOberg,
+    SimpleCNOChemMadhu, EquilibriumCNOChemMadhu
+)
+
 try:
     from DiscEvolution.chemistry.krome_chem import (
         KromeIceAbund, KromeGasAbund, KromeMolecularIceAbund, KromeChem, 
@@ -84,6 +91,42 @@ class VariableAmax_KromeCallBack(KromeCallBack):
         super(VariableAmax_KromeCallBack, self).__call__(krome, T, rho, 
                                                          dust_frac, **kwargs)
     
+def setup_init_abund_krome(model):
+    Ncell = model['grid']['N']
+
+    gas = KromeGasAbund(Ncell)
+    ice = KromeIceAbund(Ncell)
+        
+    abund = KromeMolecularIceAbund(gas,ice)
+
+    abund.gas.data[:] = 0
+    abund.ice.data[:] = 0
+
+    init_abund = np.genfromtxt(model['chemistry']['abundances'],
+                               names=True, dtype=('|S5', 'f8', 'f8'),
+                               skip_header=1)
+
+    for name, value in zip(init_abund['Species'], init_abund['Abundance']):
+        if name in ice.species:
+            value += abund.ice.number_abund(name)
+            abund.ice.set_number_abund(name,value)
+        elif name in gas.species:
+            value += abund.gas.number_abund(name)
+            abund.gas.set_number_abund(name, value)
+        else:
+            pass
+
+    if model['chemistry']['normalize']:
+        norm = 1 / (abund.gas.total_abund + abund.ice.total_abund)
+        abund.gas.data[:] *= norm
+        abund.ice.data[:] *= norm
+        
+    # Add dust
+    abund.gas.data[:] *= (1-disc.dust_frac.sum(0))
+    abund.ice.data[:] *= (1-disc.dust_frac.sum(0))
+    abund.ice["grain"] = disc.dust_frac.sum(0)
+
+    return abund
 
 def setup_disc(model):
     '''Create disc object from initial conditions'''
@@ -130,46 +173,80 @@ def setup_disc(model):
 
     # Setup the chemical part of the disc
     if model['chemistry']["on"]:
-        assert model['chemistry']['type'] == 'krome'
-
-        Ncell = grid.Ncells
-        gas = KromeGasAbund(Ncell)
-        ice = KromeIceAbund(Ncell)
-
-        abund = KromeMolecularIceAbund(gas,ice)
-
-        abund.gas.data[:] = 0
-        abund.ice.data[:] = 0
-
-        init_abund = np.genfromtxt(model['chemistry']['abundances'],
-                                   names=True, dtype=('|S5', 'f8', 'f8'),
-                                   skip_header=1)
-
-        for name, value in zip(init_abund['Species'], init_abund['Abundance']):
-            if name in ice.species:
-                value += abund.ice.number_abund(name)
-                abund.ice.set_number_abund(name,value)
-            elif name in gas.species:
-                value += abund.gas.number_abund(name)
-                abund.gas.set_number_abund(name, value)
-            else:
-                pass
-
-        if model['chemistry']['normalize']:
-            norm = 1 / (abund.gas.total_abund + abund.ice.total_abund)
-            abund.gas.data[:] *= norm
-            abund.ice.data[:] *= norm
-        
-        # Add dust
-        abund.gas.data[:] *= (1-disc.dust_frac.sum(0))
-        abund.ice.data[:] *= (1-disc.dust_frac.sum(0))
-        abund.ice["grain"] = disc.dust_frac.sum(0)
-
-        disc.chem = abund
-        disc.update_ices(disc.chem.ice)
+        if model['chemistry']['type'] == 'krome':
+            disc.chem = setup_init_abund_krome(model)
+            disc.update_ices(disc.chem.ice)
+        else:
+            # Abundances will be set later
+            pass
 
     return disc
 
+
+def setup_krome_chem(model):
+    if model['chemistry']['fix_mu']:
+        mu = model['chemistry']['mu']
+    else:
+        mu = 0.
+
+    crate = 1e-17
+    try:
+        crate = model['chemistry']['crate']
+    except KeyError:
+        pass
+    grain_size = 1e-5
+    try:
+        grain_size = model['chemistry']['fixed_grain_size']
+    except KeyError:
+        pass
+    
+    call_back = KromeCallBack(crate, grain_size)
+    try:
+        if model['chemistry']['variable_grain_size']:
+            call_back = VariableAmax_KromeCallBack(crate, grain_size)
+    except KeyError:
+        pass
+
+    chemistry = KromeChem(renormalize=model['chemistry']['normalize'],
+                          fixed_mu=mu, call_back=call_back)
+
+    return chemistry
+
+def setup_simple_chem(model, disc, start_time):
+    chem_type = model['chemistry']['type']
+
+    grain_size = 1e-5
+    try:
+        grain_size = model['chemistry']['fixed_grain_size']
+    except KeyError:
+        pass
+    
+    if chem_type == 'TimeDep':
+        chemistry = TimeDepCNOChemOberg(a=grain_size)
+    elif chem_type == 'Madhu':
+        chemistry = EquilibriumCNOChemMadhu(fix_ratios=False, a=grain_size)
+    elif chem_type == 'Oberg':
+        chemistry = EquilibriumCNOChemOberg(fix_ratios=False, a=grain_size)
+    elif chem_type == 'NoReact':
+        chemistry = EquilibriumCNOChemOberg(fix_ratios=True, a=grain_size)
+    else:
+        raise ValueError("Unkown chemical model type")
+
+    # Here we set the actual initinial abundances
+    if start_time == 0:
+        X_solar = SimpleCNOAtomAbund(model['grid']['N'])
+        X_solar.set_solar_abundances()
+
+        # Iterate as the ice fraction changes the dust-to-gas ratio
+        for i in range(10):
+            chem = chemistry.equilibrium_chem(disc.T,
+                                              disc.midplane_gas_density,
+                                              disc.dust_frac.sum(0),
+                                              X_solar)
+            disc.initialize_dust_density(chem.ice.total_abund)
+        disc.chem = chem
+
+    return chemistry
 
 def setup_model(model, disc, start_time):
     '''Setup the physics of the model'''
@@ -206,31 +283,11 @@ def setup_model(model, disc, start_time):
                 TimeExternalEvaportation(model['photoevaporation']['coeff'])
 
     if model['chemistry']['on']:
-        if model['chemistry']['fix_mu']:
-            mu = model['chemistry']['mu']
+        if  model['chemistry']['type'] == 'krome':
+            chemistry = setup_krome_chem(model)
         else:
-            mu = 0.
+            chemistry = setup_simple_chem(model, disc, start_time)
 
-        crate = 1e-17
-        try:
-            crate = model['chemistry']['crate']
-        except KeyError:
-            pass
-        grain_size = 1e-5
-        try:
-            grain_size = model['chemistry']['fixed_grain_size']
-        except KeyError:
-            pass
- 
-        call_back = KromeCallBack(crate, grain_size)
-        try:
-            if model['chemistry']['variable_grain_size']:
-                call_back = VariableAmax_KromeCallBack(crate, grain_size)
-        except KeyError:
-            pass
-
-        chemistry = KromeChem(renormalize=model['chemistry']['normalize'],
-                              fixed_mu=mu, call_back=call_back)
 
     return DiscEvolutionDriver(disc, 
                                gas=gas, dust=dust, diffusion=diffuse,
