@@ -175,7 +175,8 @@ class IrradiatedEOS(EOS_Table):
 
     def _compute_constants(self):
         self._sigTc4 = sig_SB*self._Tc**4
-        self._H0 = (Omega0**-1/AU) * (GasConst / (self._mu*self._star.M))**0.5
+        self._cs0 = (Omega0**-1/AU) * (GasConst / self._mu)**0.5
+        self._H0  = (Omega0**-1/AU) * (GasConst / (self._mu*self._star.M))**0.5
 
 
     def update(self, dt, Sigma, amax=1e-5, star=None):
@@ -264,7 +265,7 @@ class IrradiatedEOS(EOS_Table):
         return self._H0 * np.sqrt(T * R*R*R)
 
     def _f_cs(self, R):
-        return self._H0 * self._T**0.5
+        return self._cs0 * self._T**0.5
 
     def _f_H(self, R):
         return self.__H(R, self._T)
