@@ -56,13 +56,15 @@ class ViscousEvolution(object):
         S = np.zeros(len(nuX) + 2, dtype='f8')
         S[1:-1] = disc.Sigma_G * nuX
 
-        S[0] = S[1] * self._X[0] / self._X[1]
-        if self._bound == 'Zero':
+        S[0] = S[1] * self._X[0] / self._X[1]   # Inner: constant flux
+        if self._bound == 'Zero':               # Zero torque
             S[-1] = 0
         elif self._bound == 'power_law':
             S[-1] = S[-2] ** 2 / S[-3]
-        elif self._bound == 'Mdot':
+        elif self._bound == 'Mdot_out':         # Constant flux (appropriate for tail of LBP)
             S[-1] = S[-2] * self._X[-2] / self._X[-1]
+        elif self._bound == 'Mdot_inn':         # Constant flux (appropriate for power law)
+            S[-1] = S[-2] * self._X[-1] / self._X[-2]
         else:
             raise ValueError("Error boundary type not recognised")
 

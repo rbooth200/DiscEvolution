@@ -1,9 +1,15 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import interpolate
-import os
-import sys
 import DiscEvolution.constants as cst
+
+class Formatter(object):
+    def __init__(self, im):
+        self.im = im
+    def __call__(self, x, y):
+        z = self.im.get_array()[int(y), int(x)]
+        return 'x={:.01f}, y={:.01f}, z={:.01f}'.format(x, y, z)
 
 ## Import data from FRIED table (Haworth et al 2018)
 ## Data listed as M_star, UV, M_disc, Sigma_disc, R_disc, M_dot
@@ -15,6 +21,7 @@ grid_parameters = np.loadtxt(os.environ['DISC_CODE_ROOT']+'/FRIED/friedgrid.dat'
 grid_rate = np.loadtxt(os.environ['DISC_CODE_ROOT']+'/FRIED/friedgrid.dat',skiprows=1,usecols=5)
 #grid_rate_exp = np.power(10,grid_rate)
 
+# Calculate mass wihtin 400 AU and add to grid as column 6
 M_400 = 2*np.pi*grid_parameters[:,3]*grid_parameters[:,4]*400*cst.AU**2/cst.Mjup
 M_400 = np.reshape(M_400,(np.size(M_400),1))
 grid_parameters = np.hstack((grid_parameters,M_400))
@@ -138,161 +145,50 @@ class FRIED_2DM400S(FRIED_2DM400):
 	def extrapolate(self,query_inputs,calc_rates):
 		return self.extrapolate_master(query_inputs,calc_rates)
 
-"""Not actually any faster"""
-class FRIED_reggridded(object):
-	def __init__(self, grid_parameters, grid_rate, M_star, UV, use_keys=[5,4]):
-		select_mass = (np.abs(grid_parameters[:,0] - M_star)<0.001) # Filter based on ones with the correct mass
-		select_UV = (np.abs(grid_parameters[:,1] - UV)<0.001) # Filter based on ones with the correct UV
-		select_MUV = select_mass * select_UV
-		grid_inputs_2D = grid_parameters[select_MUV,:] # Apply filter
-		self.selected_inputs = grid_inputs_2D[:,(use_keys[0],use_keys[1])]
-		self.Sigma_inputs = grid_inputs_2D[:,(3,4)] # Select only the columns necessary - Sigma_disc, R_disc
-		self.selected_rate = grid_rate[select_MUV]
-		radii = np.array([1,5,10,20,30,40,50,75,100,150,200,250,300,350,400])
-		masses = np.array([3.2e-3,0.1,1.12,3.16,8.94,20])/100*M_star*cst.Msun/cst.Mjup
-		input_rate = self.selected_rate.reshape(masses.size,radii.size)
-		input_rate = input_rate[:,::-1]
-		#input_rate = input_rate.transpose()
-		self.M_dot_interp = interpolate.RegularGridInterpolator((np.log10(masses),np.log10(radii)),input_rate,bounds_error=False) # Build interpolator on log of inputs
+class FRIED_2DM400M(FRIED_2DM400):
+	# Interpolates on mass at 400 AU (M400) but is provided with surface density (M)
+	def PE_rate(self, query_inputs,extrapolate=False):
+		new_query = np.array(query_inputs) # New array to hold modified query
+		# Convert to a disc mass at 400 AU (for 1/R profile) and replace in query
+		Mass_400 = query_inputs[0] * (400 / query_inputs[1])
+		new_query[0] = Mass_400 # Replace first query parameter with mass
+		# Calculate rates
+		calc_rates =  super().PE_rate(new_query)
+		return calc_rates
+	#Extrapolation routine works here
+	def extrapolate(self,query_inputs,calc_rates):
+		return self.extrapolate_master(query_inputs,calc_rates)
 
-	def PE_rate(self, query_inputs):
-		Mass_400 = 2*np.pi * query_inputs[0] * (query_inputs[1]*cst.AU) * (400*cst.AU) / (cst.Mjup) # Convert sigma to a disc mass (for 1/R profile)
-		new_query = np.log10(query_inputs)
-		new_query[0] = np.log10(Mass_400)
-		new_query = tuple(new_query)
-		M_dot = self.M_dot_interp(new_query) # Perform the interpolation
-		return np.power(10,M_dot) # Return exponentiated mass rate
+def D2_space(interp_type = '400', extrapolate=True, UV=1000, save=True):
+        # Configure external parameters 
+        M_star = 1.0
+        #UV = 1000
 
-"""
-3D interpolators (no stellar mass for computational speed) in log space
-"""
-class FRIED_3DM(FRIEDInterpolator):
-	# Interpolates on mass (M)
-
-	def __init__(self, grid_parameters, grid_rate, M_star):
-		select_mass = (np.abs(grid_parameters[:,0] - M_star)<0.001) # Filter based on ones with the correct mass
-		grid_inputs_3D = grid_parameters[select_mass,:] # Apply filter
-		grid_inputs_3DM = grid_inputs_3D[:,(1,2,4)] # Select only the columns necessary - UV, M_disc, R_disc
-		self.M_dot_interp = interpolate.LinearNDInterpolator(np.log10(grid_inputs_3DM),grid_rate[select_mass]) # Build interpolator on log of inputs 
-
-class FRIED_3DS(FRIEDInterpolator):
-	#Interpolates on surface density (S)
-
-	def __init__(self, grid_parameters, grid_rate, M_star):
-		select_mass = (np.abs(grid_parameters[:,0] - M_star)<0.001) # Filter based on ones with the correct mass
-		grid_inputs_3D = grid_parameters[select_mass,:] # Apply filter
-		grid_inputs_3DS = grid_inputs_3D[:,(1,3,4)] # Select only the columns necessary - UV, Sigma_disc, R_disc
-		self.M_dot_interp = interpolate.LinearNDInterpolator(np.log10(grid_inputs_3DS),grid_rate[select_mass]) # Build interpolator on log of inputs
-
-class FRIED_3DMS(FRIED_3DM):
-	# Interpolates on mass but is provided with surface density
-
-	def PE_rate(self, query_inputs):
-		Mass_calc = 2*np.pi * query_inputs[1] * (query_inputs[2]*cst.AU)**2 / (cst.Mjup) # Convert sigma to a disc mass (for 1/R profile)
-		new_query = np.log10(query_inputs)
-		new_query[1] = np.log10(Mass_calc)
-		new_query = tuple(new_query)
-		M_dot = self.M_dot_interp(new_query) # Perform the interpolation
-		return np.power(10,M_dot) # Return exponentiated mass rate
-"""
-4D linear space interpolators (need upgrading)
-"""
-'''
-class FRIED_4DM(FRIEDInterpolator):
-
-	def __init__(self, grid_parameters, grid_rate_exp):
-		grid_inputs_4DM = grid_parameters[:,(0,1,2,4)]
-		self.M_dot_interp = interpolate.LinearNDInterpolator(grid_inputs_4DM,grid_rate_exp)
-
-class FRIED_4DM_log(FRIEDInterpolator):
-
-	def __init__(self, grid_parameters, grid_rate):
-		grid_inputs_4DM = grid_parameters[:,(0,1,2,4)]
-		grid_inputs_log = np.stack((grid_parameters[:,0], np.log10(grid_parameters[:,1]), np.log10(grid_parameters[:,2]), np.log10(grid_parameters[:,4]) ),-1)
-		self.M_dot_interp = interpolate.LinearNDInterpolator(grid_inputs_log,grid_rate)
-
-class FRIED_4DS(FRIEDInterpolator):
-
-	def __init__(self, grid_parameters, grid_rate_exp):
-		grid_inputs_4DS = grid_parameters[:,(0,1,3,4)]
-		self.M_dot_interp = interpolate.LinearNDInterpolator(grid_inputs_4DS,grid_rate_exp)
-'''
-
-'''
-What follows are functions used in the testing of the above routines
-They are not designed for implementation in the code.
-'''
-
-"""# Function for comparing the interpolated values calculated here, with the ones from www.friedgrid.com/Tool, which must be manually downloaded and saved into a file. 
-def compareinterp(query_inputs=(1.0,1.2,0.1066,123),downloadedrates='FRIEDinterp.dat'):
-	FRIED_interp = np.loadtxt(downloadedrates)
-	
-	x = np.power(10,FRIED_interp[:,0])
-	a = np.zeros_like(x)
-	b = np.zeros_like(x)
-	c = np.zeros_like(x)
-	d = np.zeros_like(x)
-	e = np.zeros_like(x)
-
-	FRIED_Rates_3DM = FRIED_3DM(grid_parameters,grid_rate,query_inputs[0])
-	#FRIED_Rates_4DM_log = FRIED_4DM_log(grid_parameters,grid_rate)
-	FRIED_Rates_3DS = FRIED_3DMS(grid_parameters,grid_rate,query_inputs[0])
-
-	for i in range(len(x)):
-		query = (x[i],query_inputs[1],query_inputs[3])
-		query2 = (x[i],query_inputs[2],query_inputs[3])
-		#a[i] = FRIED_Rates_4DM_log.PE_rate((query_inputs[0],np.log10(x[i]),np.log10(query_inputs[1]),np.log10(query_inputs[3])))
-		#b[i] = np.log10(PE_rate_4DS(*query2))
-		c[i] = FRIED_Rates_3DM.PE_rate(query)
-		d[i] = FRIED_Rates_3DS.PE_rate(query2)
-
-	plt.rcParams['text.usetex'] = "True"
-	#plt.plot(FRIED_interp[:,0],a,color='green',linestyle='-',marker='+', label='4D, Mass, log')
-	#plt.plot(FRIED_interp[:,0],b,color='red',linestyle='-',marker='+', label='4D, Density')
-	plt.semilogy(FRIED_interp[:,0],c,color='green',linestyle='-',marker='x', label='3D, Mass')
-	plt.semilogy(FRIED_interp[:,0],d,color='red',linestyle='-',marker='x', label='3D, Density')
-	plt.semilogy(FRIED_interp[:,0],np.power(10,FRIED_interp[:,1]),color='blue',linestyle='-',marker='x',label='friedgrid.com Tool')
-	plt.xlabel('UV Field ($G_0$)')
-	plt.ylabel('Mass loss rate, $\log(\dot{M}/M_\odot\mathrm{yr}^{-1})$')
-	plt.title('Interpolation for $M_*={}$, $M_{{d}}={}$, $\Sigma_G={}$, $R_{{d}}={}$'.format(*query_inputs))
-	plt.legend()
-	plt.savefig('InterpolationComparison.png')
-	#plt.show()
-
-def Fdependence(downloadedrates='FRIEDinterp5.dat'):
-	FRIED_interp = np.loadtxt(downloadedrates)
-	#Take useful bit 9-22
-	Useful = FRIED_interp[9:23,:]
-	UsefulT = np.transpose(Useful)
-	polyfitted = np.polyfit(UsefulT[0],UsefulT[1],1)
-	print (polyfitted)
-	fittedvals = np.polyval(polyfitted, UsefulT[0])
-	plt.plot(UsefulT[0],UsefulT[1],marker='x')
-	plt.plot(UsefulT[0],fittedvals)
-	plt.show()"""
-
-def D2_space():
-        M_star = 0.3
-        UV = 100
-
-        interp_type = '400'
+        # Setup interpolator
         if (interp_type == 'MS'):
             photorate = FRIED_2DMS(grid_parameters,grid_rate,M_star,UV)
         elif (interp_type == 'S'):
             photorate = FRIED_2DS(grid_parameters,grid_rate,M_star,UV)
         elif (interp_type == '400'):
             photorate = FRIED_2DM400S(grid_parameters,grid_rate,M_star,UV)
-        elif (interp_type == 'reg'):
-            photorate = FRIED_reggridded(grid_parameters,grid_rate,M_star,UV)
 
+        # Setup interpolation grid
         R = np.linspace(1,400,1600,endpoint=True)
         Sigma = np.logspace(-5,3,81)
         (R_interp, Sigma_interp) = np.meshgrid(R,Sigma)
+
+        # Interpolate
         rates = photorate.PE_rate((Sigma_interp,R_interp))
 
+        # Prepare for plotting
         plt.rcParams['text.usetex'] = "True"
+        plt.rcParams['font.family'] = "serif"
         import matplotlib.colors as colors
-        pcm = plt.contourf(R_interp,Sigma_interp,rates,levels=np.logspace(-11,-4,15),norm=colors.LogNorm(vmin=1e-10,vmax=1e-4,clip=True))
+        fig = plt.figure()
+
+        # Plot
+        n_levels = 15*(2-save) 
+        pcm = plt.contourf(R_interp,Sigma_interp,rates,levels=np.logspace(-11,-4,n_levels),norm=colors.LogNorm(vmin=1e-11,vmax=1e-4,clip=True),extend='min')
         Sig_max = Sigma_max(R,M_star)
         Sig_min = Sigma_min(R,M_star)
         plt.plot(R,Sig_max,linestyle='--',color='red',label='$\Sigma_{max}$')
@@ -301,71 +197,92 @@ def D2_space():
         #grid_inputs_2D = photorate.Sigma_inputs
         #plt.plot(grid_inputs_2D[:,1],grid_inputs_2D[:,0],marker='x',color='black',linestyle='None')
 
+        # Adorn plot
         plt.xscale('log')
         plt.yscale('log')
-        plt.xlabel('$R~/\mathrm{AU}$')
-        plt.ylabel('$\Sigma~/\mathrm{g~cm}^{-2}$')
+        plt.xlabel('$R~/\mathrm{AU}$',fontsize=18)
+        plt.ylabel('$\Sigma~/\mathrm{g~cm}^{-2}$', fontsize=18)
+        plt.tick_params(axis='x', which='major', labelsize=14)
+        plt.tick_params(axis='y', which='major', labelsize=14)
         plt.xlim([1,400])
         plt.ylim([1e-5,1e3])
-        plt.colorbar(pcm, label='Mass Loss Rate ($M_\odot~\mathrm{yr}^{-1}$)')
-        if (interp_type == 'MS'):
-            plt.title("Interpolation on $M(\Sigma)$")
-        elif (interp_type == 'S'):
-            plt.title("Interpolation on $\Sigma$")
-        elif (interp_type == '400'):
-            plt.title("Interpolation on $M_{400}(\Sigma)$")
-        elif (interp_type == 'reg'):
-            plt.title("Interpolation on $M_{400}$")
-        plt.savefig('Interp_limits_'+interp_type+'_'+str(M_star)+'C.png')
-        
-        
-        fig, axes = plt.subplots(3,2,sharex='col',sharey='row')
-        fig.subplots_adjust(hspace=0,wspace=0,top=0.92)
-        axes=axes.flatten()
-        plt.rcParams['text.usetex'] = "True"
-        i_int = [1200,1000,800,600,400,200]
-        j=0
-        for i in i_int:
-            #plt.subplot(3,2,j)
-            plt.sca(axes[j])
-            plt.loglog(Sigma,rates[:,i])
-            first = np.where(rates[:,i] > 0)[0][0]
-            M0 = rates[:,i][first]
-            S0 = Sigma[first]
-            plt.plot(Sigma,M0*(Sigma/S0),linestyle='-.',color='black')
-            plt.plot(Sigma_min(R[i],M_star)*np.ones(2),[1e-11,1e-3],linestyle='--',color='red')
-            plt.plot(Sigma_max(R[i],M_star)*np.ones(2),[1e-11,1e-3],linestyle='--',color='red')
-            plt.ylim([1e-11,1e-3])
-            plt.legend(labels=['$R={:.1f}~\mathrm{{AU}}$'.format(R[i])],loc=2)
-            if (j==2):
-                plt.ylabel('$\dot{M} /M_\odot\mathrm{yr}^{-1}$')
-            j+=1
+        bar_label='Mass Loss Rate ($M_\odot~\mathrm{yr}^{-1}$)'
+        cbar = plt.colorbar(pcm)
+        cbar.ax.tick_params(labelsize=14) 
+        cbar.set_label(label=bar_label, fontsize=18)
 
-        fig.add_subplot(111, frameon=False)
-        plt.tick_params(labelcolor='none', top=False, bottom=False, left=False, right=False)
-        plt.grid(False)
-        plt.xlabel('$\Sigma /\mathrm{g~cm}^{-2}$')
-        plt.suptitle('Dependence of $\dot{M}$ on $\Sigma$ at fixed radius')
-        plt.savefig('Interp_FixedR_'+interp_type+'_'+str(M_star)+'C.png')  
-                      
-        #plt.show()
+        if False:
+            M_disc = 0.02
+            R_C = 100
+            Sig_profile = M_disc * cst.Msun / (2*np.pi * R_C * R * cst.AU**2) * np.exp(-R/R_C)
+            plt.plot(R,Sig_profile,color='orange',linestyle=':')
+            R_C = 10
+            Sig_profile = M_disc * cst.Msun / (2*np.pi * R_C * R * cst.AU**2) * np.exp(-R/R_C)
+            plt.plot(R,Sig_profile,color='orange',linestyle=':')
+            Sig_profile = M_disc * cst.Msun / (2*np.pi * 400 * R * cst.AU**2)
+            plt.plot(R,Sig_profile,color='orange',linestyle=':')
+
+        if save:
+            """if (interp_type == 'MS'):
+                plt.title("Interpolation on $M(\Sigma)$",fontsize=24)
+            elif (interp_type == 'S'):
+                plt.title("Interpolation on $\Sigma$",fontsize=24)
+            elif (interp_type == '400'):
+                plt.title("Interpolation on $M_{400}(\Sigma)$",fontsize=24)
+            elif (interp_type == 'reg'):
+                plt.title("Interpolation on $M_{400}$",fontsize=24)"""
+            plt.tight_layout()
+            plt.savefig('Interpolation_'+interp_type+'_'+str(UV)+'.png')
+            plt.show()
+        else:
+            return fig
 
 if __name__ == "__main__":
-	#query_inputs = (float(sys.argv[1]),float(sys.argv[2]),float(sys.argv[3]),float(sys.argv[4]))
-	#sigma_R = float(sys.argv[3]) * 1.9e30 / (2*np.pi*(float(sys.argv[4])*1.5e13)**2)
-	#query_2 = (float(sys.argv[1]),float(sys.argv[2]),sigma_R,float(sys.argv[4]))
-	
-	#print(PE_rate_4DM(*query_inputs))
-	#print(PE_rate_4DS(*query_2))
-	#print(PE_rate_3DM(*query_inputs))
-	#print(PE_rate_3DS(*query_2))
-	
-	#testinterp = FRIED_3DM(grid_parameters,grid_rate_exp,float(sys.argv[1]))
-	#print(testinterp.PE_rate((float(sys.argv[2]),float(sys.argv[3]),float(sys.argv[4]))))
-	
-	#compareinterp((1.0,7.41,1,100),'FRIEDinterp4.dat')
-	#Fdependence('FRIEDinterp6.dat')
-	#FRIED_Rates_2DM = FRIED_2DM(grid_parameters,grid_rate,1,100)
+    import argparse
 
-        D2_space()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", "-m", type=str, default="None")
+    parser.add_argument("--index", "-i", type=int, nargs='+', default=0)
+    parser.add_argument("--FUV", "-u", type=float, default=1000)
+    args = parser.parse_args()
+
+    model = args.model
+    indices = np.array(args.index)
+
+    if (model=="None"):
+        D2_space(interp_type='400', extrapolate=True, UV=args.FUV)
+    else:
+        import json
+        from KeyScripts import run_model
+        from scripts.snap_reader import DiscReader
+        #D2_space(interp_type='400',extrapolate=True,save=False)
+        model_params = json.load(open(model, 'r'))
+        DIR = model_params['output']['directory']
+
+        inputdata = np.loadtxt(DIR+"/"+model_params['output']['plot_name']+"_discproperties.dat")
+        plot_times = inputdata[:,0]
+        R_wind = inputdata[:,2]
+        #disc, _, _, _, _, _, Dt_nv = run_model.setup_wrapper(model_params)
+
+        for i in indices:
+            fig_i = D2_space(interp_type='400',extrapolate=True,save=False)
+            plt.figure(fig_i.number)
+
+            reader = DiscReader(DIR, 'disc')
+            disc = reader[i]
+            i_wind = np.argmin(np.abs(R_wind[i]-disc.R))
+
+            plt.plot(disc.R,disc.Sigma,linestyle=':',color='orange')
+            plt.plot(disc.R[i_wind],disc.Sigma[i_wind],marker='x',color='orange')
+
+            cur_t = plot_times[i]
+            if (cur_t>0):    
+                logt = np.log10(cur_t)
+                exponent = int(logt)
+                prefactor = np.power(10,logt-exponent)
+                plt.title('$t={:.2f}\\times10^{:d}~\mathrm{{yr}}$'.format(prefactor,exponent), fontsize=18)
+            else:
+                plt.title('$t=0~\mathrm{{yr}}$', fontsize=18)
+            plt.savefig('profile_trace_{}.pdf'.format(i))
+            #plt.show()
 
