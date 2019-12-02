@@ -139,7 +139,7 @@ class DustyDisc(AccretionDisc):
     def Mwind(self):
         """Track the dust mass lost to the wind"""
         self._Mwind=np.append(self._Mwind,[self._Mwind_cum])
-        return self._MWind[-1]
+        return self._Mwind[-1]
     
     def update(self, dt):
         """Update the disc properites and age"""
@@ -229,10 +229,13 @@ class DustGrowthTwoPop(DustyDisc):
                     role of bouncing (default=0.55).
         f_frag    : Fragmentation boundary fitting factor (default=0.37).
         feedback  : Whether to include feedback from dust on gas
+        start_small:Whether to start at monomer size (True, default) or equilibrium (False)
+        distribution_slope:
+                    The slope d ln n(a) / d ln a of the number distribution with size (3.5 for MRN)
     """
     def __init__(self, grid, star, eos, eps, Sigma=None,
                  rho_s=1., Sc=1., uf_0=100., uf_ice=1e3, f_ice=1, thresh=0.1,
-                 a0=1e-5, amin=1e-5, f_drift=0.55, f_frag=0.37, feedback=True, start_small=True):
+                 a0=1e-5, amin=1e-5, f_drift=0.55, f_frag=0.37, feedback=True, start_small=True, distribution_slope=3.5):
         super(DustGrowthTwoPop, self).__init__(grid, star, eos,
                                                Sigma, rho_s, Sc, feedback)
 
@@ -263,6 +266,7 @@ class DustGrowthTwoPop(DustyDisc):
         self._uf = self._frag_velocity(f_ice)
         self._area = np.pi * a0*a0
         self._start_small = start_small         # Whether to start at monomer size (True, default) or equilibrium (False)
+        self._p = distribution_slope            # The slope d ln n(a) / d ln a of the number distribution with size (3.5 for MRN)
 
         self._head = (', uf_0: {}cm s^-1, uf_ice: {}cm s^-1, thresh: {}'
                       ', a0: {}cm'.format(uf_0, uf_ice, thresh, a0))
@@ -624,7 +628,7 @@ class SingleFluidDrift(object):
         else:
             self._epsDeltaV = 0
 
-        i_max = np.argmax(-DeltaV / R_av**(0.5))
+        #i_max = np.argmax(-DeltaV / R_av**(0.5))
         return DeltaV
 
     def __call__(self, dt, disc, gas_tracers=None, dust_tracers=None):

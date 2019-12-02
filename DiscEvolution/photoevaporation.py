@@ -159,7 +159,8 @@ class ExternalPhotoevaporationBase(object):
         M_ent = np.zeros_like(disc.Sigma)
 
         # Calculate total that is entrained
-        M_ent[not_empty] = M_dust.sum(0)[not_empty] * np.minimum(np.ones_like(amax)[not_empty],[(a_ent[not_empty]/amax[not_empty])**(1/2)]).flatten() # Take as entrained lower of all dust mass, or the fraction from MRN
+        f_ent = np.minimum(np.ones_like(amax)[not_empty],[(a_ent[not_empty]/amax[not_empty])**(4-disc._p)]).flatten() # Take as entrained lower of all dust mass, or the fraction from MRN
+        M_ent[not_empty] = M_dust.sum(0)[not_empty] * f_ent
         return M_ent
 
     def __call__(self, disc, dt, age):
