@@ -7,9 +7,8 @@
 ###############################################################################
 import numpy as np
 from .constants import AU, Msun, yr, Mjup
-import FRIED.photorate as photorate
-#import improveFRIED.photorate as photorate
 from .dust import DustyDisc
+import FRIED.photorate as photorate
 
 class ExternalPhotoevaporationBase(object):
     """Base class for handling the external photo-evaporation of discs
@@ -152,7 +151,7 @@ class ExternalPhotoevaporationBase(object):
         # Annulus DUST masses
         Re = disc.R_edge * AU
         dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
-        M_dust = disc.Sigma_D * dA
+        dM_dust = disc.Sigma_D * dA
 
         # Select cells with gas
         not_empty = (disc.Sigma_G>0)
@@ -160,7 +159,7 @@ class ExternalPhotoevaporationBase(object):
 
         # Calculate total that is entrained
         f_ent = np.minimum(np.ones_like(amax)[not_empty],[(a_ent[not_empty]/amax[not_empty])**(4-disc._p)]).flatten() # Take as entrained lower of all dust mass, or the fraction from MRN
-        M_ent[not_empty] = M_dust.sum(0)[not_empty] * f_ent
+        M_ent[not_empty] = dM_dust.sum(0)[not_empty] * f_ent
         return M_ent
 
     def __call__(self, disc, dt, age):
@@ -249,6 +248,7 @@ class FRIEDExternalEvaporationS(ExternalPhotoevaporationBase):
 class FRIEDExternalEvaporationMS(ExternalPhotoevaporationBase):
     """External photoevaporation flow with a mass loss rate which
     is dependent on radius and surface density.
+    Calculated by converting to the mass within 400 AU (M400 ~ R Sigma)
 
     args:
         Mdot : mass-loss rate in Msun / yr,  default = 10^-10
@@ -276,6 +276,7 @@ class FRIEDExternalEvaporationMS(ExternalPhotoevaporationBase):
 class FRIEDExternalEvaporationM(ExternalPhotoevaporationBase):
     """External photoevaporation flow with a mass loss rate which
     is dependent on radius and integrated mass interior.
+    Calculated by converting to the mass within 400 AU (M400 ~ M / R)
 
     args:
         Mdot : mass-loss rate in Msun / yr,  default = 10^-10

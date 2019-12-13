@@ -7,3 +7,5 @@ __pycache__
 *.png
 *.json
 *.avi
+*.pdf
+*.eps
