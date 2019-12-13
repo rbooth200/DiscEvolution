@@ -8,6 +8,8 @@
 from __future__ import print_function
 import numpy as np
 import os
+import FRIED.photorate as photorate
+from .photoevaporation import FixedExternalEvaporation
 
 from . import io
 
@@ -28,10 +30,7 @@ class DiscEvolutionDriver(object):
     Other options:
         t0  : Starting time, default = 0.
     """
-    def __init__(self, disc,
-                 gas=None, dust=None, diffusion=None, chemistry=None,
-                 photoevaporation=None,
-                 t0=0.):
+    def __init__(self, disc, gas=None, dust=None, diffusion=None, chemistry=None, photoevaporation=None, t0=0.):
 
         self._disc = disc
 
@@ -39,9 +38,10 @@ class DiscEvolutionDriver(object):
         self._dust      = dust
         self._diffusion = diffusion
         self._chemistry = chemistry
-        self._photoevap = photoevaporation
+        self.photoevap = photoevaporation
 
         self._t = t0
+        self._output_times = []
         self._nstep = 0
 
     def __call__(self, tmax):
@@ -53,6 +53,8 @@ class DiscEvolutionDriver(object):
         returns:
             dt : Time step taken
         """
+        disc = self._disc
+
         # Compute the maximum time-step
         dt = tmax - self.t
         if self._gas:
@@ -61,8 +63,16 @@ class DiscEvolutionDriver(object):
             dt = min(dt, self._dust.max_timestep(self._disc))
         if self._diffusion:
             dt = min(dt, self._diffusion.max_timestep(self._disc))
-
-        disc = self._disc
+        # If we are not using the timescale method of removal, we need to limit the time step based on photoevaporation
+        if (self.photoevap is not None and not isinstance(self.photoevap,FixedExternalEvaporation)): # For FRIED photoevaporation
+            if (not isinstance(self.photoevap.FRIED_Rates,photorate.FRIED_2DM) and not isinstance(self.photoevap.FRIED_Rates,photorate.FRIED_2DM400M)): # For density determined photoevaporation
+                (dM_dot, dM_gas) = self.photoevap.optically_thin_weighting(disc)
+                Dt = dM_gas[(dM_dot>0)] / dM_dot[(dM_dot>0)]
+                Dt_min = np.min(Dt)
+                dt = min(dt,Dt_min)
+        
+        if (self.photoevap is not None):
+            self.photoevap(disc,dt,self.t) # Apply photoevaporation here so that the timescales, if limiting, are correct 
 
         gas_chem, ice_chem = None, None
         try:
@@ -80,12 +90,12 @@ class DiscEvolutionDriver(object):
         # Do Advection-diffusion update
         if self._gas:
             self._gas(dt, disc, [dust, gas_chem, ice_chem])
-
+        
         if self._dust:
             self._dust(dt, disc,
                        gas_tracers=gas_chem,
                        dust_tracers=ice_chem)
-
+        
         if self._diffusion:
             if gas_chem is not None:
                 gas_chem[:] += dt * self._diffusion(disc, gas_chem)
@@ -119,9 +129,6 @@ class DiscEvolutionDriver(object):
             # If we have dust, we should update it now the ice fraction has
             # changed
             disc.update_ices(disc.chem.ice)
-
-        if self._photoevap:
-            self._photoevap(disc, dt)
 
         # Now we should update the auxillary properties, do grain growth etc
         disc.update(dt)
@@ -173,8 +180,8 @@ class DiscEvolutionDriver(object):
             head += self._diffusion.ASCII_header() + '\n'
         if self._chemistry:
             head += self._chemistry.ASCII_header() + '\n'
-        if self._photoevap:
-            head += self._photoevap.ASCII_header() + '\n'
+        if self.photoevap:
+            head += self.photoevap.ASCII_header() + '\n'
 
         # Write it all to disc
         io.dump_ASCII(filename, self._disc, self.t, head)
@@ -186,7 +193,7 @@ class DiscEvolutionDriver(object):
         if self._dust:      headers.append(self._dust.HDF5_attributes())
         if self._diffusion: headers.append(self._diffusion.HDF5_attributes())
         if self._chemistry: headers.append(self._chemistry.HDF5_attributes())
-        if self._photoevap: headers.append(self._photoevap.HDF5_attributes())
+        if self.photoevap: headers.append(self.photoevap.HDF5_attributes())
 
         io.dump_hdf5(filename, self._disc, self.t, headers)
 

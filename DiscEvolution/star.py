@@ -77,7 +77,7 @@ class StarBase(object):
 
     @property
     def M(self):
-        """Mass in Mun"""
+        """Mass in Msun"""
         return self._M
 
     @property

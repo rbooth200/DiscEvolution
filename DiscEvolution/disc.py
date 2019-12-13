@@ -9,7 +9,13 @@
 #
 ################################################################################
 import numpy as np
-from .constants import AU, sig_H2, m_H
+from scipy import optimize
+from .constants import AU, sig_H2, m_H, yr, Msun
+
+def LBP_profile(R,R_C,Sigma_C):
+    """Defined for profile fitting"""
+    x = R/R_C
+    return np.log10(Sigma_C) - np.log10(x)-x
 
 class AccretionDisc(object):
 
@@ -17,10 +23,23 @@ class AccretionDisc(object):
         self._grid = grid
         self._star = star
         self._eos  = eos
+        self._FUV = 0.0
         if Sigma is None:
             Sigma = np.zeros_like(self.R)
         self._Sigma = Sigma
+        
+        # Extra properties for dealing with half empty cells in timescale approach
+        self.mass_lost = 0.0
+        self.tot_mass_lost = 0.0
+        self.i_edge = -1
 
+        # Global, time dependent properties stored as history
+        self._threshold = 1e-5          # Threshold for defining edge by density
+        self._Rout = np.array([])       # Outer radius of the disc (density), updated internally
+        self._Rc_t = np.array([])       # Radius of current best fit scale radius, updated internally
+        self._Rot = np.array([])        # Radius where Mdot maximum ie where becomes optically thick, updated internally
+        self._Mtot = np.array([])       # Total mass, updated internally
+        self._Mdot_acc = np.array([])   # Accretion rate, updated with velocity passed
 
     def ASCII_header(self):
         """Write header information about the disc"""
@@ -35,6 +54,10 @@ class AccretionDisc(object):
         return self.__class__.__name__, dict([ self._grid.HDF5_attributes(),
                                                self._star.HDF5_attributes(),
                                                self._eos.HDF5_attributes() ])
+
+    def set_FUV(self,FUV):
+        """Update the external FUV flux irradiating the disc"""
+        self._FUV = FUV
 
     @property
     def star(self):
@@ -85,7 +108,7 @@ class AccretionDisc(object):
 
     @property
     def P(self):
-        return self.midplane_gas_density * self.cs**2 
+        return self.midplane_gas_density * self.cs**2
 
     @property
     def midplane_gas_density(self):
@@ -120,6 +143,51 @@ class AccretionDisc(object):
     @property
     def Omega_k(self):
         return self._star.Omega_k(self.R)
+
+    @property
+    def FUV(self):
+        return self._FUV
+
+    def Rout(self, fit_LBP=False):
+        """Determine the outer radius (density threshold) and add to history"""
+        notempty = self.Sigma_G > self._threshold
+        notempty_cells = self.R[notempty]
+        if np.size(notempty_cells>0):
+            R_outer = notempty_cells[-1]
+        else:
+            R_outer = 0.0
+        self._Rout = np.append(self._Rout,[R_outer])
+
+        """May instead fit an LBP profile to the disc when testing viscous evolution"""
+        if fit_LBP:
+            not_empty = (self.R < R_outer)
+            popt,pcov = optimize.curve_fit(LBP_profile,self.R[not_empty],np.log10(self.Sigma_G[not_empty]),p0=[100,0.01],maxfev=5000)            
+            self._Rc_t = np.append(self._Rc_t, [popt[0]])
+
+        return self._Rout[-1]
+
+    def Mtot(self):
+        """Determine the total mass and add to history"""
+        Re = self.R_edge * AU
+        dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
+        dM_tot = self.Sigma * dA
+        self._Mtot = np.append(self._Mtot,[np.sum(dM_tot)])
+        return self._Mtot[-1]
+
+    def Rot(self,photoevap):
+        """ Determine where wind becomes optically thick"""
+        # Get the photo-evaporation rates at each cell as if it were the edge USING GAS SIGMA
+        not_empty = (self.Sigma_G > 0)
+        Mdot = photoevap.mass_loss_rate(self,not_empty)
+        # Find the outermost maximum, corresponding to optically thin/thick boundary
+        i_max = np.size(Mdot) - np.argmax(Mdot[::-1]) - 1
+        self._Rot = np.append(self._Rot,[self.R[i_max]])
+        return self._Rot[-1]
+
+    def Mdot(self,viscous_velocity):
+        M_visc_out = 2*np.pi * self.R[0] * self.Sigma[0] * viscous_velocity * (AU**2)
+        self._Mdot_acc = np.append(self._Mdot_acc,[-M_visc_out*(yr/Msun)])
+        return self._Mdot_acc[-1]
 
     def set_surface_density(self, Sigma):
         self._Sigma[:] = Sigma

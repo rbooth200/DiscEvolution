@@ -4,6 +4,7 @@ yr = 6.283185307179586
 Msun = 1.989e33
 Rsun = 6.96e10
 Mearth = 5.972e27
+Mjup = 317.8 * Mearth
 AU = 1.496e13
 
 k_B = 1.3806e-16
