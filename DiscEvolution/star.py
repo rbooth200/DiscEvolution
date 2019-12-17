@@ -142,8 +142,16 @@ class SimpleStar(StarBase):
                                      "known".format(key))
         return SimpleStar(**kwargs)
                                      
-            
-        
+# A star with a photoevaporating luminosity
+class PhotoStar(SimpleStar):
+    def __init__(self, LX=1e30, **kwargs):
+        super().__init__(**kwargs)
+        self._L_X = LX
+
+    @property
+    def L_X(self):
+        """X-ray Luminosity"""
+        return self._L_X
 
 
 def from_file(filename):
