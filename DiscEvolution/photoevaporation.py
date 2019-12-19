@@ -39,8 +39,10 @@ class ExternalPhotoevaporationBase(object):
         dM_dot = Mdot * Msun / (2 * np.pi)
 
         # Record mass loss
+        self._Rot = disc.R[not_empty][-1]
         if Track:
             self._Mdot = np.append(self._Mdot,[dM_dot[not_empty][-1]*(yr/Msun)])
+            disc._Rot  = np.append(disc._Rot,[self._Rot])
 
         return (dM_dot, dM_gas)
 
@@ -84,9 +86,10 @@ class ExternalPhotoevaporationBase(object):
 
         # Find the maximum, corresponding to optically thin/thick boundary
         i_max = np.size(Mdot) - np.argmax(Mdot[::-1]) - 1
+        self._Rot = disc.R[i_max]
 
         # Weighting function USING GAS MASS
-        ot_radii = (disc.R >= disc.R[i_max])
+        ot_radii = (disc.R >= self._Rot)
         s = disc.R**(3/2) * disc.Sigma_G
         s_tot = np.sum(s[ot_radii])
         s_weight = s/s_tot
@@ -97,6 +100,7 @@ class ExternalPhotoevaporationBase(object):
         # Record mass loss
         if Track:
             self._Mdot = np.append(self._Mdot,[M_dot_tot*(yr/Msun)])
+            disc._Rot  = np.append(disc._Rot,[self._Rot])
 
         return (M_dot_eff, dM_gas)
 
@@ -273,6 +277,7 @@ class FRIEDExternalEvaporationS(ExternalPhotoevaporationBase):
         self.FRIED_Rates = photorate.FRIED_2DS(photorate.grid_parameters,photorate.grid_rate,disc.star.M,disc.FUV)
         self._Mdot = np.array([])
         self._amax = amax * np.ones_like(disc.R)
+        self._Rot = max(disc.R)
 
     def mass_loss_rate(self, disc, not_empty):
         calc_rates = np.zeros_like(disc.R)
@@ -308,6 +313,7 @@ class FRIEDExternalEvaporationMS(ExternalPhotoevaporationBase):
         self.FRIED_Rates = photorate.FRIED_2DM400S(photorate.grid_parameters,photorate.grid_rate,disc.star.M,disc.FUV)
         self._Mdot = np.array([])
         self._amax = amax * np.ones_like(disc.R)
+        self._Rot = max(disc.R)
 
     def mass_loss_rate(self, disc, not_empty):
         calc_rates = np.zeros_like(disc.R)
@@ -343,6 +349,7 @@ class FRIEDExternalEvaporationM(ExternalPhotoevaporationBase):
         self.FRIED_Rates = photorate.FRIED_2DM400M(photorate.grid_parameters,photorate.grid_rate,disc.star.M,disc.FUV)
         self._Mdot = np.array([])
         self._amax = amax * np.ones_like(disc.R)
+        self._Rot = max(disc.R)
 
     def mass_loss_rate(self, disc, not_empty):
         Re = disc.R_edge * AU

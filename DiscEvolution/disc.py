@@ -161,7 +161,7 @@ class AccretionDisc(object):
     def FUV(self):
         return self._FUV
 
-    def Rout(self, fit_LBP=False):
+    def Rout(self, fit_LBP=False, Track=False):
         """Determine the outer radius (density threshold) and add to history"""
         notempty = self.Sigma_G > self._threshold
         notempty_cells = self.R[notempty]
@@ -169,38 +169,40 @@ class AccretionDisc(object):
             R_outer = notempty_cells[-1]
         else:
             R_outer = 0.0
-        self._Rout = np.append(self._Rout,[R_outer])
 
-        """May instead fit an LBP profile to the disc when testing viscous evolution"""
-        if fit_LBP:
-            not_empty = (self.R < R_outer)
-            popt,pcov = optimize.curve_fit(LBP_profile,self.R[not_empty],np.log10(self.Sigma_G[not_empty]),p0=[100,0.01],maxfev=5000)            
-            self._Rc_t = np.append(self._Rc_t, [popt[0]])
+        if Track:
+            self._Rout = np.append(self._Rout,[R_outer])
+            """May also fit an LBP profile to the disc when testing viscous evolution"""
+            if fit_LBP:
+                not_empty = (self.R < R_outer)
+                popt,pcov = optimize.curve_fit(LBP_profile,self.R[not_empty],np.log10(self.Sigma_G[not_empty]),p0=[100,0.01],maxfev=5000)
+                self._Rc_t = np.append(self._Rc_t, [popt[0]])
+        else:
+            return R_outer
 
-        return self._Rout[-1]
+    @property
+    def Rot(self):
+        return self._Rot[-1]
 
-    def Mtot(self):
-        """Determine the total mass and add to history"""
+    def Mtot(self, Track=False):
+        """Determine the total mass (and add to history)"""
         Re = self.R_edge * AU
         dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
         dM_tot = self.Sigma * dA
-        self._Mtot = np.append(self._Mtot,[np.sum(dM_tot)])
-        return self._Mtot[-1]
+        M_tot = np.sum(dM_tot)
+        if Track:
+            self._Mtot = np.append(self._Mtot,[M_tot])
+        else:
+            return M_tot
 
-    def Rot(self,photoevap):
-        """ Determine where wind becomes optically thick"""
-        # Get the photo-evaporation rates at each cell as if it were the edge USING GAS SIGMA
-        not_empty = (self.Sigma_G > 0)
-        Mdot = photoevap.mass_loss_rate(self,not_empty)
-        # Find the outermost maximum, corresponding to optically thin/thick boundary
-        i_max = np.size(Mdot) - np.argmax(Mdot[::-1]) - 1
-        self._Rot = np.append(self._Rot,[self.R[i_max]])
-        return self._Rot[-1]
-
-    def Mdot(self,viscous_velocity):
+    def Mdot(self,viscous_velocity, Track=False):
+        """Determine the viscous accretion rate (and add to history)"""
         M_visc_out = 2*np.pi * self.R[0] * self.Sigma[0] * viscous_velocity * (AU**2)
-        self._Mdot_acc = np.append(self._Mdot_acc,[-M_visc_out*(yr/Msun)])
-        return self._Mdot_acc[-1]
+        Mdot = -M_visc_out*(yr/Msun)
+        if Track:
+            self._Mdot_acc = np.append(self._Mdot_acc,[Mdot])
+        else:
+            return Mdot
 
     def set_surface_density(self, Sigma):
         self._Sigma[:] = Sigma
