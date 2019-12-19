@@ -119,6 +119,19 @@ class AccretionDisc(object):
         return self.Sigma / (np.sqrt(2*np.pi) * self.H * AU)
 
     @property
+    def column_density(self):
+        n = self.midplane_gas_density / (self._eos._mu * m_H)
+        Re = self.R_edge * AU
+        ndR = n * (Re[1:] - Re[:-1])
+        N = np.cumsum(ndR)
+        return N
+
+    @property
+    def column_density_est(self):
+        N2 = 0.8 / np.sqrt(2*np.pi) * 1 / (self._eos._mu * self._eos._cs0 * self.R[0]**(1/4)) * self.Sigma_G[0] / m_H
+        return N2
+
+    @property
     def Ncells(self):
         return self._grid.Ncells
 
