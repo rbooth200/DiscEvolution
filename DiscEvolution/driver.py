@@ -141,18 +141,24 @@ class DiscEvolutionDriver(object):
 
         # Now we should update the auxillary properties, do grain growth etc
         disc.update(dt)
-        #try:
+
+        # Use thin switch
         if self._internal_photo:
             if not self._internal_photo._Thin:
                 if self._internal_photo._Hole:
-                    R_hole, Sigma_hole, N_hole, N_rough = self._internal_photo.get_Rhole(disc, self.photoevap)
+                    R_hole, Sigma_hole, N_hole = self._internal_photo.get_Rhole(disc, self.photoevap)
                 if self._internal_photo._Thin:
                     print("Column density to hole has fallen to N = {} < 10^22 g cm^-2".format(N_hole))
-                    self._internal_photo = TransitionDisc(disc, R_hole, Sigma_hole, N_hole)     # Switch internal photoevaporation when hole opens"""            
-                    #print("Hole opened at {} au with Sigma_G = {} g cm^-3".format(R_hole, Sigma_hole))
-                    #self._internal_photo = None                                        # Switch off internal photoevaporation when hole opens"""
-        #except AttributeError:
-        #    pass
+                    self._internal_photo = TransitionDisc(disc, R_hole, Sigma_hole, N_hole)     # Switch internal photoevaporation when hole opens"""
+
+        # Use mass loss rate switch
+        """if self._internal_photo:
+            if not self._internal_photo._loMd:
+                if self._internal_photo._Hole:
+                    R_hole, Sigma_hole, N_hole = self._internal_photo.get_Rhole(disc, self.photoevap)
+                if self._internal_photo._loMd:
+                    print("Mass loss rate has fallen below that for a transition disc.")
+                    self._internal_photo = TransitionDisc(disc, R_hole, Sigma_hole, N_hole)     # Switch internal photoevaporation when hole opens"""
 
         self._t += dt
         self._nstep += 1

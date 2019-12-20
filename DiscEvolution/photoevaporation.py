@@ -119,7 +119,7 @@ class ExternalPhotoevaporationBase(object):
             f_m[not_dustless] = disc.dust_frac[1,:].flatten()[not_dustless]/disc.integ_dust_frac[not_dustless]
 
             # Update the maximum entrained size
-            self._amax = Facchini_limit(disc,np.sum(dM_dot)*(dM_dot>0) *(yr/Msun))
+            self._amax = Facchini_limit(disc,self._Mdot*(dM_dot>0))
 
             # Work out the total mass in entrained dust
             M_ent = self.dust_entrainment(disc)
@@ -277,7 +277,7 @@ class FRIEDExternalEvaporationS(ExternalPhotoevaporationBase):
 
     def __init__(self, disc, Mdot=1e-10, amax=0):
         self.FRIED_Rates = photorate.FRIED_2DS(photorate.grid_parameters,photorate.grid_rate,disc.star.M,disc.FUV)
-        self._Mdot = np.array([])
+        self._Mdot = 0
         self._amax = amax * np.ones_like(disc.R)
         self._Rot = max(disc.R)
 
@@ -313,7 +313,7 @@ class FRIEDExternalEvaporationMS(ExternalPhotoevaporationBase):
 
     def __init__(self, disc, Mdot=1e-10, amax=0):
         self.FRIED_Rates = photorate.FRIED_2DM400S(photorate.grid_parameters,photorate.grid_rate,disc.star.M,disc.FUV)
-        self._Mdot = np.array([])
+        self._Mdot = 0
         self._amax = amax * np.ones_like(disc.R)
         self._Rot = max(disc.R)
 
@@ -349,7 +349,7 @@ class FRIEDExternalEvaporationM(ExternalPhotoevaporationBase):
 
     def __init__(self, disc, Mdot=1e-10, amax=0):
         self.FRIED_Rates = photorate.FRIED_2DM400M(photorate.grid_parameters,photorate.grid_rate,disc.star.M,disc.FUV)
-        self._Mdot = np.array([])
+        self._Mdot = 0
         self._amax = amax * np.ones_like(disc.R)
         self._Rot = max(disc.R)
 
