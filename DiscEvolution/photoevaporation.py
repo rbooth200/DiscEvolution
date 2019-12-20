@@ -39,10 +39,11 @@ class ExternalPhotoevaporationBase(object):
         dM_dot = Mdot * Msun / (2 * np.pi)
 
         # Record mass loss
-        self._Rot = disc.R[not_empty][-1]
+        self._Rot  = disc.R[not_empty][-1]
+        self._Mdot = dM_dot[not_empty][-1]*(yr/Msun)
         if Track:
-            self._Mdot = np.append(self._Mdot,[dM_dot[not_empty][-1]*(yr/Msun)])
-            disc._Rot  = np.append(disc._Rot,[self._Rot])
+            disc.history._Mdot_ext  = np.append(disc.history._Mdot_ext,[self._Mdot])
+            disc.history._Rot       = np.append(disc.history._Rot,[self._Rot])
 
         return (dM_dot, dM_gas)
 
@@ -98,9 +99,10 @@ class ExternalPhotoevaporationBase(object):
         M_dot_eff = M_dot_tot * s_weight # Effective mass loss rate
 
         # Record mass loss
+        self._Mdot = M_dot_tot*(yr/Msun)
         if Track:
-            self._Mdot = np.append(self._Mdot,[M_dot_tot*(yr/Msun)])
-            disc._Rot  = np.append(disc._Rot,[self._Rot])
+            disc.history._Mdot_ext  = np.append(disc.history._Mdot_ext,[self._Mdot])
+            disc.history._Rot       = np.append(disc.history._Rot,[self._Rot])
 
         return (M_dot_eff, dM_gas)
 

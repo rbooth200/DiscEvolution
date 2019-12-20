@@ -11,6 +11,7 @@
 import numpy as np
 from scipy import optimize
 from .constants import AU, sig_H2, m_H, yr, Msun
+from .history import history
 
 def LBP_profile(R,R_C,Sigma_C):
     """Defined for profile fitting"""
@@ -34,12 +35,13 @@ class AccretionDisc(object):
         self.i_edge = -1
 
         # Global, time dependent properties stored as history
-        self._threshold = 1e-5          # Threshold for defining edge by density
+        """self._threshold = 1e-5          # Threshold for defining edge by density
         self._Rout = np.array([])       # Outer radius of the disc (density), updated internally
         self._Rc_t = np.array([])       # Radius of current best fit scale radius, updated internally
         self._Rot = np.array([])        # Radius where Mdot maximum ie where becomes optically thick, updated internally
         self._Mtot = np.array([])       # Total mass, updated internally
-        self._Mdot_acc = np.array([])   # Accretion rate, updated with velocity passed
+        self._Mdot_acc = np.array([])   # Accretion rate, updated with velocity passed"""
+        self.history = history()
 
     def ASCII_header(self):
         """Write header information about the disc"""
@@ -163,7 +165,7 @@ class AccretionDisc(object):
 
     def Rout(self, fit_LBP=False, Track=False):
         """Determine the outer radius (density threshold) and add to history"""
-        notempty = self.Sigma_G > self._threshold
+        notempty = self.Sigma_G > self.history._threshold
         notempty_cells = self.R[notempty]
         if np.size(notempty_cells>0):
             R_outer = notempty_cells[-1]
@@ -171,18 +173,18 @@ class AccretionDisc(object):
             R_outer = 0.0
 
         if Track:
-            self._Rout = np.append(self._Rout,[R_outer])
+            self.history._Rout = np.append(self.history._Rout,[R_outer])
             """May also fit an LBP profile to the disc when testing viscous evolution"""
             if fit_LBP:
                 not_empty = (self.R < R_outer)
                 popt,pcov = optimize.curve_fit(LBP_profile,self.R[not_empty],np.log10(self.Sigma_G[not_empty]),p0=[100,0.01],maxfev=5000)
-                self._Rc_t = np.append(self._Rc_t, [popt[0]])
+                self.history._Rc_t = np.append(self.history._Rc_t, [popt[0]])
         else:
             return R_outer
 
     @property
     def Rot(self):
-        return self._Rot[-1]
+        return self.history._Rot[-1]
 
     def Mtot(self, Track=False):
         """Determine the total mass (and add to history)"""
@@ -191,7 +193,7 @@ class AccretionDisc(object):
         dM_tot = self.Sigma * dA
         M_tot = np.sum(dM_tot)
         if Track:
-            self._Mtot = np.append(self._Mtot,[M_tot])
+            self.history._Mtot = np.append(self.history._Mtot,[M_tot])
         else:
             return M_tot
 
@@ -200,7 +202,7 @@ class AccretionDisc(object):
         M_visc_out = 2*np.pi * self.R[0] * self.Sigma[0] * viscous_velocity * (AU**2)
         Mdot = -M_visc_out*(yr/Msun)
         if Track:
-            self._Mdot_acc = np.append(self._Mdot_acc,[Mdot])
+            self.history._Mdot_acc = np.append(self.history._Mdot_acc,[Mdot])
         else:
             return Mdot
 
