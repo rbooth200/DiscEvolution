@@ -4,15 +4,19 @@ import json
 import matplotlib.pyplot as plt
 from DiscEvolution.constants import *
 from DiscEvolution.star import PhotoStar
+from scipy.signal import argrelmin
 
 DefaultModel = "DiscConfig_default.json"
 plt.rcParams['text.usetex'] = "True"
 plt.rcParams['font.family'] = "serif"
 
 class PhotoBase():
-    def __init__(self, R, star):
-        self.mdot_X(star)
-        self._Sigmadot = np.zeros_like(R)
+    def __init__(self, disc):
+        self.mdot_X(disc.star)
+        self._Sigmadot = np.zeros_like(disc.R)
+        self._Hole = False
+        self._Thin = False
+        self._Sigma_hole = None
 
     def mdot_X(self, star):
         self._MdotX = 0
@@ -23,17 +27,33 @@ class PhotoBase():
     def scaled_R(self, R, star):
         raise AttributeError("PhotoBase::scaled_R must be implemented in subclass")
 
-    def get_dt(self, disc):
+    def get_dt(self, disc, dt):
         where_photoevap = (self.dSigmadt > 0)
-        dt = disc.Sigma_G[where_photoevap] / self.dSigmadt[where_photoevap]
-        return dt, min(dt)
+        t_w = disc.Sigma_G[where_photoevap] / self.dSigmadt[where_photoevap]
+        self._tw = min(t_w)
+        return self._tw
 
     def remove_mass(self, disc, dt):
-        _, t_w = self.get_dt(disc)
-        if (dt > t_w):
-            raise Exception("Timestep is too short - cells would be completely emptied")
-        disc._Sigma -= self.dSigmadt * dt
+        t_w = self.get_dt(disc, dt)
+        disc._Sigma -= np.minimum(self.dSigmadt * dt, disc.Sigma_G)
 
+    def get_Rhole(self, disc, photoevap=None):
+        if (np.sum(disc.Sigma_G<=0) == 0):
+            i = argrelmin(disc.Sigma_G)[0][0]
+        else:
+            try:
+                R_out = photoevap._Rot
+            except:
+                R_out = disc.Rout()
+            i = np.nonzero((disc.Sigma_G <= 0) * (disc.R < R_out))[0][-1]
+        self._R_hole = disc.R[i]
+        self._Sigma_hole = disc.Sigma_G[i]
+        self._N_hole = disc.column_density[i]
+        self._N_rough = disc.column_density_est
+        if (self._N_hole < 1e22):
+            self._Thin = True
+        return self._R_hole, self._Sigma_hole, self._N_hole, self._N_rough
+        
     @property
     def Mdot(self):
         return self._MdotX
@@ -42,12 +62,15 @@ class PhotoBase():
     def dSigmadt(self):
         return self._Sigmadot
 
+    def __call__(self, disc, dt):
+        self.remove_mass(disc,dt)
+
 """
 Primoridal Discs (Owen+12)
 """
 class PrimordialDisc(PhotoBase):
-    def __init__(self, R, star):
-        super().__init__(R, star)
+    def __init__(self, disc):
+        super().__init__(disc)
         self._a1 = 0.15138
         self._b1 = -1.2182
         self._c1 = 3.4046
@@ -55,7 +78,7 @@ class PrimordialDisc(PhotoBase):
         self._e1 = -0.32762
         self._f1 = 3.6064
         self._g1 = -2.4918
-        self.Sigma_dot(R, star)
+        self.Sigma_dot(disc.R, disc.star)
 
     def mdot_X(self, star):
         # Equation B1
@@ -96,19 +119,31 @@ class PrimordialDisc(PhotoBase):
         # Normalise, convert to cgs and return
         self._Sigmadot *= self.Mdot / total * Msun / AU**2 # in g cm^-2 / yr
 
+    def get_dt(self, disc, dt):
+        super().get_dt(disc, dt)
+        if (dt > self._tw):
+            if not self._Hole:
+                print("Warning - hole will open after this timestep")
+            self._Hole = True
+        return self._tw
+
 """
 Transition Discs (Owen+12)
 """
 class TransitionDisc(PhotoBase):
-    def __init__(self, R, star, R_hole):
-        super().__init__(R, star)
+    def __init__(self, disc, R_hole, Sigma_hole, N_hole):
+        super().__init__(disc)
         self._a2 = -0.438226
         self._b2 = -0.10658387
         self._c2 = 0.5699464
         self._d2 = 0.010732277
         self._e2 = -0.131809597
         self._f2 = -1.32285709
-        self.__call__(R_hole, R, star)
+        self._Thin = True
+        self._R_hole = R_hole
+        self._Sigma_hole = Sigma_hole
+        self._N_hole = N_hole
+        self.Sigma_dot(disc.R, disc.star)
 
     def mdot_X(self, star):
         # Equation B4
@@ -117,7 +152,7 @@ class TransitionDisc(PhotoBase):
     def scaled_R(self, R, star):
         # Equation B6
         # Where R in AU
-        x = 0.95 * (R-self._Rhole) / star.M
+        x = 0.95 * (R-self._R_hole) / star.M
         return x
 
     def Sigma_dot(self, R, star):
@@ -143,21 +178,26 @@ class TransitionDisc(PhotoBase):
         # Normalise, convert to cgs and return
         self._Sigmadot *= self.Mdot / total * Msun / AU**2 # in g cm^-2 / yr
 
-    def __call__(self, R_hole, R, star):
+    def __call__(self, disc, dt):
         # Update the hole radius and hence the mass-loss profile
         # Sigma_dot will update the profile stored such that it doesn't have to be called unless R_hole changes
         # Also returns the profile here immediately
-        self._Rhole = R_hole
-        self.Sigma_dot(R, star)
-        return self.dSigmadt
+        super().__call__(disc, dt)
 
+        old_hole = self._R_hole
+        self.get_Rhole(disc)
+        if (self._R_hole != old_hole):
+            self.Sigma_dot(disc.R, disc.star)
+        
 """
 Run as Main
 """
 class DummyDisc(object):
-    def __init__(self, R):
+    def __init__(self, R, star):
         self._M = 10 * Mjup
         self._Sigma = self._M / (2 * np.pi * max(R) * R * AU**2)
+        self.R = R
+        self.star = star
 
     @property
     def Sigma(self):
@@ -179,9 +219,9 @@ def Test_Removal():
 
     star1 = PhotoStar(LX=1e30, M=model['star']['mass'], R=model['star']['radius'], T_eff=model['star']['T_eff'])
     R = np.linspace(0,200,2001)
+    disc1 = DummyDisc(R, star1)
 
-    disc1 = DummyDisc(R)
-    internal_photo = PrimordialDisc(R, star1)
+    internal_photo = PrimordialDisc(disc1)
 
     plt.figure()
     #plt.loglog(R, disc1.Sigma, label='{}'.format(0))
@@ -199,15 +239,16 @@ def Sigma_dot_plot():
 
     star1 = PhotoStar(LX=1e30, M=model['star']['mass'], R=model['star']['radius'], T_eff=model['star']['T_eff'])
     R = np.linspace(0,200,2001)
+    disc1 = DummyDisc(R, star1)
 
     plt.figure(figsize=(6,6))
 
-    internal_photo = PrimordialDisc(R, star1)    
+    internal_photo = PrimordialDisc(disc1)    
     Sigma_dot = internal_photo.dSigmadt
     plt.plot(R, Sigma_dot, label='Primordial Disc')
 
     Rhole = 10
-    internal_photo2 = TransitionDisc(R, star1, Rhole)
+    internal_photo2 = TransitionDisc(disc1, Rhole, None)
     Sigma_dot = internal_photo2.dSigmadt
     plt.plot(R, Sigma_dot, label='Transition Disc ($R_{{\\rm hole}} = {}$)'.format(Rhole))
 

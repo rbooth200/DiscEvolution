@@ -10,6 +10,8 @@ import numpy as np
 import os
 import FRIED.photorate as photorate
 from .photoevaporation import FixedExternalEvaporation
+from .constants import yr
+from test_internal_photo.internal_photo import TransitionDisc
 
 from . import io
 
@@ -30,7 +32,7 @@ class DiscEvolutionDriver(object):
     Other options:
         t0  : Starting time, default = 0.
     """
-    def __init__(self, disc, gas=None, dust=None, diffusion=None, chemistry=None, photoevaporation=None, t0=0.):
+    def __init__(self, disc, gas=None, dust=None, diffusion=None, chemistry=None, ext_photoevaporation=None, int_photoevaporation=None, t0=0.):
 
         self._disc = disc
 
@@ -38,7 +40,8 @@ class DiscEvolutionDriver(object):
         self._dust      = dust
         self._diffusion = diffusion
         self._chemistry = chemistry
-        self.photoevap = photoevaporation
+        self.photoevap = ext_photoevaporation
+        self._internal_photo = int_photoevaporation
 
         self._t = t0
         self._output_times = []
@@ -70,9 +73,11 @@ class DiscEvolutionDriver(object):
                 Dt = dM_gas[(dM_dot>0)] / dM_dot[(dM_dot>0)]
                 Dt_min = np.min(Dt)
                 dt = min(dt,Dt_min)
+        """if self._internal_photo:
+            dt = min(dt, self._internal_photo.get_dt(self._disc, dt))"""
         
-        if (self.photoevap is not None):
-            self.photoevap(disc,dt,self.t) # Apply photoevaporation here so that the timescales, if limiting, are correct 
+        if self.photoevap:
+            self.photoevap(disc, dt, self.t) # Apply photoevaporation here so that the timescales, if limiting, are correct 
 
         gas_chem, ice_chem = None, None
         try:
@@ -86,6 +91,10 @@ class DiscEvolutionDriver(object):
             dust = disc.dust_frac
         except AttributeError:
             pass
+
+        # Do internal photoevaporation
+        if self._internal_photo:
+            self._internal_photo(disc, dt/yr)
 
         # Do Advection-diffusion update
         if self._gas:
@@ -132,6 +141,18 @@ class DiscEvolutionDriver(object):
 
         # Now we should update the auxillary properties, do grain growth etc
         disc.update(dt)
+        #try:
+        if self._internal_photo:
+            if not self._internal_photo._Thin:
+                if self._internal_photo._Hole:
+                    R_hole, Sigma_hole, N_hole, N_rough = self._internal_photo.get_Rhole(disc, self.photoevap)
+                if self._internal_photo._Thin:
+                    print("Column density to hole has fallen to N = {} < 10^22 g cm^-2".format(N_hole))
+                    self._internal_photo = TransitionDisc(disc, R_hole, Sigma_hole, N_hole)     # Switch internal photoevaporation when hole opens"""            
+                    #print("Hole opened at {} au with Sigma_G = {} g cm^-3".format(R_hole, Sigma_hole))
+                    #self._internal_photo = None                                        # Switch off internal photoevaporation when hole opens"""
+        #except AttributeError:
+        #    pass
 
         self._t += dt
         self._nstep += 1
