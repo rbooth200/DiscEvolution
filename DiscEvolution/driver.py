@@ -185,7 +185,9 @@ class DiscEvolutionDriver(object):
     @property
     def photoevaporation(self):
         return self.photoevap
-    
+    @property
+    def photoevaporation_internal(self):
+        return self._internal_photo
 
     def dump_ASCII(self, filename):
         """Write the current state to a file, including header information"""
@@ -203,6 +205,8 @@ class DiscEvolutionDriver(object):
             head += self._chemistry.ASCII_header() + '\n'
         if self.photoevap:
             head += self.photoevap.ASCII_header() + '\n'
+        if self._internal_photo:
+            head += self.photoevap.ASCII_header() + '\n'
 
         # Write it all to disc
         io.dump_ASCII(filename, self._disc, self.t, head)
@@ -215,6 +219,7 @@ class DiscEvolutionDriver(object):
         if self._diffusion: headers.append(self._diffusion.HDF5_attributes())
         if self._chemistry: headers.append(self._chemistry.HDF5_attributes())
         if self.photoevap: headers.append(self.photoevap.HDF5_attributes())
+        if self._internal_photo: headers.append(self._internal_photo.HDF5_attributes())
 
         io.dump_hdf5(filename, self._disc, self.t, headers)
 
