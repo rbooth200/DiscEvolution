@@ -94,7 +94,7 @@ class DiscEvolutionDriver(object):
 
         # Do internal photoevaporation
         if self._internal_photo:
-            self._internal_photo(disc, dt/yr)
+            self._internal_photo(disc, dt/yr, self.photoevap)
 
         # Do Advection-diffusion update
         if self._gas:
@@ -142,23 +142,17 @@ class DiscEvolutionDriver(object):
         # Now we should update the auxillary properties, do grain growth etc
         disc.update(dt)
 
-        # Use thin switch
-        if self._internal_photo:
-            if not self._internal_photo._Thin:
-                if self._internal_photo._Hole:
+        # Update the internal hole and check whether we need to switch the mass loss prescription
+        if self._internal_photo:                    # If doing internal photoevaporation
+            if not self._internal_photo._switch:      # If the inner disc is not already thin or Mdot low then continue
+                if self._internal_photo._Hole:      # If there is a hole, update its properties 
                     R_hole, Sigma_hole, N_hole = self._internal_photo.get_Rhole(disc, self.photoevap)
-                if self._internal_photo._Thin:
-                    print("Column density to hole has fallen to N = {} < 10^22 g cm^-2".format(N_hole))
-                    self._internal_photo = TransitionDisc(disc, R_hole, Sigma_hole, N_hole)     # Switch internal photoevaporation when hole opens"""
-
-        # Use mass loss rate switch
-        """if self._internal_photo:
-            if not self._internal_photo._loMd:
-                if self._internal_photo._Hole:
-                    R_hole, Sigma_hole, N_hole = self._internal_photo.get_Rhole(disc, self.photoevap)
-                if self._internal_photo._loMd:
-                    print("Mass loss rate has fallen below that for a transition disc.")
-                    self._internal_photo = TransitionDisc(disc, R_hole, Sigma_hole, N_hole)     # Switch internal photoevaporation when hole opens"""
+                if self._internal_photo._switch:      # If the hole is large enough that inner disc thin or Mdot low, switch internal photoevaporation to TD
+                    if (self._internal_photo._swiTyp == "Thin"):
+                        print("Column density to hole has fallen to N = {} < 10^22 g cm^-2".format(N_hole))
+                    elif (self._internal_photo._swiTyp == "loMd"):
+                        print("Mass loss rate has fallen below that for a transition disc.")
+                    self._internal_photo = TransitionDisc(disc, R_hole, Sigma_hole, N_hole)
 
         self._t += dt
         self._nstep += 1

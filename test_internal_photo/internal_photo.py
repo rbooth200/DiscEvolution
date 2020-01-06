@@ -21,38 +21,69 @@ class PhotoBase():
         self._Thin = False      # Is the hole exposed (ie low column density to star)? 
         self._loMd = False      # Is the mass loss below that of the TD?
         self._empty = False     # When no longer a valid hole radius
+        self._switch = False    # Generic flag to be set to either Thin or loMd
+        self._swiTyp = "loMd"   # Determine whether switch is on Thin or loMd
         # Equation B4, needed to assess when Mdot is low
         self._Mdot_TD = 4.8e-9 * disc.star.M**(-0.148) * (disc.star.L_X / 1e30)**(1.14) # In Msun/yr
 
         # Hole properties
         #self._Sigma_hole = None
 
+    def update_switch(self):
+        # Update the switch depending on the type used
+        if (self._swiTyp == "Thin"):
+            self._switch = self._Thin
+        elif (self._swiTyp == "loMd"):
+            self._switch = self._loMd
+        else:
+            raise AttributeError("Photobase::{} is no a valid switchtype".format(self._swiTyp))
+
     def mdot_X(self, star):
+        # Without prescription, mass loss is 0
         self._MdotX     = 0
         self._Mdot_true = 0
 
     def Sigma_dot(self, R, star):
+        # Without prescription, mass loss is 0
         self._Sigmadot = np.zeros_like(R)
 
     def scaled_R(self, R, star):
+        # Prescriptions may rescale the radius variable 
         raise AttributeError("PhotoBase::scaled_R must be implemented in subclass")
 
-    def get_dt(self, disc, dt):
+    def get_dt(self, disc, dt, R_out):
+        # Work out the timescale to clear cell
         where_photoevap = (self.dSigmadt > 0)
-        t_w = disc.Sigma_G[where_photoevap] / self.dSigmadt[where_photoevap]
-        self._tw = min(t_w)
-        return self._tw
+        t_w = np.full_like(disc.R,np.inf)
+        t_w[where_photoevap] = disc.Sigma_G[where_photoevap] / self.dSigmadt[where_photoevap]
 
-    def remove_mass(self, disc, dt):
-        t_w = self.get_dt(disc, dt)
-        dSigma = np.minimum(self.dSigmadt * dt, disc.Sigma_G)       # Limit mass loss to density of cell
+        # Return minimum value for cells inside outer edge 
+        try:
+            self._tw = min(t_w[(disc.R < R_out)])
+            return self._tw, np.argmin(t_w[(disc.R < R_out)])
+        except: # If above fails it is because R_out -> 0
+            self._empty = True
+            return 0, 0
+
+    def remove_mass(self, disc, dt, photoevap=None):
+        # Find disc outer edge
+        try:
+            R_out = photoevap._Rot
+        except:
+            R_out = disc.Rout()
+
+        # Apply the mass loss
+        self.get_dt(disc, dt, R_out)
+        dSigma = np.minimum(self.dSigmadt * dt, disc.Sigma_G)   # Limit mass loss to density of cell
+        dSigma *= (disc.R < R_out)                              # Only apply mass loss inside disc outer edge
         disc._Sigma -= dSigma
 
+        # Calculate actual mass loss given limit
         dM = 2*np.pi * disc.R * dSigma
-        self._Mdot_true = np.trapz(dM,disc.R) / dt * AU**2 / Msun   # Calculate actual mass loss given limit
+        self._Mdot_true = np.trapz(dM,disc.R) / dt * AU**2 / Msun
 
     def get_Rhole(self, disc, photoevap=None, Track=False):
-        """Deal with calls when there is no hole"""
+        # Deal with calls when there is no hole
         if not self._Hole:
             if Track:
                 disc.history._Rh = np.append(disc.history._Rh, [np.nan])
@@ -60,32 +91,43 @@ class PhotoBase():
             else:
                 print("No hole for which to get radius. Ignoring command.")
             return 0, 0, 0
-        """Otherwise continue on to find hole"""
-        if (np.sum(disc.Sigma_G<=0) == 0):
-            i = argrelmin(disc.Sigma_G)[0][0]
-        else:
-            try:
-                R_out = photoevap._Rot
-            except:
-                R_out = disc.Rout()
-            try:
-                i = np.nonzero((disc.Sigma_G <= 0) * (disc.R < R_out))[0][-1]
-            except:
-                self._empty = True
-                if Track:
-                    disc.history._Rh = np.append(disc.history._Rh,[self._R_hole])
-                    disc.history._Mdot_int = np.append(disc.history._Mdot_int, self._Mdot_true)
-                    return 0, 0, 0
-                else:                    
-                    return self._R_hole, self._Sigma_hole, self._N_hole
+
+        # Otherwise continue on to find hole
+        # First find outer edge of disc - hole must be inside this
+        try:
+            R_out = photoevap._Rot
+        except:
+            R_out = disc.Rout()
+        empty_indisc = (disc.Sigma_G <= 0) * (disc.R < R_out)
+
+        try:
+            if (np.sum(empty_indisc) == 0):         # If none in disc are empty
+                i = argrelmin(disc.Sigma_G)[0][0]   # Position of hole is minimum density
+            else:
+                i = np.nonzero(empty_indisc)[0][-1]   # Position of hole is outermost empty cell inside the disc 
+        except IndexError:
+            # If there are no such cells, then since the hole has been present, the disc must be empty
+            self._empty = True
+            # Save last state and terminate
+            if Track:
+                disc.history._Rh = np.append(disc.history._Rh,[self._R_hole])
+                disc.history._Mdot_int = np.append(disc.history._Mdot_int, self._Mdot_true)
+            return self._R_hole, self._Sigma_hole, self._N_hole
+
+        # If everything worked, update hole properties
         self._R_hole = disc.R[i]
         self._Sigma_hole = disc.Sigma_G[i]
         self._N_hole = disc.column_density[i-1]
         self._N_rough = disc.column_density_est
+
+        # Test whether Thin or loMd and update switch
         if (self._N_hole < 1e22):
             self._Thin = True
         if (self._Mdot_true < self._Mdot_TD):
             self._loMd = True
+        self.update_switch()
+
+        # Save state if tracking
         if Track:
             disc.history._Rh = np.append(disc.history._Rh,[self._R_hole])
             disc.history._Mdot_int = np.append(disc.history._Mdot_int, self._Mdot_true)
@@ -100,8 +142,8 @@ class PhotoBase():
     def dSigmadt(self):
         return self._Sigmadot
 
-    def __call__(self, disc, dt):
-        self.remove_mass(disc,dt)
+    def __call__(self, disc, dt, photoevap=None):
+        self.remove_mass(disc,dt, photoevap)
 
 """
 Primoridal Discs (Owen+12)
@@ -160,11 +202,18 @@ class PrimordialDisc(PhotoBase):
         # Normalise, convert to cgs and return
         self._Sigmadot *= self.Mdot / total * Msun / AU**2 # in g cm^-2 / yr
 
-    def get_dt(self, disc, dt):
-        super().get_dt(disc, dt)
+    def get_dt(self, disc, dt, photoevap=None):
+        # Find disc outer edge
+        try:
+            R_out = photoevap._Rot
+        except:
+            R_out = disc.Rout()
+
+        t_w, i_hole = super().get_dt(disc, dt, R_out)
         if (dt > self._tw):         # If an entire cell can deplete
             if not self._Hole:
-                print("Warning - hole will open after this timestep")
+                print("Warning - hole will open after this timestep at {:.2f} AU".format(disc.R[i_hole]))
+                print("Outer radius is currently {:.2f} AU".format(R_out))
             self._Hole = True       # Set hole flag
         return self._tw
 
@@ -226,11 +275,11 @@ class TransitionDisc(PhotoBase):
         # Normalise, convert to cgs and return
         self._Sigmadot *= self.Mdot / total * Msun / AU**2 # in g cm^-2 / yr
 
-    def __call__(self, disc, dt):
+    def __call__(self, disc, dt, photoevap=None):
         # Update the hole radius and hence the mass-loss profile
         # Sigma_dot will update the profile stored such that it doesn't have to be called unless R_hole changes
         # Also returns the profile here immediately
-        super().__call__(disc, dt)
+        super().__call__(disc, dt, photoevap)
 
         old_hole = self._R_hole
         self.get_Rhole(disc)
@@ -256,8 +305,8 @@ class DummyDisc(object):
         return self._Sigma
 
 def main():
-    #Sigma_dot_plot()
-    Test_Removal()
+    Sigma_dot_plot()
+    #Test_Removal()
 
 def Test_Removal():
     parser = argparse.ArgumentParser()
@@ -296,7 +345,7 @@ def Sigma_dot_plot():
     plt.plot(R, Sigma_dot, label='Primordial Disc')
 
     Rhole = 10
-    internal_photo2 = TransitionDisc(disc1, Rhole, None)
+    internal_photo2 = TransitionDisc(disc1, Rhole, None, None)
     Sigma_dot = internal_photo2.dSigmadt
     plt.plot(R, Sigma_dot, label='Transition Disc ($R_{{\\rm hole}} = {}$)'.format(Rhole))
 
