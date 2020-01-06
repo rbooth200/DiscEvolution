@@ -79,8 +79,9 @@ class PhotoBase():
         disc._Sigma -= dSigma
 
         # Calculate actual mass loss given limit
-        dM = 2*np.pi * disc.R * dSigma
-        self._Mdot_true = np.trapz(dM,disc.R) / dt * AU**2 / Msun
+        if dt>0:
+            dM = 2*np.pi * disc.R * dSigma
+            self._Mdot_true = np.trapz(dM,disc.R) / dt * AU**2 / Msun
 
     def get_Rhole(self, disc, photoevap=None, Track=False):
         # Deal with calls when there is no hole
@@ -145,12 +146,23 @@ class PhotoBase():
     def __call__(self, disc, dt, photoevap=None):
         self.remove_mass(disc,dt, photoevap)
 
+    def ASCII_header(self):
+        return ("InternalEvaporation, Type: {}, Mdot: {}"
+                "".format(self._Type,self._MdotX))
+
+    def HDF5_attributes(self):
+        header = {}
+        header['Type'] = self._Type
+        header['Mdot'] = '{}'.format(self._MdotX)
+        return self.__class__.__name__, header
+
 """
 Primoridal Discs (Owen+12)
 """
 class PrimordialDisc(PhotoBase):
     def __init__(self, disc):
         super().__init__(disc)
+        self._type = 'Primordial'
         # Parameters for mass loss
         self._a1 = 0.15138
         self._b1 = -1.2182
@@ -223,6 +235,7 @@ Transition Discs (Owen+12)
 class TransitionDisc(PhotoBase):
     def __init__(self, disc, R_hole, Sigma_hole, N_hole):
         super().__init__(disc)
+        self._type = 'Transition'
         # Parameters for mass loss
         self._a2 = -0.438226
         self._b2 = -0.10658387
