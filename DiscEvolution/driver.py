@@ -11,7 +11,7 @@ import os
 import FRIED.photorate as photorate
 from .photoevaporation import FixedExternalEvaporation
 from .constants import yr
-from test_internal_photo.internal_photo import TransitionDisc
+from .internal_photo import TransitionDisc
 
 from . import io
 
@@ -206,7 +206,7 @@ class DiscEvolutionDriver(object):
         if self.photoevap:
             head += self.photoevap.ASCII_header() + '\n'
         if self._internal_photo:
-            head += self.photoevap.ASCII_header() + '\n'
+            head += self._internal_photo.ASCII_header() + '\n'
 
         # Write it all to disc
         io.dump_ASCII(filename, self._disc, self.t, head)
@@ -214,11 +214,11 @@ class DiscEvolutionDriver(object):
     def dump_hdf5(self, filename):
         """Write the current state in HDF5 format, with header information"""
         headers = []
-        if self._gas:       headers.append(self._gas.HDF5_attributes())
-        if self._dust:      headers.append(self._dust.HDF5_attributes())
-        if self._diffusion: headers.append(self._diffusion.HDF5_attributes())
-        if self._chemistry: headers.append(self._chemistry.HDF5_attributes())
-        if self.photoevap: headers.append(self.photoevap.HDF5_attributes())
+        if self._gas:            headers.append(self._gas.HDF5_attributes())
+        if self._dust:           headers.append(self._dust.HDF5_attributes())
+        if self._diffusion:      headers.append(self._diffusion.HDF5_attributes())
+        if self._chemistry:      headers.append(self._chemistry.HDF5_attributes())
+        if self.photoevap:       headers.append(self.photoevap.HDF5_attributes())
         if self._internal_photo: headers.append(self._internal_photo.HDF5_attributes())
 
         io.dump_hdf5(filename, self._disc, self.t, headers)

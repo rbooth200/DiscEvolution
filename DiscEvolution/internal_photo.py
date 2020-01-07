@@ -2,8 +2,8 @@ import numpy as np
 import argparse
 import json
 import matplotlib.pyplot as plt
-from DiscEvolution.constants import *
-from DiscEvolution.star import PhotoStar
+from .constants import *
+from .star import PhotoStar
 from scipy.signal import argrelmin
 
 DefaultModel = "DiscConfig_default.json"
@@ -148,11 +148,11 @@ class PhotoBase():
 
     def ASCII_header(self):
         return ("InternalEvaporation, Type: {}, Mdot: {}"
-                "".format(self._Type,self._MdotX))
+                "".format(self._type,self._MdotX))
 
     def HDF5_attributes(self):
         header = {}
-        header['Type'] = self._Type
+        header['Type'] = self._type
         header['Mdot'] = '{}'.format(self._MdotX)
         return self.__class__.__name__, header
 
