@@ -22,15 +22,20 @@ class ViscousEvolution(object):
     args:
        tol       : Ratio of the time-step to the maximum stable one.
                    Default = 0.5
+       in_bound  : Type of internal boundary condition:
+                     'Zero'      : Zero torque boundary
+                     'Mdot'      : Constant Mdot (power law).
        boundary  : Type of external boundary condition:
                      'Zero'      : Zero torque boundary
                      'power_law' : Power-law extrapolation
-                     'Mdot'      : Constant Mdot, same as inner.
+                     'Mdot_inn'  : Constant Mdot, same as inner (power law).
+                     'Mdot_out'  : Constant Mdot, for tail of LBP.
     """
 
-    def __init__(self, tol=0.5, boundary='power_law'):
+    def __init__(self, tol=0.5, boundary='power_law', in_bound='Mdot'):
         self._tol = tol
         self._bound = boundary
+        self._in_bound = in_bound
 
     def ASCII_header(self):
         """header"""
@@ -56,7 +61,15 @@ class ViscousEvolution(object):
         S = np.zeros(len(nuX) + 2, dtype='f8')
         S[1:-1] = disc.Sigma_G * nuX
 
-        S[0] = S[1] * self._X[0] / self._X[1]   # Inner: constant flux
+        # Inner boundary
+        if self._in_bound == 'Zero':            # Zero torque
+            S[0] = 0
+        elif self._in_bound == 'Mdot':          # Constant flux (appropriate for power law)
+            S[0] = S[1] * self._X[0] / self._X[1]
+        else:
+            raise ValueError("Error boundary type not recognised")
+
+        # Outer boundary
         if self._bound == 'Zero':               # Zero torque
             S[-1] = 0
         elif self._bound == 'power_law':
@@ -150,15 +163,20 @@ class ViscousEvolutionFV(object):
     args:
        tol       : Ratio of the time-step to the maximum stable one.
                    Default = 0.5
+       in_bound  : Type of internal boundary condition:
+                     'Zero'      : Zero torque boundary
+                     'Mdot'      : Constant Mdot (power law).
        boundary  : Type of external boundary condition:
                      'Zero'      : Zero torque boundary
                      'power_law' : Power-law extrapolation
-                     'Mdot'      : Constant Mdot, same as inner.
+                     'Mdot_inn'  : Constant Mdot, same as inner (power law).
+                     'Mdot_out'  : Constant Mdot, for tail of LBP.
     """
 
-    def __init__(self, tol=0.5, boundary='power_law'):
+    def __init__(self, tol=0.5, boundary='power_law', in_bound='Mdot'):
         self._tol = tol
         self._bound = boundary
+        self._in_bound = in_bound
 
     def ASCII_header(self):
         """header"""
@@ -183,13 +201,23 @@ class ViscousEvolutionFV(object):
         S = np.zeros(len(nuRh) + 2, dtype='f8')
         S[1:-1] = disc.Sigma_G * nuRh
 
-        S[0] = S[1] * self._Rh[0] / self._Rh[1]
+        # Inner boundary
+        if self._in_bound == 'Zero':            # Zero torque
+            S[0] = 0
+        elif self._in_bound == 'Mdot':          # Constant flux (appropriate for power law)
+            S[0] = S[1] * self._Rh[0] / self._Rh[1]
+        else:
+            raise ValueError("Error boundary type not recognised")
+
+        # Outer boundary
         if self._bound == 'Zero':
             S[-1] = 0
         elif self._bound == 'power_law':
             S[-1] = S[-2] ** 2 / S[-3]
-        elif self._bound == 'Mdot':
+        elif self._bound == 'Mdot_out':         # Constant flux (appropriate for tail of LBP)
             S[-1] = S[-2] * self._Rh[-2] / self._Rh[-1]
+        elif self._bound == 'Mdot_inn':         # Constant flux (appropriate for power law)
+            S[-1] = S[-2] * self._Rh[-1] / self._Rh[-2]
         else:
             raise ValueError("Error boundary type not recognised")
 

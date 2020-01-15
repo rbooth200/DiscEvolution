@@ -16,7 +16,7 @@ from .history import history
 def LBP_profile(R,R_C,Sigma_C):
     """Defined for profile fitting"""
     x = R/R_C
-    return np.log10(Sigma_C) - np.log10(x)-x
+    return np.log(Sigma_C) - np.log(x)-x
 
 class AccretionDisc(object):
 
@@ -177,7 +177,7 @@ class AccretionDisc(object):
             """May also fit an LBP profile to the disc when testing viscous evolution"""
             if fit_LBP:
                 not_empty = (self.R < R_outer)
-                popt,pcov = optimize.curve_fit(LBP_profile,self.R[not_empty],np.log10(self.Sigma_G[not_empty]),p0=[100,0.01],maxfev=5000)
+                popt,pcov = optimize.curve_fit(LBP_profile,self.R[not_empty],np.log(self.Sigma_G[not_empty]),p0=[100,0.01],maxfev=5000)
                 self.history._Rc_t = np.append(self.history._Rc_t, [popt[0]])
         else:
             return R_outer
