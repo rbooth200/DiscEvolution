@@ -10,6 +10,7 @@ import numpy as np
 from .constants import *
 from .disc import AccretionDisc
 from .reconstruction import DonorCell, VanLeer
+from .history import dust_history
 
 class DustyDisc(AccretionDisc):
     """Dusty accretion disc. Base class for an accretion disc that also
@@ -21,10 +22,10 @@ class DustyDisc(AccretionDisc):
         eos      : Equation of state
         rho_s    : solid density, default=1
         Sc       : Schmidt number, default=1
-        feedback : When False, the dust mass is considered to be a negligable
+        feedback : When False, the dust mass is considered to be a negligible
                    fraction of the total mass.
     """
-    def __init__(self, grid, star, eos, Sigma=None, rho_s=1., Sc=1.,
+    def __init__(self, grid, star, eos, thresholds, Sigma=None, rho_s=1., Sc=1.,
                  feedback=True):
 
         super(DustyDisc, self).__init__(grid, star, eos, Sigma)
@@ -36,10 +37,7 @@ class DustyDisc(AccretionDisc):
         self._feedback = feedback
 
         # Global, time dependent properties stored as history
-        self._Mdust = np.array([])  # Mass of dust in disc
-        self._Rdust = np.array([])  # Radius containing user defined fraction of dust
-        self._Mwind = np.array([])  # Amount of dust lost to wind
-        self._Mwind_cum  = 0.       # Amount of dust lost to wind
+        self.history = dust_history(thresholds)
 
     def Stokes(self, Sigma=None, size=None):
         """Stokes number of the particle"""
@@ -52,7 +50,7 @@ class DustyDisc(AccretionDisc):
 
     def mass(self):
         """Grain mass"""
-        return (4*np.pi/3) * self._rho_s * self.grain_size**3 
+        return (4*np.pi/3) * self._rho_s * self.grain_size**3
 
     @property
     def integ_dust_frac(self):
@@ -114,32 +112,40 @@ class DustyDisc(AccretionDisc):
 
         return self.H * np.sqrt(eta * a / (a + St))
 
-    def Mdust(self):
+    def Mdust(self, Track=False):
         """Determine the dust mass and add to history"""
         Re = self.R_edge * AU
         dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
         dM_dust = self.Sigma_D.sum(0) * dA
-        self._Mdust = np.append(self._Mdust,[np.sum(dM_dust)])
-        return self._Mdust[-1]
+        M_dust = np.sum(dM_dust)
+        if Track:
+            self.history._Mdust = np.append(self.history._Mdust,[M_dust])
+        else:
+            return M_dust
 
-    def Rdust(self,threshold):
+    def Rdust(self, Track=False):
         """Determine the dust radii and add to history"""
         Re = self.R_edge * AU
         dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
         dM_dust = self.Sigma_D.sum(0) * dA
         M_cum = np.cumsum(dM_dust)
-        outside = M_cum[:, np.newaxis] > (M_cum[-1] * np.array(threshold))
-        R_outer = self.R[np.argmax(outside,axis=0)]
-        if (np.size(self._Rdust) > 0): 
-            self._Rdust = np.vstack((self._Rdust,[R_outer]))
-        else:
-            self._Rdust = [R_outer]
-        return self._Rdust[-1]
+        radii = []
+        for thresh in self.history._dthresholds:
+            outside = M_cum > (M_cum[-1] * thresh)
+            R_outer = self.R[outside][0]
+            if Track:
+                self.history._Rdust[thresh] = np.append(self.history._Rdust[thresh],[R_outer])
+            else:
+                radii.append(R_outer)
+        if not Track:
+            return radii
 
-    def Mwind(self):
+    def Mwind(self, Track=False):
         """Track the dust mass lost to the wind"""
-        self._Mwind=np.append(self._Mwind,[self._Mwind_cum])
-        return self._Mwind[-1]
+        if Track:
+            self.history._Mwind = np.append(self.history._Mwind,[self.history._Mwind_cum])
+        else:
+            return self.history._Mwind_cum
     
     def update(self, dt):
         """Update the disc properites and age"""
@@ -185,10 +191,9 @@ class FixedSizeDust(DustyDisc):
         rhos     : solid density, default=1 g / cm^3
         feedback : default=True
     """
-    def __init__(self, grid, star, eos, eps, size, Sigma=None, rhos=1, feedback=True):
+    def __init__(self, grid, star, eos, eps, size, thresholds, Sigma=None, rhos=1, feedback=True):
 
-        super(FixedSizeDust, self).__init__(grid, star, eos,
-                                            Sigma, rhos, feedback)
+        super(FixedSizeDust, self).__init__(grid, star, eos, thresholds, Sigma, rhos, feedback)
 
         shape = np.atleast_1d(size).shape + (self.Ncells,)
         self._eps  = np.empty(shape, dtype='f8')
@@ -233,12 +238,10 @@ class DustGrowthTwoPop(DustyDisc):
         distribution_slope:
                     The slope d ln n(a) / d ln a of the number distribution with size (3.5 for MRN)
     """
-    def __init__(self, grid, star, eos, eps, Sigma=None,
+    def __init__(self, grid, star, eos, eps, thresholds, Sigma=None,
                  rho_s=1., Sc=1., uf_0=100., uf_ice=1e3, f_ice=1, thresh=0.1,
                  a0=1e-5, amin=1e-5, f_drift=0.55, f_frag=0.37, feedback=True, start_small=True, distribution_slope=3.5):
-        super(DustGrowthTwoPop, self).__init__(grid, star, eos,
-                                               Sigma, rho_s, Sc, feedback)
-
+        super(DustGrowthTwoPop, self).__init__(grid, star, eos, thresholds, Sigma, rho_s, Sc, feedback)
         
         self._uf_0   = uf_0 / (AU * Omega0)
         self._uf_ice = uf_ice / (AU * Omega0)
@@ -467,11 +470,17 @@ class SingleFluidDrift(object):
             head.update(dict([self._diffuse.HDF5_attributes()]))
         return self.__class__.__name__ , head
 
-    def max_timestep(self, disc):
+    def max_timestep(self, disc, v_visc=None):
         step = np.inf
+        Cou = 0.5
         
-        dV = abs(self._compute_deltaV(disc))
-        return 0.5 * (disc.grid.dRc / dV).min()
+        dV = self._compute_deltaV(disc, v_visc)
+        dVout = np.empty((dV.shape[0],dV.shape[-1]+2))
+        dVout[:,1:-1] = dV
+        dVout[:, 0] = dVout[:, 1]
+        dVout[:,-1] = dVout[:,-2]
+        dVtot = np.abs(dVout[:,1:]) + np.abs(dVout[:,:-1])
+        return Cou * (disc.grid.dRe / dVtot).min()
     
     def _donor_flux(self, Ree, deltaV_i, Sigma, eps_i):
         """Compute flux using Donor-Cell method"""
@@ -533,6 +542,7 @@ class SingleFluidDrift(object):
             
         # Do the update
         deps = - np.diff(flux*grid.Re) / ((Sigma+1e-300) * 0.5*grid.dRe2)
+
         if self._diffuse:
             St2 = St_i**2
             try:
@@ -540,12 +550,12 @@ class SingleFluidDrift(object):
             except ValueError:
                 Sc = self._diffuse.Sc
             Sc = Sc * (0.5625/(1 + 4*St2) + 0.4375 + 0.25*St2)
-
-            deps += self._diffuse(disc, eps_i, Sc)
+            depsdiff = self._diffuse(disc, eps_i, Sc)
+            deps += depsdiff
 
         return deps
 
-    def _compute_deltaV(self, disc):
+    def _compute_deltaV(self, disc, v_visc=None):
         """Compute the total dust-gas background velocity"""
 
         Sigma  = disc.Sigma
@@ -587,32 +597,34 @@ class SingleFluidDrift(object):
         St_av = disc.Stokes(SigG_av, a_av+1e-300)
 
         # Compute the lambda factors
-        #   Use lambda * eps_g instead of lambda to avoid 0/0 when eps_g -> 0.
+        # DON'T Use lambda * eps_g instead of lambda to avoid 0/0 when eps_g -> 0.
         la0, la1 = 0, 0 
         St_1 = 1 / (1 + St_av**2)
         if disc.feedback:
-            la0 = (eps_av / (1     + St_av** 2)).sum(0)
-            la1 = (eps_av / (St_av + St_av**-1)).sum(0)
+            #la0 = (eps_av / (1     + St_av** 2)).sum(0)
+            #la1 = (eps_av / (St_av + St_av**-1)).sum(0)
+            la0 = (eps_av/eps_g / (1     + St_av** 2)).sum(0)
+            la1 = (eps_av/eps_g / (St_av + St_av**-1)).sum(0)
 
-        # Compute the gas velocities:
+        # Compute the gas velocities due to pressure:
         rho = disc.midplane_gas_density
         dPdr = np.diff(disc.P) / disc.grid.dRc
         eta = - dPdr / (0.5*(rho[1:] + rho[:-1] + 1e-300)*Om_kav)
 
-        D_1 = eps_g / ((eps_g + la0)**2 + la1**2)
+        #D_1 = eps_g / ((eps_g + la0)**2 + la1**2)
+        D_1 = 1 / ((1 + la0)**2 + la1**2)
         u_gas =                la1  * eta * D_1
-        v_gas = - 0.5*(eps_g + la0) * eta * D_1
+        #v_gas = - 0.5*(eps_g + la0) * eta * D_1
+        v_gas = - 0.5*(1 + la0) * eta * D_1
+
+        # Compute the gas velocities due to viscosity:
+        if v_visc is not None:
+            u_gas += (1 + la0) * v_visc * D_1
+            v_gas += 0.5 * la1 * v_visc * D_1
 
         # Dust-gas relative velocities:
         DeltaV = (2*v_gas / (St_av + St_av**-1) 
                   - u_gas / (1     + St_av**-2))
-
-        # Fastest we can move radially is at the free-fall speed ie rt(2)*v_k (large St) ...
-        # ... or at St*v_k (small St)
-        St_eff = np.minimum(St_av,np.sqrt(2)) # Take lower of two bounds
-        v_k = Om_kav*R_av
-        v_terminal = - St_eff * v_k
-        DeltaV = np.maximum(DeltaV , v_terminal)
 
         # epsDeltaV = v_COM - v_gas (= 0 if dust mass is neglected)
         if disc.feedback:
@@ -620,17 +632,16 @@ class SingleFluidDrift(object):
         else:
             self._epsDeltaV = 0
 
-        #i_max = np.argmax(-DeltaV / R_av**(0.5))
         return DeltaV
 
-    def __call__(self, dt, disc, gas_tracers=None, dust_tracers=None):
+    def __call__(self, dt, disc, gas_tracers=None, dust_tracers=None, v_visc=None):
         """Apply the update for radial drift over time-step dt"""
         eps = disc.dust_frac
-        a   = disc.grain_size   
+        a   = disc.grain_size
         eps_inv = 1. / (eps.sum(0) + np.finfo(eps.dtype).tiny)
 
         # Compute the dust-gas relative velocity
-        DeltaV = self._compute_deltaV(disc)
+        DeltaV = self._compute_deltaV(disc, v_visc)
         
         # Compute and apply the fluxes
         if gas_tracers is not None:
@@ -640,8 +651,6 @@ class SingleFluidDrift(object):
         d_tr = 0
         for eps_k, dV_k, a_k, St_k in zip(disc.dust_frac, DeltaV,
                                           disc.grain_size, disc.Stokes()):
-
-            pop_fraction = eps_k / eps.sum(0) # Proportion of the dust in the small/large population
 
             if dust_tracers is not None:
                 t_k = dust_tracers * eps_k * eps_inv
@@ -654,8 +663,6 @@ class SingleFluidDrift(object):
             
             eps_k[:] += dt*self._fluxes(disc, eps_k, dV_k, St_k, dt)
 
-            eps_k[:] = np.fmin(eps_k[:],pop_fraction * 1.0) # Limit the total dust fraction to 1 in proportion with fraction in this population 
-            
             #a_k[:] = eps_a / (eps_k + 1e-300)
 
         if dust_tracers is not None:

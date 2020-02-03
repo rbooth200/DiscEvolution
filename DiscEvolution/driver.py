@@ -32,7 +32,7 @@ class DiscEvolutionDriver(object):
     Other options:
         t0  : Starting time, default = 0.
     """
-    def __init__(self, disc, gas=None, dust=None, diffusion=None, chemistry=None, ext_photoevaporation=None, int_photoevaporation=None, t0=0.):
+    def __init__(self, disc, gas=None, dust=None, diffusion=None, chemistry=None, ext_photoevaporation=None, int_photoevaporation=None, t0=0., t_out=None):
 
         self._disc = disc
 
@@ -44,8 +44,12 @@ class DiscEvolutionDriver(object):
         self._internal_photo = int_photoevaporation
 
         self._t = t0
-        self._output_times = []
+        if t0>0.:
+            self._output_times = list(t_out[t_out <= t0/yr])
+        else:
+            self._output_times = []
         self._nstep = 0
+        self._nsincehole = 0
 
     def __call__(self, tmax):
         """Evolve the disc for a single timestep
@@ -63,47 +67,49 @@ class DiscEvolutionDriver(object):
         if self._gas:
             dt = min(dt, self._gas.max_timestep(self._disc))
         if self._dust:
-            dt = min(dt, self._dust.max_timestep(self._disc))
+            v_visc = self._gas.viscous_velocity(disc, Sigma = disc.Sigma_G)
+            dt = min(dt, self._dust.max_timestep(self._disc, v_visc))
+            if self._dust._diffuse:
+                dt = min(dt, self._dust._diffuse.max_timestep(self._disc))
         if self._diffusion:
             dt = min(dt, self._diffusion.max_timestep(self._disc))
-        # If we are not using the timescale method of removal, we need to limit the time step based on photoevaporation
+        
+        '''# If we are not using the timescale method of removal, we need to limit the time step based on photoevaporation
         if (self.photoevap is not None and not isinstance(self.photoevap,FixedExternalEvaporation)): # For FRIED photoevaporation
             if (not isinstance(self.photoevap.FRIED_Rates,photorate.FRIED_2DM) and not isinstance(self.photoevap.FRIED_Rates,photorate.FRIED_2DM400M)): # For density determined photoevaporation
                 (dM_dot, dM_gas) = self.photoevap.optically_thin_weighting(disc)
                 Dt = dM_gas[(dM_dot>0)] / dM_dot[(dM_dot>0)]
                 Dt_min = np.min(Dt)
-                dt = min(dt,Dt_min)
+                dt = min(dt,Dt_min)'''
         """if self._internal_photo:
             dt = min(dt, self._internal_photo.get_dt(self._disc, dt))"""
         
-        if self.photoevap:
-            self.photoevap(disc, dt, self.t) # Apply photoevaporation here so that the timescales, if limiting, are correct 
-
         gas_chem, ice_chem = None, None
+        dust = None
         try:
             gas_chem = disc.chem.gas.data
             ice_chem = disc.chem.ice.data
         except AttributeError:
             pass
+        
+        if self._dust:
+            self._dust(dt, disc,
+                       gas_tracers=gas_chem,
+                       dust_tracers=ice_chem, v_visc=v_visc)
 
-        dust = None
+        try:
+            gas_chem = disc.chem.gas.data
+            ice_chem = disc.chem.ice.data
+        except AttributeError:
+            pass
         try:
             dust = disc.dust_frac
         except AttributeError:
             pass
 
-        # Do internal photoevaporation
-        if self._internal_photo:
-            self._internal_photo(disc, dt/yr, self.photoevap)
-
         # Do Advection-diffusion update
         if self._gas:
             self._gas(dt, disc, [dust, gas_chem, ice_chem])
-        
-        if self._dust:
-            self._dust(dt, disc,
-                       gas_tracers=gas_chem,
-                       dust_tracers=ice_chem)
         
         if self._diffusion:
             if gas_chem is not None:
@@ -113,10 +119,19 @@ class DiscEvolutionDriver(object):
             if dust is not None:
                 dust[:] += dt * self._diffusion(disc, dust)
 
+        # Do external photoevaporation
+        if self.photoevap:
+            self.photoevap(disc, dt, self.t)
+
+        # Do internal photoevaporation
+        if self._internal_photo:
+            self._internal_photo(disc, dt/yr, self.photoevap)
+        
         # Pin the values to >= 0:
         disc.Sigma[:] = np.maximum(disc.Sigma, 0)
         try:
             disc.dust_frac[:] = np.maximum(disc.dust_frac, 0)
+            disc.dust_frac[:] /= np.maximum(disc.dust_frac.sum(0), 1.0)
         except AttributeError:
             pass
         try:

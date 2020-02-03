@@ -35,12 +35,6 @@ class AccretionDisc(object):
         self.i_edge = -1
 
         # Global, time dependent properties stored as history
-        """self._threshold = 1e-5          # Threshold for defining edge by density
-        self._Rout = np.array([])       # Outer radius of the disc (density), updated internally
-        self._Rc_t = np.array([])       # Radius of current best fit scale radius, updated internally
-        self._Rot = np.array([])        # Radius where Mdot maximum ie where becomes optically thick, updated internally
-        self._Mtot = np.array([])       # Total mass, updated internally
-        self._Mdot_acc = np.array([])   # Accretion rate, updated with velocity passed"""
         self.history = history()
 
     def ASCII_header(self):

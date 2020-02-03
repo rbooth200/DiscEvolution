@@ -146,7 +146,7 @@ class ExternalPhotoevaporationBase(object):
             disc._eps[1][not_empty] = new_dust_frac[not_empty] * f_m[not_empty]
 
             # Record mass loss
-            disc._Mwind_cum += M_ent_w.sum(0)
+            disc.history._Mwind_cum += M_ent_w.sum(0)
 
     def dust_entrainment(self, disc):
         # Representative sizes

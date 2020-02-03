@@ -7,10 +7,10 @@
 ################################################################################
 from __future__ import print_function
 import numpy as np
-
+import copy
 
 class ViscousEvolution(object):
-    """Solves the 1D viscous evoluation equation.
+    """Solves the 1D viscous evolution equation.
 
     This class handles the inclusion of dust species in the one-fluid
     approximation. The total surface density (Sigma = Sigma_G + Sigma_D) is
@@ -108,13 +108,15 @@ class ViscousEvolution(object):
         # Compute the viscous update
         return 3. * np.diff(ds) / self._RXdXe
 
-    def viscous_velocity(self, disc):
+    def viscous_velocity(self, disc, Sigma=None):
         """Compute the radial velocity due to viscosity"""
         self._setup_grid(disc.grid)
         self._init_fluxes(disc)
-
-        RS = disc.Sigma * disc.R
-        return - 3 * self._dS[1:-1] / (RS[1:] + RS[:-1])
+        if Sigma is None:
+            Sigma = disc.Sigma
+        
+        RS = Sigma * disc.R
+        return np.nan_to_num(- 3 * self._dS[1:-1] / (RS[1:] + RS[:-1]))
 
     def max_timestep(self, disc):
         """Courant limited time-step"""
@@ -139,19 +141,16 @@ class ViscousEvolution(object):
 
         f = self._fluxes()
         Sigma_new = disc.Sigma + dt * f
-
+        
         for t in tracers:
             if t is None: continue
-            t[:] += dt*(self._tracer_fluxes(t) - t*f) / (Sigma_new + 1e-300)
+            tracer_density = t*disc.Sigma
+            t[:] = (dt*self._tracer_fluxes(t) + tracer_density) / (Sigma_new + 1e-300)
 
         disc.Sigma[:] = Sigma_new
 
-
-
-
-
 class ViscousEvolutionFV(object):
-    """Solves the 1D viscous evoluation equation via a finite-volume method
+    """Solves the 1D viscous evolution equation via a finite-volume method
 
     This class handles the inclusion of dust species in the one-fluid
     approximation. The total surface density (Sigma = Sigma_G + Sigma_D) is
@@ -285,7 +284,6 @@ class ViscousEvolutionFV(object):
             t[:] += dt*(self._tracer_fluxes(t) - t*f) / (Sigma_new + 1e-300)
 
         disc.Sigma[:] = Sigma_new
-
 
 class LBP_Solution(object):
     """Analytical solution for the evolution of an accretion disc,

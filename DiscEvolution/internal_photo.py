@@ -2,11 +2,11 @@ import numpy as np
 import argparse
 import json
 import matplotlib.pyplot as plt
-from .constants import *
-from .star import PhotoStar
+from DiscEvolution.constants import *
+from DiscEvolution.star import PhotoStar
 from scipy.signal import argrelmin
 
-DefaultModel = "DiscConfig_default.json"
+DefaultModel = "../test_internal_photo/DiscConfig_default.json"
 plt.rcParams['text.usetex'] = "True"
 plt.rcParams['font.family'] = "serif"
 
@@ -22,7 +22,7 @@ class PhotoBase():
         self._loMd = False      # Is the mass loss below that of the TD?
         self._empty = False     # When no longer a valid hole radius
         self._switch = False    # Generic flag to be set to either Thin or loMd
-        self._swiTyp = "loMd"   # Determine whether switch is on Thin or loMd
+        self._swiTyp = "Thin"   # Determine whether switch is on Thin or loMd
         # Equation B4, needed to assess when Mdot is low
         self._Mdot_TD = 4.8e-9 * disc.star.M**(-0.148) * (disc.star.L_X / 1e30)**(1.14) # In Msun/yr
 
@@ -49,7 +49,8 @@ class PhotoBase():
 
     def scaled_R(self, R, star):
         # Prescriptions may rescale the radius variable 
-        raise AttributeError("PhotoBase::scaled_R must be implemented in subclass")
+        # Without prescription, radius is unscaled
+        return R
 
     def get_dt(self, disc, dt, R_out):
         # Work out the timescale to clear cell
@@ -72,11 +73,19 @@ class PhotoBase():
         except:
             R_out = disc.Rout()
 
-        # Apply the mass loss
+        # Determine mass loss
         self.get_dt(disc, dt, R_out)
         dSigma = np.minimum(self.dSigmadt * dt, disc.Sigma_G)   # Limit mass loss to density of cell
         dSigma *= (disc.R < R_out)                              # Only apply mass loss inside disc outer edge
+
+        # Apply
+        if hasattr(disc, 'Sigma_D'):
+            Sigma_D = disc.Sigma_D                              # Save the dust density
         disc._Sigma -= dSigma
+        if hasattr(disc, 'Sigma_D'):
+            dusty = Sigma_D.sum(0)>0
+            disc.dust_frac[:,dusty] = np.fmin(Sigma_D[:,dusty]/disc.Sigma[dusty],disc.dust_frac[:,dusty]/disc.dust_frac.sum(0)[dusty])
+            disc.dust_frac[:] /= np.maximum(disc.dust_frac.sum(0), 1.0)           
 
         # Calculate actual mass loss given limit
         if dt>0:
@@ -188,7 +197,7 @@ class PrimordialDisc(PhotoBase):
     def Sigma_dot(self, R, star):
         # Equation B2
         x = self.scaled_R(R,star)
-        where_photoevap = (x > 0.7) # No mass loss close to star
+        where_photoevap = (x >= 0.7) # No mass loss close to star
         logx = np.log(x[where_photoevap])
         log10 = np.log(10)
         log10x = logx/log10
@@ -268,7 +277,7 @@ class TransitionDisc(PhotoBase):
     def Sigma_dot(self, R, star):
         # Equation B5
         x = self.scaled_R(R,star)
-        where_photoevap = (x > 0.0) # No mass loss inside hole
+        where_photoevap = (x >= 0.0) # No mass loss inside hole
         use_x = x[where_photoevap]
 
         # First term
@@ -290,14 +299,12 @@ class TransitionDisc(PhotoBase):
 
     def __call__(self, disc, dt, photoevap=None):
         # Update the hole radius and hence the mass-loss profile
-        # Sigma_dot will update the profile stored such that it doesn't have to be called unless R_hole changes
-        # Also returns the profile here immediately
+        self.get_Rhole(disc)
+        self.Sigma_dot(disc.R, disc.star)
         super().__call__(disc, dt, photoevap)
 
-        old_hole = self._R_hole
-        self.get_Rhole(disc)
-        if (self._R_hole != old_hole):
-            self.Sigma_dot(disc.R, disc.star)
+        #old_hole = self._R_hole
+        #if (self._R_hole != old_hole):'''
         
 """
 Run as Main
@@ -308,6 +315,9 @@ class DummyDisc(object):
         self._Sigma = self._M / (2 * np.pi * max(R) * R * AU**2)
         self.R = R
         self.star = star
+
+    def Rout(self):
+        return max(self.R)
 
     @property
     def Sigma(self):
@@ -342,29 +352,45 @@ def Test_Removal():
     plt.show()
 
 def Sigma_dot_plot():
+    # Set up dummy model
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", "-m", type=str, default=DefaultModel)
     args = parser.parse_args()
     model = json.load(open(args.model, 'r'))
 
     star1 = PhotoStar(LX=1e30, M=model['star']['mass'], R=model['star']['radius'], T_eff=model['star']['T_eff'])
-    R = np.linspace(0,200,2001)
+    R = np.linspace(0,100,2001)
     disc1 = DummyDisc(R, star1)
 
-    plt.figure(figsize=(6,6))
-
+    # Calculate rates
     internal_photo = PrimordialDisc(disc1)    
     Sigma_dot = internal_photo.dSigmadt
-    plt.plot(R, Sigma_dot, label='Primordial Disc')
+    photoevaporating = (Sigma_dot>0)
+    t_w = disc1.Sigma[photoevaporating] / Sigma_dot[photoevaporating]
+    print("Mdot maximum at R = {} AU".format(R[np.argmax(Sigma_dot)]))    
+    print("Time minimum at R = {} AU".format(R[photoevaporating][np.argmin(t_w)]))
+    frac_in = np.trapz((R*Sigma_dot)[R<R[photoevaporating][np.argmin(t_w)]],R[R<R[photoevaporating][np.argmin(t_w)]]) / np.trapz(R*Sigma_dot,R)
+    print(frac_in)
 
-    Rhole = 10
+    Rhole = R[photoevaporating][np.argmin(t_w)]
     internal_photo2 = TransitionDisc(disc1, Rhole, None, None)
-    Sigma_dot = internal_photo2.dSigmadt
-    plt.plot(R, Sigma_dot, label='Transition Disc ($R_{{\\rm hole}} = {}$)'.format(Rhole))
+    Sigma_dot2 = internal_photo2.dSigmadt
 
+    # Plot mass loss rates
+    plt.figure(figsize=(6,6))
+    plt.plot(R, R*Sigma_dot, label='Primordial Disc')
+    plt.plot(R, R*Sigma_dot2, label='Transition Disc ($R_{{\\rm hole}} = {}$)'.format(Rhole))
     plt.xlabel("R / AU")
     plt.ylabel("$\dot{\Sigma}_{\\rm w}$ / g cm$^{-2}$ s$^{-1}$")
     plt.xlim([0,40])
+    plt.legend()
+    plt.show()
+
+    # Plot depletion time
+    plt.figure(figsize=(6,6))
+    plt.semilogy(R[photoevaporating], t_w, label='Primordial Disc')
+    plt.xlabel("R / AU")
+    plt.ylabel("$t_w$")
     plt.legend()
     plt.show()
 
