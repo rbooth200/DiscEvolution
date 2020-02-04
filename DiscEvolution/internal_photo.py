@@ -26,9 +26,6 @@ class PhotoBase():
         # Equation B4, needed to assess when Mdot is low
         self._Mdot_TD = 4.8e-9 * disc.star.M**(-0.148) * (disc.star.L_X / 1e30)**(1.14) # In Msun/yr
 
-        # Hole properties
-        #self._Sigma_hole = None
-
     def update_switch(self):
         # Update the switch depending on the type used
         if (self._swiTyp == "Thin"):
@@ -62,7 +59,7 @@ class PhotoBase():
         try:
             self._tw = min(t_w[(disc.R < R_out)])
             return self._tw, np.argmin(t_w[(disc.R < R_out)])
-        except: # If above fails it is because R_out -> 0
+        except: # If above fails it is usually because R_out -> 0
             self._empty = True
             return 0, 0
 
@@ -78,14 +75,14 @@ class PhotoBase():
         dSigma = np.minimum(self.dSigmadt * dt, disc.Sigma_G)   # Limit mass loss to density of cell
         dSigma *= (disc.R < R_out)                              # Only apply mass loss inside disc outer edge
 
-        # Apply
+        # Apply, preserving the dust mass
         if hasattr(disc, 'Sigma_D'):
             Sigma_D = disc.Sigma_D                              # Save the dust density
         disc._Sigma -= dSigma
         if hasattr(disc, 'Sigma_D'):
             dusty = Sigma_D.sum(0)>0
             disc.dust_frac[:,dusty] = np.fmin(Sigma_D[:,dusty]/disc.Sigma[dusty],disc.dust_frac[:,dusty]/disc.dust_frac.sum(0)[dusty])
-            disc.dust_frac[:] /= np.maximum(disc.dust_frac.sum(0), 1.0)           
+            disc.dust_frac[:] /= np.maximum(disc.dust_frac.sum(0), 1.0)           # Renormalise to 1 if it exceeds
 
         # Calculate actual mass loss given limit
         if dt>0:
@@ -114,7 +111,7 @@ class PhotoBase():
             if (np.sum(empty_indisc) == 0):         # If none in disc are empty
                 i = argrelmin(disc.Sigma_G)[0][0]   # Position of hole is minimum density
             else:
-                i = np.nonzero(empty_indisc)[0][-1]   # Position of hole is outermost empty cell inside the disc 
+                i = np.nonzero(empty_indisc)[0][-1]   # Position of hole is given by outermost empty cell inside the disc 
         except IndexError:
             # If there are no such cells, then since the hole has been present, the disc must be empty
             self._empty = True
@@ -122,13 +119,11 @@ class PhotoBase():
             if Track:
                 disc.history._Rh = np.append(disc.history._Rh,[self._R_hole])
                 disc.history._Mdot_int = np.append(disc.history._Mdot_int, self._Mdot_true)
-            return self._R_hole, self._Sigma_hole, self._N_hole
+            return self._R_hole, self._N_hole
 
         # If everything worked, update hole properties
-        self._R_hole = disc.R[i]
-        self._Sigma_hole = disc.Sigma_G[i]
-        self._N_hole = disc.column_density[i-1]
-        self._N_rough = disc.column_density_est
+        self._R_hole = disc.R_edge[i+1]
+        self._N_hole = disc.column_density[i]
 
         # Test whether Thin or loMd and update switch
         if (self._N_hole < 1e22):
@@ -142,7 +137,7 @@ class PhotoBase():
             disc.history._Rh = np.append(disc.history._Rh,[self._R_hole])
             disc.history._Mdot_int = np.append(disc.history._Mdot_int, self._Mdot_true)
         else:
-            return self._R_hole, self._Sigma_hole, self._N_hole
+            return self._R_hole, self._N_hole
         
     @property
     def Mdot(self):
@@ -181,7 +176,8 @@ class PrimordialDisc(PhotoBase):
         self._f1 = 3.6064
         self._g1 = -2.4918
         # Run the mass loss rates to update the table
-        self.Sigma_dot(disc.R, disc.star)
+        #self.Sigma_dot(disc.R, disc.star)
+        self.Sigma_dot(disc.R_edge, disc.star)
 
     def mdot_X(self, star):
         # Equation B1
@@ -196,6 +192,7 @@ class PrimordialDisc(PhotoBase):
 
     def Sigma_dot(self, R, star):
         # Equation B2
+        Sigmadot = np.zeros_like(R)
         x = self.scaled_R(R,star)
         where_photoevap = (x >= 0.7) # No mass loss close to star
         logx = np.log(x[where_photoevap])
@@ -214,14 +211,17 @@ class PrimordialDisc(PhotoBase):
         t3 = np.exp(-(x[where_photoevap]/100)**10)
 
         # Combine terms
-        self._Sigmadot[where_photoevap] = t1 * t2 * t3
+        Sigmadot[where_photoevap] = t1 * t2 * t3
 
         # Work out total mass loss rate for normalisation
-        M_dot = 2*np.pi * R * self._Sigmadot
+        M_dot = 2*np.pi * R * Sigmadot
         total = np.trapz(M_dot,R)
 
-        # Normalise, convert to cgs and return
-        self._Sigmadot *= self.Mdot / total * Msun / AU**2 # in g cm^-2 / yr
+        # Normalise, convert to cgs
+        Sigmadot *= self.Mdot / total * Msun / AU**2 # in g cm^-2 / yr
+
+        # Store values as average of mass loss rate at cell edges
+        self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
 
     def get_dt(self, disc, dt, photoevap=None):
         # Find disc outer edge
@@ -233,7 +233,7 @@ class PrimordialDisc(PhotoBase):
         t_w, i_hole = super().get_dt(disc, dt, R_out)
         if (dt > self._tw):         # If an entire cell can deplete
             if not self._Hole:
-                print("Warning - hole will open after this timestep at {:.2f} AU".format(disc.R[i_hole]))
+                print("Alert - hole will open after this timestep at {:.2f} AU".format(disc.R[i_hole]))
                 print("Outer radius is currently {:.2f} AU".format(R_out))
             self._Hole = True       # Set hole flag
         return self._tw
@@ -242,7 +242,7 @@ class PrimordialDisc(PhotoBase):
 Transition Discs (Owen+12)
 """
 class TransitionDisc(PhotoBase):
-    def __init__(self, disc, R_hole, Sigma_hole, N_hole):
+    def __init__(self, disc, R_hole, N_hole):
         super().__init__(disc)
         self._type = 'Transition'
         # Parameters for mass loss
@@ -254,10 +254,10 @@ class TransitionDisc(PhotoBase):
         self._f2 = -1.32285709
         # Parameters of hole
         self._R_hole = R_hole
-        self._Sigma_hole = Sigma_hole
         self._N_hole = N_hole
         # Run the mass loss rates to update the table
-        self.Sigma_dot(disc.R, disc.star)
+        #self.Sigma_dot(disc.R, disc.star)
+        self.Sigma_dot(disc.R_edge, disc.star)
         # Update flags
         self._Hole = True        
         self._Thin = True   # Assuming thin switch
@@ -276,6 +276,7 @@ class TransitionDisc(PhotoBase):
 
     def Sigma_dot(self, R, star):
         # Equation B5
+        Sigmadot = np.zeros_like(R)
         x = self.scaled_R(R,star)
         where_photoevap = (x >= 0.0) # No mass loss inside hole
         use_x = x[where_photoevap]
@@ -288,23 +289,24 @@ class TransitionDisc(PhotoBase):
         t2 = np.exp(-(x[where_photoevap]/57)**10)
 
         # Combine terms
-        self._Sigmadot[where_photoevap] = t1 * t2
+        Sigmadot[where_photoevap] = t1 * t2
 
         # Work out total mass loss rate for normalisation
-        M_dot = 2*np.pi * R * self._Sigmadot
+        M_dot = 2*np.pi * R * Sigmadot
         total = np.trapz(M_dot,R)
 
-        # Normalise, convert to cgs and return
-        self._Sigmadot *= self.Mdot / total * Msun / AU**2 # in g cm^-2 / yr
+        # Normalise, convert to cgs
+        Sigmadot *= self.Mdot / total * Msun / AU**2 # in g cm^-2 / yr
+
+        # Store values as average of mass loss rate at cell edges
+        self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
 
     def __call__(self, disc, dt, photoevap=None):
         # Update the hole radius and hence the mass-loss profile
         self.get_Rhole(disc)
-        self.Sigma_dot(disc.R, disc.star)
+        #self.Sigma_dot(disc.R, disc.star) # Need to update as the normalisation changes based on R, not just x~R-Rhole
+        self.Sigma_dot(disc.R_edge, disc.star) # Need to update as the normalisation changes based on R, not just x~R-Rhole
         super().__call__(disc, dt, photoevap)
-
-        #old_hole = self._R_hole
-        #if (self._R_hole != old_hole):'''
         
 """
 Run as Main

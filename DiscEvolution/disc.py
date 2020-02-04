@@ -123,11 +123,6 @@ class AccretionDisc(object):
         return N
 
     @property
-    def column_density_est(self):
-        N2 = 0.8 / np.sqrt(2*np.pi) * 1 / (self._eos._mu * self._eos._cs0 * self.R[0]**(1/4)) * self.Sigma_G[0] / m_H
-        return N2
-
-    @property
     def Ncells(self):
         return self._grid.Ncells
 
