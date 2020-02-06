@@ -330,8 +330,9 @@ class DummyDisc(object):
         return self._Sigma
 
 def main():
-    Sigma_dot_plot()
+    #Sigma_dot_plot()
     #Test_Removal()
+	test_resolution()
 
 def Test_Removal():
     parser = argparse.ArgumentParser()
@@ -375,7 +376,7 @@ def Sigma_dot_plot():
     print(frac_in)
 
     Rhole = R[photoevaporating][np.argmin(t_w)]
-    internal_photo2 = TransitionDisc(disc1, Rhole, None, None)
+    internal_photo2 = TransitionDisc(disc1, Rhole, None)
     Sigma_dot2 = internal_photo2.dSigmadt
 
     # Plot mass loss rates
@@ -413,6 +414,95 @@ def Sigma_dot_plot():
     plt.ylim([0,1])
     plt.show()
     """
+
+def test_resolution():
+    #from DiscEvolution.disc import AccretionDisc
+    from control_scripts import run_model
+    # Set up dummy model
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--models", "-m", type=str, nargs='+', default=DefaultModel)
+    args = parser.parse_args()
+
+    #R = np.linspace(0,100,2001)
+    plt.figure(figsize=(6,6))
+    Rhole = 10
+
+    for model_no in args.models:
+        model = json.load(open('DiscConfig{}.json'.format(model_no), 'r'))
+
+        disc1 = run_model.setup_disc(model)
+
+        # Calculate rates
+        internal_photo1 = PrimordialDisc(disc1)
+        Sigma_dot1 = internal_photo1.dSigmadt
+        M_dot = 2*np.pi * disc1.R * AU * Sigma_dot1 / Msun
+
+        # Plot mass loss rates
+        plt.subplot(221)
+        plt.plot(disc1.R, M_dot, label='Primordial Disc ($N={}$)'.format(model['grid']['N']))
+
+        # Cumulative
+        plt.subplot(222)
+        cum_Mds = []
+        for r in disc1.R:
+            select = (disc1.R < r)
+            cum_M_dot = np.trapz(M_dot[select],disc1.R[select])
+            cum_Mds.append(cum_M_dot*AU)
+        plt.plot(disc1.R, cum_Mds)
+
+        # Calculate rates
+        internal_photo2 = TransitionDisc(disc1, Rhole, None)
+        Sigma_dot2 = internal_photo2.dSigmadt
+        M_dot = 2*np.pi * disc1.R * AU * Sigma_dot2 / Msun
+
+        # Plot mass loss rates
+        plt.subplot(223)
+        plt.plot(disc1.R, M_dot, label='Transition Disc ($N={}$)'.format(model['grid']['N']))
+
+        # Cumulative
+        plt.subplot(224)
+        cum_Mds = []
+        for r in disc1.R:
+            select = (disc1.R < r)
+            cum_M_dot = np.trapz(M_dot[select],disc1.R[select])
+            cum_Mds.append(cum_M_dot*AU)
+        plt.plot(disc1.R, cum_Mds)
+
+    global_xlims=[0,120]
+
+    plt.subplot(221)
+    plt.ylabel("$\\frac{{\\rm d} \dot{M}}{{\\rm d} R}$ / $M_\odot~{\\rm yr}^{-1}~{\\rm AU}^{-1}$")
+    plt.xlim(global_xlims)
+    plt.legend()
+
+    plt.subplot(222)
+    plt.ylabel("$\dot{M}(<R)$ / $M_\odot~{\\rm yr}^{-1}$")
+    plt.xlim(global_xlims)
+    plt.plot(global_xlims,[internal_photo1.Mdot,internal_photo1.Mdot],linestyle='--',color='darkslategray')
+
+    plt.subplot(223)
+    plt.xlabel("R / AU")
+    plt.ylabel("$\\frac{{\\rm d} \dot{M}}{{\\rm d} R}$ / $M_\odot~{\\rm yr}^{-1}~{\\rm AU}^{-1}$")
+    plt.xlim(global_xlims)
+    plt.legend()
+
+    plt.subplot(224)
+    plt.xlabel("R / AU")
+    plt.ylabel("$\dot{M}(<R)$ / $M_\odot~{\\rm yr}^{-1}$")
+    plt.xlim(global_xlims)
+    plt.plot(global_xlims,[internal_photo2.Mdot,internal_photo2.Mdot],linestyle='--',color='darkslategray')
+
+    plt.show()
+
+    """
+    # Make cumulative plot to compare with Fig 4 of Owen+11
+
+
+    plt.xlim([0,80])
+    plt.ylim([0,1])
+    plt.show()
+    """
+
 
 if __name__ == "__main__":
     main()

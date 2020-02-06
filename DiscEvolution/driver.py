@@ -84,6 +84,7 @@ class DiscEvolutionDriver(object):
         """if self._internal_photo:
             dt = min(dt, self._internal_photo.get_dt(self._disc, dt))"""
         
+		# Determine tracers for dust step
         gas_chem, ice_chem = None, None
         dust = None
         try:
@@ -91,12 +92,14 @@ class DiscEvolutionDriver(object):
             ice_chem = disc.chem.ice.data
         except AttributeError:
             pass
-        
+
+		# Do dust evolution        
         if self._dust:
             self._dust(dt, disc,
                        gas_tracers=gas_chem,
                        dust_tracers=ice_chem, v_visc=v_visc)
 
+		# Determine tracers for gas steps
         try:
             gas_chem = disc.chem.gas.data
             ice_chem = disc.chem.ice.data
@@ -110,7 +113,7 @@ class DiscEvolutionDriver(object):
         # Do Advection-diffusion update
         if self._gas:
             self._gas(dt, disc, [dust, gas_chem, ice_chem])
-        
+
         if self._diffusion:
             if gas_chem is not None:
                 gas_chem[:] += dt * self._diffusion(disc, gas_chem)
@@ -126,8 +129,8 @@ class DiscEvolutionDriver(object):
         # Do internal photoevaporation
         if self._internal_photo:
             self._internal_photo(disc, dt/yr, self.photoevap)
-        
-        # Pin the values to >= 0:
+
+        # Pin the values to >= 0 and <=1:
         disc.Sigma[:] = np.maximum(disc.Sigma, 0)
         try:
             disc.dust_frac[:] = np.maximum(disc.dust_frac, 0)
@@ -139,7 +142,7 @@ class DiscEvolutionDriver(object):
             disc.chem.ice.data[:] = np.maximum(disc.chem.ice.data, 0)
         except AttributeError:
             pass
-            
+
         # Chemistry
         if self._chemistry:
             rho = disc.midplane_gas_density

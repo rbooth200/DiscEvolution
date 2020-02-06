@@ -87,7 +87,7 @@ class TracerDiffusion(object):
         Sc = self._get_Schmidt(disc, Sc)
 
         grid = disc.grid
-        Sigma = disc.Sigma_G
+        Sigma = disc.Sigma #_G
         F = self._diffusive_flux(disc, eps_i, Sc)
 
         if self._limit:
