@@ -56,15 +56,18 @@ def setup_disc(model):
     grid = Grid(p['R0'], p['R1'], p['N'], spacing=p['spacing'])
 
     p = model['star']
-    if (model['x-ray']['L_X'] > 0):
-        star = PhotoStar(LX=model['x-ray']['L_X'], M=model['star']['mass'], R=model['star']['radius'], T_eff=model['star']['T_eff'])
-    else:
+    try:
+        if (model['x-ray']['L_X'] > 0):
+            star = PhotoStar(LX=model['x-ray']['L_X'], M=model['star']['mass'], R=model['star']['radius'], T_eff=model['star']['T_eff'])
+        else:
+            star = SimpleStar(M=p['mass'], R=p['radius'], T_eff=p['T_eff'])
+    except KeyError:
         star = SimpleStar(M=p['mass'], R=p['radius'], T_eff=p['T_eff'])
     
     p = model['eos']
     try:
         mu = p['mu']
-    except AttributeError:
+    except KeyError:
         mu = 2.4
     if p['type'] == 'irradiated':
         assert p['opacity'] == 'Tazzari2016'
@@ -116,8 +119,12 @@ def setup_disc(model):
         disc = AccretionDisc(grid, star, eos, Sigma=Sigma)
 
     # Setup the UV irradiation
-    p = model['fuv']
-    disc.set_FUV(p['fuv_field'])
+    try:
+        p = model['fuv']
+        disc.set_FUV(p['fuv_field'])
+    except KeyError:
+        p = model['uv']
+        disc.set_FUV(p['uv_field'])
 
     return disc
 
@@ -145,24 +152,31 @@ def setup_model(model, disc, start_time=0, t_out = None):
 
     # Inititate the correct external photoevaporation routine
     # FRIED should be considered default 
-    if (model['fuv']['photoevaporation'] == "Constant"):
+    try:
+        p = model['fuv']
+    except KeyError:
+        p = model['uv']
+    if (p['photoevaporation'] == "Constant"):
         photoevap = photoevaporation.FixedExternalEvaporation(disc, Mdot=1e-9)
-    elif (model['fuv']['photoevaporation'] == "FRIED" and disc.FUV>0):
+    elif (p['photoevaporation'] == "FRIED" and disc.FUV>0):
         photoevap = photoevaporation.FRIEDExternalEvaporationMS(disc) # Using 2DMS at 400
-    elif (model['fuv']['photoevaporation'] == "FRIED" and disc.FUV<=0):
+    elif (p['photoevaporation'] == "FRIED" and disc.FUV<=0):
         photoevap = None
-    elif (model['fuv']['photoevaporation'] == "Integrated"):
+    elif (p['photoevaporation'] == "Integrated"):
         photoevap = photoevaporation.FRIEDExternalEvaporationM(disc) # Using integrated M(<R), extrapolated to M400
-    elif (model['fuv']['photoevaporation'] == "None"):
+    elif (p['photoevaporation'] == "None"):
         photoevap = None
     else:
         print("Photoevaporation Mode Unrecognised: Default to 'None'")
         photoevap = None
 
     # Add internal photoevaporation
-    if (model['x-ray']['L_X'] > 0):
-        internal_photo = PrimordialDisc(disc)
-    else:
+    try:
+        if (model['x-ray']['L_X'] > 0):
+            internal_photo = PrimordialDisc(disc)
+        else:
+            internal_photo = None
+    except KeyError:
         internal_photo = None
 
     return DiscEvolutionDriver(disc, 
@@ -213,7 +227,7 @@ def setup_output(model):
     
     # Base string for output:
     mkdir_p(out['directory'])
-    mkdir_p(out['directory']+'_profiles')
+    #mkdir_p(out['directory']+'_profiles')
     base_name = os.path.join(out['directory'], out['base'] + '_{:04d}')
 
     format = out['format']

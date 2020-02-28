@@ -131,7 +131,10 @@ class DiscEvolutionDriver(object):
             self._internal_photo(disc, dt/yr, self.photoevap)
 
         # Pin the values to >= 0 and <=1:
-        disc.Sigma[:] = np.maximum(disc.Sigma, 0)
+        negSig = disc.Sigma<0
+        if np.sum(negSig)>1:
+            print(np.sum(negSig))
+        disc.Sigma[:] = np.maximum(disc.Sigma, 0)        
         try:
             disc.dust_frac[:] = np.maximum(disc.dust_frac, 0)
             disc.dust_frac[:] /= np.maximum(disc.dust_frac.sum(0), 1.0)
