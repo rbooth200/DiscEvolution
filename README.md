@@ -7,13 +7,15 @@ This code contains a set of modules to simulate the viscous evolution of protopl
 time scales. This includes modules to compute the viscous evolution, grain growth, radial drift,
 thermal structure, transport of volatiles and planet formation. 
 
+An example of how to run the code can be found in the example directory.
+
 The code was originally described in [Booth et al. (2017)](https://arxiv.org/abs/1705.03305). If you
 use this code in your research, please cite this paper along with any supporting papers describing
 additional modules that you use. 
 
 
 ## License
-Copyright 2017-2018 Richard Booth
+Copyright 2017-2019 Richard Booth
 
 This code is free software made available under the GNU GPLv3 License. For details see the LICENSE
 file.
@@ -42,7 +44,7 @@ A wrapper around the radial grid structure used in the code, which specifies key
 The equation of state (eos) module contains classes that handle the disc's temperature structure. They can be used to find the disc's temperature, pressure scale-height, sound speed, viscosity etc. The code currently includes two equations of state:
 
 - LocallyIsothermalEOS: A simple power law equation of state in which the sound speed is set by a power-law that does not evolve.
-- IrradiatedEOS: Sets the temperature by computing the local balance between heating by stellar radiation and viscous stress along with cooling, following Hueso & Guillot (2005). The cooling rates are require computing the optical depth, currently the Bell & Lin (1994) type opacity of Zhu, Nelson & Gammie (2012) is used (which assumes a constant dust-to-gas ratio) 
+- IrradiatedEOS: Sets the temperature by computing the local balance between heating by stellar radiation and viscous stress along with cooling, following Hueso & Guillot (2005). The cooling rates are require computing the optical depth, currently the Bell & Lin (1994) type opacity of Zhu, Nelson & Gammie (2012) (which assumes a constant dust-to-gas ratio) or dust opacity of Tazzari et al. (2016) is used 
 
 #### Disc
 The disc class is a wrapper around the intrinsic properties of the disc, such as the surface density, pressure and viscosity. It also holds onto a copy of the equation of state and star, which may be used by the physics modules. A gas only disc is provided in the disc.py source file. The source file dust.py contains two extensions to the disc class, which handle the dust properties and optionally grain growth.
@@ -59,7 +61,7 @@ Updates the dust fraction according to radial drift (and optionally diffusion).
 Solves the for the evolution of the concentration of trace species via diffusion.
 
 #### Chemistry
-Contains simple modules for following the evolution of volatile species such as carbon, nitrogen and oxygen.
+Contains simple modules for following the evolution of volatile species such as carbon, nitrogen and oxygen. There is now a wrapper to the KROME chemistry package that can be used to integrate a chemical kinetics scheme.
 
 #### Planet formation
 Contains prescriptions for the growth and migration of planets. Currently does not include their feedback on the disc's evolution.
