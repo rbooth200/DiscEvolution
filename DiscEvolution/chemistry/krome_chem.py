@@ -181,6 +181,8 @@ class KromeChem(object):
         if self._call_back is not None:
             self._call_back.init_krome(_krome)
 
+        self._pool = Pool()
+
     def ASCII_header(self):
         """Header for ASCII dump file"""
         return ('# {} '.format(self.__class__.__name__) +
@@ -228,16 +230,20 @@ class KromeChem(object):
 
             params.append([dt, T_i, eps_i, n, self._call_back, opt])
         
-        with Pool() as pool:
-            n_new = pool.map(_krome_update, params)
+        n_new = self._pool.map(_krome_update, params)
         
         for i in range(len(T)):
             n = n_new[i]
+            
+            rho_i = rho[i] / (1 - dust_frac[i])
+            n[_krome_gas] *= m_gas / rho_i                              
+            n[_krome_ice] *= m_ice / rho_i
+
             if self._renormalize:
                 n /= n.sum()
 
-            gas_data[i] = n[_krome_gas]
-            ice_data[i] = n[_krome_ice]
+            gas_data[i] = n[_krome_gas] 
+            ice_data[i] = n[_krome_ice] 
 
 
     def explore_rates(self, T, rho, dust_frac, chem, cells, xvar, 
