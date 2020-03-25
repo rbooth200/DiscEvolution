@@ -20,7 +20,7 @@ from DiscEvolution.grid import Grid
 from DiscEvolution.star import SimpleStar
 from DiscEvolution.eos  import IrradiatedEOS
 from DiscEvolution.dust import DustGrowthTwoPop
-from DiscEvolution.opacity import Tazzari2016
+from DiscEvolution.opacity import Tazzari2016, Zhu2012
 from DiscEvolution.viscous_evolution import ViscousEvolutionFV
 from DiscEvolution.dust import SingleFluidDrift
 from DiscEvolution.diffusion import TracerDiffusion
@@ -128,6 +128,44 @@ def setup_init_abund_krome(model):
 
     return abund
 
+
+def get_simple_chemistry_model(model):
+    chem_type = model['chemistry']['type']
+
+    grain_size = 1e-5
+    try:
+        grain_size = model['chemistry']['fixed_grain_size']
+    except KeyError:
+        pass
+    
+    if chem_type == 'TimeDep':
+        chemistry = TimeDepCNOChemOberg(a=grain_size)
+    elif chem_type == 'Madhu':
+        chemistry = EquilibriumCNOChemMadhu(fix_ratios=False, a=grain_size)
+    elif chem_type == 'Oberg':
+        chemistry = EquilibriumCNOChemOberg(fix_ratios=False, a=grain_size)
+    elif chem_type == 'NoReact':
+        chemistry = EquilibriumCNOChemOberg(fix_ratios=True, a=grain_size)
+    else:
+        raise ValueError("Unkown chemical model type")
+
+    return chemistry
+   
+def setup_init_abund_simple(model, disc):
+    chemistry = get_simple_chemistry_model(model)
+
+    X_solar = SimpleCNOAtomAbund(model['grid']['N'])
+    X_solar.set_solar_abundances()
+
+    # Iterate as the ice fraction changes the dust-to-gas ratio
+    for i in range(10):
+        chem = chemistry.equilibrium_chem(disc.T,
+                                          disc.midplane_gas_density,
+                                          disc.dust_frac.sum(0),
+                                          X_solar)
+        disc.initialize_dust_density(chem.ice.total_abund)
+    return chem
+
 def setup_disc(model):
     '''Create disc object from initial conditions'''
     # Setup the grid, star and equation of state
@@ -139,8 +177,13 @@ def setup_disc(model):
     
     p = model['eos']
     if p['type'] == 'irradiated':
-        assert p['opacity'] == 'Tazzari2016'
-        kappa = Tazzari2016()
+        if p['opacity'] == 'Tazzari2016':
+            kappa = Tazzari2016()
+        elif p['opacity'] == 'Zhu2012':
+            kappa = Zhu2012
+        else:
+            raise ValueError("Opacity not recognised")
+        
         eos = IrradiatedEOS(star, model['disc']['alpha'], kappa=kappa)
     elif p['type'] == 'iso':
         eos = LocallyIsothermalEOS(star, p['h0'], p['q'], 
@@ -177,8 +220,8 @@ def setup_disc(model):
             disc.chem = setup_init_abund_krome(model)
             disc.update_ices(disc.chem.ice)
         else:
-            # Abundances will be set later
-            pass
+            disc.chem =  setup_init_abund_simple(model, disc)
+            disc.update_ices(disc.chem.ice)
 
     return disc
 
@@ -212,41 +255,8 @@ def setup_krome_chem(model):
 
     return chemistry
 
-def setup_simple_chem(model, disc, start_time):
-    chem_type = model['chemistry']['type']
-
-    grain_size = 1e-5
-    try:
-        grain_size = model['chemistry']['fixed_grain_size']
-    except KeyError:
-        pass
-    
-    if chem_type == 'TimeDep':
-        chemistry = TimeDepCNOChemOberg(a=grain_size)
-    elif chem_type == 'Madhu':
-        chemistry = EquilibriumCNOChemMadhu(fix_ratios=False, a=grain_size)
-    elif chem_type == 'Oberg':
-        chemistry = EquilibriumCNOChemOberg(fix_ratios=False, a=grain_size)
-    elif chem_type == 'NoReact':
-        chemistry = EquilibriumCNOChemOberg(fix_ratios=True, a=grain_size)
-    else:
-        raise ValueError("Unkown chemical model type")
-
-    # Here we set the actual initinial abundances
-    if start_time == 0:
-        X_solar = SimpleCNOAtomAbund(model['grid']['N'])
-        X_solar.set_solar_abundances()
-
-        # Iterate as the ice fraction changes the dust-to-gas ratio
-        for i in range(10):
-            chem = chemistry.equilibrium_chem(disc.T,
-                                              disc.midplane_gas_density,
-                                              disc.dust_frac.sum(0),
-                                              X_solar)
-            disc.initialize_dust_density(chem.ice.total_abund)
-        disc.chem = chem
-
-    return chemistry
+def setup_simple_chem(model):
+    return get_simple_chemistry_model(model)
 
 def setup_model(model, disc, start_time):
     '''Setup the physics of the model'''
@@ -286,7 +296,7 @@ def setup_model(model, disc, start_time):
         if  model['chemistry']['type'] == 'krome':
             chemistry = setup_krome_chem(model)
         else:
-            chemistry = setup_simple_chem(model, disc, start_time)
+            chemistry = setup_simple_chem(model)
 
 
     return DiscEvolutionDriver(disc, 
