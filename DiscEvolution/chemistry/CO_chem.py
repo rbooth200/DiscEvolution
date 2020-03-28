@@ -210,7 +210,7 @@ class COChemMadhu(object):
 
         # Make sure we have enough O for this CO abundance. If not, increase 
         # CH4 abundance.
-        xCO2 = np.maximum(xCO2, 1-O/(np.minimum(C,1e-300)))
+        xCO2 = np.maximum(xCO2, 1-O/np.maximum(C,1e-300))
 
         # Using the CH4 abundance, now update the maximum amount of CO2 
         # available
