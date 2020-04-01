@@ -72,6 +72,8 @@ class history(object):
         except KeyError:
             pass
 
+        return not_future
+
 class dust_history(history):
 
     def __init__(self, thresholds):
@@ -96,8 +98,7 @@ class dust_history(history):
         return self._Rdust
 
     def restart(self, restartdata, time):
-        super().restart(restartdata, time)
-        not_future = restartdata['t'] <= time
+        not_future = super().restart(restartdata, time)
 
         try:
             self._Mdust = restartdata['M_d'][not_future]
@@ -114,4 +115,6 @@ class dust_history(history):
                 self._Rdust[threshold] = restartdata['R_{}'.format(int(float(threshold)*100))][not_future]
             except KeyError:
                 pass
+
+        return not_future
 

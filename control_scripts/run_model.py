@@ -290,10 +290,13 @@ def restart_model(model, disc, snap_number):
     snap = reader[snap_number]
 
     disc.Sigma[:] = snap.Sigma
-    disc.dust_frac[:] = snap.dust_frac
-    disc.grain_size[:] = snap.grain_size
+    try:
+        disc.dust_frac[:] = snap.dust_frac
+        disc.grain_size[:] = snap.grain_size
+    except:
+        pass
 
-    time = snap.time * yr
+    time = snap.time * yr       # Convert real time (years) to code time
 
     disc.update(0)
 
@@ -316,12 +319,14 @@ def restart_model(model, disc, snap_number):
 
     datadict = {}
     for h in range(0,len(head)):
-        datadict[head[h]] = inputdata[:snap_number,h]
+        datadict[head[h]] = inputdata[:snap_number+1,h]
 
     # Rewrite history
-    disc.history.restart(datadict, time/yr)
+    not_future = disc.history.restart(datadict, time/yr)    # Pass time in years
+    print("Restarting with times:")
+    print(datadict['t'][not_future])
 
-    return disc, time, datadict
+    return disc, time, datadict     # Return disc objects, input data and time in code units
 
 ###############################################################################
 # Saving
@@ -445,10 +450,14 @@ def run(model, io, base_name, plot_name, mass_loss_mode, all_in, restart, verbos
                     end = True
                 elif model._internal_photo._switch:
                     hole_open = np.inf
-                elif model._internal_photo._Hole:
+                elif model._internal_photo._reset:
+                    hole_open = 0
+                    model._internal_photo._reset = False
+                if model._internal_photo._Hole:
                     hole_open += 1
                     if (hole_open % 100000) == 1:
                         ti = model.t
+                        break
             if model._gas and end_low:
                 # If below observable accretion rates
                 M_visc_out = 2*np.pi * model.disc.grid.Rc[0] * model.disc.Sigma[0] * model._gas.viscous_velocity(model.disc)[0] * (AU**2)
@@ -458,7 +467,6 @@ def run(model, io, base_name, plot_name, mass_loss_mode, all_in, restart, verbos
                     print ("Accretion rates below observable limit... terminating calculation at ~ {:.0f} yr".format(model.t/yr))
                     end = True
                     
-            ### Evolve model and return timestep ###
             if end:
                 last_save=0
                 last_plot=0
@@ -472,6 +480,7 @@ def run(model, io, base_name, plot_name, mass_loss_mode, all_in, restart, verbos
                 last_t = max(last_save,last_plot)
                 io.pop_events(last_t)
             else:
+            ### Evolve model and return timestep ###
                 dt = model(ti)
 
             ### Printing
@@ -490,13 +499,10 @@ def run(model, io, base_name, plot_name, mass_loss_mode, all_in, restart, verbos
         ### Saving
         if (io.check_event(model.t, 'save') or end or (hole_open % 100000)==1):
             model._output_times.append(model.t / yr)
-            if end==True:
-                save_no = len(model._output_times) - 1
-            else:
-                save_no = io.event_number('save') + hole_save
+            save_no = len(model._output_times) - 1
 
             # Print message to record this
-            if (hole_open % 1000)==1:
+            if (hole_open % 100000)==1:
                 print ("Taking extra snapshot of properties while hole is clearing")
                 hole_save+=1
             elif end:

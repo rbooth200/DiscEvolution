@@ -30,7 +30,8 @@ class DiscEvolutionDriver(object):
     Note: Diffusion is usually handled in the dust dynamics module
 
     Other options:
-        t0  : Starting time, default = 0.
+        t0  : Starting time, default = 0, code units
+        t_out:Previous output times, default = None, years
     """
     def __init__(self, disc, gas=None, dust=None, diffusion=None, chemistry=None, ext_photoevaporation=None, int_photoevaporation=None, t0=0., t_out=None):
 
@@ -131,9 +132,6 @@ class DiscEvolutionDriver(object):
             self._internal_photo(disc, dt/yr, self.photoevap)
 
         # Pin the values to >= 0 and <=1:
-        negSig = disc.Sigma<0
-        if np.sum(negSig)>1:
-            print(np.sum(negSig))
         disc.Sigma[:] = np.maximum(disc.Sigma, 0)        
         try:
             disc.dust_frac[:] = np.maximum(disc.dust_frac, 0)
