@@ -11,8 +11,7 @@ import os
 import FRIED.photorate as photorate
 from .photoevaporation import FixedExternalEvaporation
 from .constants import yr
-from .internal_photo import TransitionDisc
-
+from .internal_photo import TransitionDiscXray, TransitionDiscEUV
 from . import io
 
 class DiscEvolutionDriver(object):
@@ -168,10 +167,13 @@ class DiscEvolutionDriver(object):
                     R_hole, N_hole = self._internal_photo.get_Rhole(disc, self.photoevap)
                 if self._internal_photo._switch:      # If the hole is large enough that inner disc thin or Mdot low, switch internal photoevaporation to TD
                     if (self._internal_photo._swiTyp == "Thin"):
-                        print("Column density to hole has fallen to N = {} < 10^22 g cm^-2".format(N_hole))
+                        print("Column density to hole has fallen to N = {} < {} g cm^-2".format(N_hole,self._internal_photo._N_crit))
                     elif (self._internal_photo._swiTyp == "loMd"):
                         print("Mass loss rate has fallen below that for a transition disc.")
-                    self._internal_photo = TransitionDisc(disc, R_hole, N_hole)
+                    if self._internal_photo._regime=='X-ray':
+                        self._internal_photo = TransitionDiscXray(disc, R_hole, N_hole)
+                    elif self._internal_photo._regime=='EUV':
+                        self._internal_photo = TransitionDiscEUV(disc, R_hole, N_hole)
 
         self._t += dt
         self._nstep += 1
