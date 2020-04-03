@@ -299,8 +299,13 @@ class TransitionDiscXray(PhotoBase):
         self._d2 = 0.010732277
         self._e2 = -0.131809597
         self._f2 = -1.32285709
+
         # Run the mass loss rates to update the table
         self.Sigma_dot(disc.R_edge, disc.star)
+
+        # Report
+        print("At initiation, M_D = {} M_J, Mdot = {}, t_clear = {} yr".format(disc.Mtot()/Mjup, self._Mdot, disc.Mtot()/Msun/self._Mdot))
+
 
     def mdot_XE(self, star, Mdot=None):
         # Equation B4
@@ -467,10 +472,13 @@ class TransitionDiscEUV(PhotoBase):
         self._aB = 2.6e-13                                      # Case B Recombination coeff. in cm^3 s^-1
         self._C2 = 0.235
         self._a  = 2.42
-        self._h  = disc.h                                       # Disc aspect ratio (needs implementing properly)
+        self._h  = disc.h_edge
 
         # Run the mass loss rates to update the table
-        self.Sigma_dot(disc.R, disc.star)
+        self.Sigma_dot(disc.R_edge, disc.star)
+        
+        # Report
+        print("At initiation, M_D = {} M_J, Mdot = {}, t_clear = {} yr".format(disc.Mtot()/Mjup, self._Mdot, disc.Mtot()/Msun/self._Mdot))
 
     def mdot_XE(self, star, Mdot=0):
         # Store Mdot calculated from profile
@@ -491,11 +499,12 @@ class TransitionDiscEUV(PhotoBase):
         where_photoevap = (x > 1)    # No mass loss inside hole
 
         # Combine terms (Equation A5)
-        Sigmadot[where_photoevap] = 2 * self._mu * m_H * self._C2 * self._cs*1e5*yr/Omega0 * (star.Phi / (4*np.pi * (self.R_inner()*AU)**3 * self._aB * self._h))**(1/2) * x[where_photoevap]**(-self._a)  # g cm^-2 /yr
+        Sigmadot[where_photoevap] = (2 * self._mu * m_H * self._C2 * self._cs*1e5*yr/Omega0 * (star.Phi / (4*np.pi * (self.R_inner()*AU)**3 * self._aB * self._h))**(1/2) * x**(-self._a))[where_photoevap]  # g cm^-2 /yr
         Sigmadot = np.maximum(Sigmadot,0)
 
         # Store values as average of mass loss rate at cell edges
-        #self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
+        #self._Sigmadot = Sigmadot
+        self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
 
         # Work out total mass loss rate
         dMdot = 2*np.pi * R * Sigmadot
@@ -503,7 +512,6 @@ class TransitionDiscEUV(PhotoBase):
 
         # Normalise, convert to cgs
         Mdot  = Mdot * AU**2/Msun   # g yr^-1
-        print(Mdot)
 
         # Store result
         self.mdot_XE(star, Mdot=Mdot)

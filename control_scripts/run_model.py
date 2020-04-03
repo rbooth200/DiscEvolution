@@ -420,7 +420,7 @@ def run(model, io, base_name, plot_name, mass_loss_mode, all_in, restart, verbos
     end = False     # Flag to set in order to end computation
     hole_open = 0   # Flag to set to snapshot hole opening
     hole_save = 0   # Flag to set to snapshot hole opening
-    hole_snap_no = 10000#0
+    hole_snap_no = 100000
     hole_switch = False
 
     if restart:
