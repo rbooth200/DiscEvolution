@@ -180,8 +180,12 @@ class KromeChem(object):
 
         if self._call_back is not None:
             self._call_back.init_krome(_krome)
-
-        self._pool = Pool()
+            
+        try:
+            N = int(os.environ['OMP_NUM_THREADS'])
+        except KeyError:
+            N = None
+        self._pool = Pool(N)
 
     def ASCII_header(self):
         """Header for ASCII dump file"""
