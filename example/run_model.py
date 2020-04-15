@@ -210,6 +210,7 @@ def setup_disc(model):
 
         disc = DustGrowthTwoPop(grid, star, eos, p['d2g'], Sigma=Sigma, 
                                 amin=amin, Sc=model['disc']['Schmidt'], 
+                                f_grow=model['disc'].get(['f_grow'],1.0),
                                 feedback=feedback)
     else:
         disc = AccretionDisc(grid, star, eos, Sigma)
