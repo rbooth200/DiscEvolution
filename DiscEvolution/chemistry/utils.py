@@ -19,11 +19,16 @@ _derived_abundance_types = (
 
 __all__ = [ "create_abundances" ]
 
+def _map_grains(names):
+    names = ["C-grain" if x == "Cgrain" else x for x in names]
+    names = ["Si-grain" if x == "Sigrain" else x for x in names]
+    return names
+
 def _determine_chemistry_type(names):
     """Work out the type of chemistry included from the names"""
-    names = sorted(names)
+    names = sorted(_map_grains(names))
     for chem in _derived_abundance_types:
-        if all(names == sorted(chem().species)):
+        if names == sorted(chem().species):
             return chem
     else:
         raise ValueError("Unknown set of chemical species")
@@ -63,11 +68,12 @@ def create_abundances(names, data, masses=None, grain_prefix=''):
             be removed. Used to denote species present as ices on grains.
     """
     mapper = PrefixMap(grain_prefix)
-
-    mapped_names = map(PrefixMap(grain_prefix).remove_prefix, names)
+    
+    mapped_names = map(mapper.remove_prefix, names)
+    mapped_names = _map_grains(mapped_names)
 
     if masses is None:
-        chem_type = _determine_chemsitry_type(mapped_names)
+        chem_type = _determine_chemistry_type(mapped_names)
         chem = chem_type(data.shape[0])
     else:
         if len(names) != len(masses):
