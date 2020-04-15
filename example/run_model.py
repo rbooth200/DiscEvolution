@@ -19,6 +19,7 @@ from DiscEvolution.constants import Msun, AU, yr
 from DiscEvolution.grid import Grid
 from DiscEvolution.star import SimpleStar
 from DiscEvolution.eos  import IrradiatedEOS
+from DiscEvolution.disc import AccretionDisc
 from DiscEvolution.dust import DustGrowthTwoPop
 from DiscEvolution.opacity import Tazzari2016, Zhu2012
 from DiscEvolution.viscous_evolution import ViscousEvolutionFV
@@ -365,36 +366,46 @@ def setup_output(model):
 
     return base_name, EC
 
-def _plot_grid(model):
-    grid = model.disc.grid 
+def _plot_grid(model, figs=None):
 
+    if figs is None:
+        try:
+            model.disc.dust_frac
+            f, subs = plt.subplots(2,2)
+        except AttributeError:
+            f, subs = plt.subplots(1,1)
+            subs = [[subs]]
+    else:
+        f, subs = figs
+        
+    grid = model.disc.grid
     try:
         eps = model.disc.dust_frac.sum(0)
-        plt.subplot(222)
-        plt.loglog(grid.Rc, eps)
-        plt.xlabel('$R$')
-        plt.ylabel('$\epsilon$')
-        plt.ylim(ymin=1e-4)
-        plt.subplot(223)
-        plt.loglog(grid.Rc, model.disc.Stokes()[1])
-        plt.xlabel('$R$')
-        plt.ylabel('$St$')
-        plt.subplot(224)
-        plt.loglog(grid.Rc, model.disc.grain_size[1])
-        plt.xlabel('$R$') 
-        plt.ylabel('$a\,[\mathrm{cm}]$')
 
-        plt.subplot(221)
-        l, = plt.loglog(grid.Rc, model.disc.Sigma_D.sum(0), '--')
+        subs[0][1].loglog(grid.Rc, eps)
+        subs[0][1].set_xlabel('$R$')
+        subs[0][1].set_ylabel('$\epsilon$')
+        subs[0][1].set_ylim(ymin=1e-4)
+
+        subs[1][0].loglog(grid.Rc, model.disc.Stokes()[1])
+        subs[1][0].set_xlabel('$R$')
+        subs[1][0].set_ylabel('$St$')
+
+        subs[1][1].loglog(grid.Rc, model.disc.grain_size[1])
+        subs[1][1].set_xlabel('$R$') 
+        subs[1][1].set_ylabel('$a\,[\mathrm{cm}]$')
+
+        l, = subs[0][0].loglog(grid.Rc, model.disc.Sigma_D.sum(0), '--')
         c = l.get_color()
     except AttributeError:
         c = None
 
-    plt.loglog(grid.Rc, model.disc.Sigma_G, c=c)
-    plt.xlabel('$R$')
-    plt.ylabel('$\Sigma_\mathrm{G, D}$')
-    plt.ylim(ymin=1e-5)
+    subs[0][0].loglog(grid.Rc, model.disc.Sigma_G, c=c)
+    subs[0][0].set_xlabel('$R$')
+    subs[0][0].set_ylabel('$\Sigma_\mathrm{G, D}$')
+    subs[0][0].set_ylim(ymin=1e-5)
 
+    return [f, subs]
 
 def run(model, io, base_name, restart, verbose=True, n_print=100):
 
@@ -411,6 +422,7 @@ def run(model, io, base_name, restart, verbose=True, n_print=100):
         assert io.event_number('save') == restart+1
 
     plot = False
+    figs = None
     while not io.finished():
         ti = io.next_event_time()
         while model.t < ti:
@@ -435,7 +447,7 @@ def run(model, io, base_name, restart, verbose=True, n_print=100):
             print('Nstep: {}'.format(model.num_steps))
             print('Time: {} yr'.format(model.t / (2 * np.pi)))
             
-            _plot_grid(model)
+            figs = _plot_grid(model, figs)
 
             np.seterr(**err_state)
 
