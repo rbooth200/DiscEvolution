@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 from DiscEvolution.constants import Msun, AU, yr
 from DiscEvolution.grid import Grid
 from DiscEvolution.star import SimpleStar
-from DiscEvolution.eos  import IrradiatedEOS
+from DiscEvolution.eos  import IrradiatedEOS, LocallyIsothermalEOS
 from DiscEvolution.disc import AccretionDisc
 from DiscEvolution.dust import DustGrowthTwoPop
 from DiscEvolution.opacity import Tazzari2016, Zhu2012
