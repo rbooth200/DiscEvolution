@@ -84,13 +84,13 @@ class LocallyIsothermalEOS(EOS_Table):
         star    : stellar properties
         mu      : mean molecular weight, default=2.4
     """
-    def __init__(self, star, cs0, q, alpha_t, mu=2.4):
+    def __init__(self, star, h0, q, alpha_t, mu=2.4):
         super(LocallyIsothermalEOS, self).__init__()
         
-        self._cs0 = cs0
+        self._cs0 = h0 * star.M**0.5
         self._q = q
         self._alpha_t = alpha_t
-        self._H0 = cs0 * star.M**-0.5
+        self._H0 = h0
         self._T0 = (AU*Omega0)**2 * mu / GasConst
         self._mu = mu
         
