@@ -333,15 +333,14 @@ class TransitionDiscXray(PhotoBase):
         where_photoevap = (y >= 0.0) # No mass loss inside hole
         use_y = y[where_photoevap]
 
-        # First term
-        terms = self._a2*self._b2 * np.exp(self._b2*use_y) + self._c2*self._d2 * np.exp(self._d2*use_y) + self._e2*self._f2 * np.exp(self._f2*use_y)
-        t1 = terms/R[where_photoevap]
+        # Exponent of second term
+        exp2 = -(use_y/57)**10
 
-        # Second term
-        t2 = np.exp(-(y[where_photoevap]/57)**10)
+        # Numerator
+        terms = self._a2*self._b2 * np.exp(self._b2*use_y+exp2) + self._c2*self._d2 * np.exp(self._d2*use_y+exp2) + self._e2*self._f2 * np.exp(self._f2*use_y+exp2)
 
-        # Combine terms
-        Sigmadot[where_photoevap] = t1 * t2
+        # Divide by Denominator
+        Sigmadot[where_photoevap] = terms/R[where_photoevap]
 
         # Work out total mass loss rate for normalisation
         M_dot = 2*np.pi * R * Sigmadot

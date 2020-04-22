@@ -271,7 +271,7 @@ def setup_wrapper(model, restart, output=True):
             initial_trunk.optically_thin_weighting(disc)
             optically_thin = (disc.R > initial_trunk._Rot)
 
-        disc._Sigma[optically_thin] = 0
+        #disc._Sigma[optically_thin] = 0
         disc._Rot = np.array([])
 
         """Lines to truncate with no mass loss if required for direct comparison"""
@@ -495,7 +495,7 @@ def run(model, io, base_name, plot_name, mass_loss_mode, all_in, restart, verbos
                 print('Nstep: {}'.format(model.num_steps))
                 print('Time: {} yr'.format(model.t / yr))
                 print('dt: {} yr'.format(dt / yr))
-                if model._internal_photo._Hole:
+                if model._internal_photo and model._internal_photo._Hole:
                     print("Column density to hole is N = {} g cm^-2".format(model._internal_photo._N_hole))
                     print("Empty cells: {}".format(np.sum(model.disc.Sigma_G<=0)))
                 
