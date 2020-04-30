@@ -1,6 +1,8 @@
 from __future__ import print_function
 from ..constants import m_H
 
+from multiprocessing import Pool
+
 __all__ = [ "KromeAbund", "KromeIceAbund", "KromeGasAbund",
             "KromeMolecularIceAbund", "KromeChem", 
             "KromeCallBack", "UserDust2GasCallBack",
@@ -138,6 +140,18 @@ class UserDust2GasCallBack(KromeCallBack):
     def __call__(self, krome, T, rho, dust_frac, **kwargs):
         krome.lib.krome_set_user_dust2gas(dust_frac/(1-dust_frac))
 
+def _krome_update(params):
+    [dt, T_i, eps_i, n, call_back, opt] = params
+
+    if call_back is not None:
+        call_back(_krome, T_i, n, eps_i, **opt)
+
+    # Do not send dummy grain species.
+    _krome.lib.krome(n[:-_ngrain], byref(T_i), byref(dt))
+
+    return n
+
+
 class KromeChem(object):
     """Time-dependent chemistry integrated with the KROME pacakage
 
@@ -166,6 +180,12 @@ class KromeChem(object):
 
         if self._call_back is not None:
             self._call_back.init_krome(_krome)
+            
+        try:
+            N = int(os.environ['OMP_NUM_THREADS'])
+        except KeyError:
+            N = None
+        self._pool = Pool(N)
 
     def ASCII_header(self):
         """Header for ASCII dump file"""
@@ -194,35 +214,40 @@ class KromeChem(object):
         m_gas = chem.gas.masses * m_H
         m_ice = chem.ice.masses * m_H
 
-        n = np.empty(_nmols + _ngrain, dtype='f8')
-
         gas_data = chem.gas.data.T
         ice_data = chem.ice.data.T
+
+        params = []
         for i in range(len(T)):
             T_i, rho_i, eps_i = T[i], rho[i], dust_frac[i]
             
             rho_i /= 1 - eps_i
 
             # Compute the number density
+            n = np.empty(_nmols + _ngrain, dtype='f8')
             n[_krome_gas] = (gas_data[i] / m_gas) * rho_i
             n[_krome_ice] = (ice_data[i] / m_ice) * rho_i
-
             if self._call_back is not None:
                 opt = { kw : arg[i] for (kw, arg) in kwargs.items() }
-                self._call_back(_krome, T_i, n, eps_i, **opt)
+            else:
+                opt = None
 
-            # Do not send dummy grain species.
-            _krome.lib.krome(n[:-_ngrain], byref(T_i), byref(dt))
-
-            # Renormalize the gas / dust / ice mass fractions
-            n[_krome_gas] *= m_gas / rho_i
+            params.append([dt, T_i, eps_i, n, self._call_back, opt])
+        
+        n_new = self._pool.map(_krome_update, params)
+        
+        for i in range(len(T)):
+            n = n_new[i]
+            
+            rho_i = rho[i] / (1 - dust_frac[i])
+            n[_krome_gas] *= m_gas / rho_i                              
             n[_krome_ice] *= m_ice / rho_i
 
             if self._renormalize:
-                 n /= n.sum()
+                n /= n.sum()
 
-            gas_data[i] = n[_krome_gas]
-            ice_data[i] = n[_krome_ice]
+            gas_data[i] = n[_krome_gas] 
+            ice_data[i] = n[_krome_ice] 
 
 
     def explore_rates(self, T, rho, dust_frac, chem, cells, xvar, 

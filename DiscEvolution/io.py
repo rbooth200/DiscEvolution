@@ -347,7 +347,7 @@ class AsciiDiscSnap(DiscSnap):
 
                 # Get the number of dust species
                 Ndust = len([x for x in data  if x.startswith('epsilon')])
-                Nchem = int((len(data) - 3 - 2*Ndust) / 2)
+                Nchem = (len(data) - 3 - 2*Ndust) // 2
                 
                 iChem = 2*Ndust + 3
                 chem_spec = data[iChem:iChem + Nchem]

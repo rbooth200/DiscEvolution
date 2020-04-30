@@ -228,6 +228,7 @@ class DustGrowthTwoPop(DustyDisc):
         f_ice     : Ice fraction, default=1
         thresh    : Threshold ice fraction for switchng between icy/non icy
                     fragmentation velocity, default=0.1
+        f_grow    : Growth time-scale factor, default=1.
         a0        : Initial particle size (default = 1e-5, 0.1 micron)
         amin      : Minimum particle size (default = 0.0)
         f_drift   : Drift fitting factor. Reduce by a factor ~10 to model the
@@ -240,15 +241,16 @@ class DustGrowthTwoPop(DustyDisc):
     """
     def __init__(self, grid, star, eos, eps, thresholds, Sigma=None,
                  rho_s=1., Sc=1., uf_0=100., uf_ice=1e3, f_ice=1, thresh=0.1,
-                 a0=1e-5, amin=1e-5, f_drift=0.55, f_frag=0.37, feedback=True, start_small=True, distribution_slope=3.5):
+                 f_grow=1.0, a0=1e-5, amin=1e-5, f_drift=0.55, f_frag=0.37, feedback=True, start_small=True, distribution_slope=3.5):
         super(DustGrowthTwoPop, self).__init__(grid, star, eos, thresholds, Sigma, rho_s, Sc, feedback)
         
         self._uf_0   = uf_0 / (AU * Omega0)
         self._uf_ice = uf_ice / (AU * Omega0)
 
         # Fitting factors
+        self._fgrow  = f_grow 
         self._ffrag  = f_frag * (2/(3*np.pi)) 
-        self._fdrift = f_drift * (2/np.pi)
+        self._fdrift = f_drift * (2/np.pi) / f_grow 
         self._fmass  = np.array([0.97, 0.75])
 
         # Initialize the dust distribution
@@ -272,7 +274,8 @@ class DustGrowthTwoPop(DustyDisc):
         self._p = distribution_slope            # The slope d ln n(a) / d ln a of the number distribution with size (3.5 for MRN)
 
         self._head = (', uf_0: {}cm s^-1, uf_ice: {}cm s^-1, thresh: {}'
-                      ', a0: {}cm'.format(uf_0, uf_ice, thresh, a0))
+                      ', f_grow: {}, a0: {}cm'.format(uf_0, uf_ice, thresh,
+                                                      f_grow, a0))
 
         self.update(0)
 
@@ -349,7 +352,7 @@ class DustGrowthTwoPop(DustyDisc):
         return ad, af
 
     def _t_grow(self, eps):
-        return 1 / (self.Omega_k * eps)
+        return self._fgrow / (self.Omega_k * eps)
 
     def do_grain_growth(self, dt):
         """Apply the grain growth"""

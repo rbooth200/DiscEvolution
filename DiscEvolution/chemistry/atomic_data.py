@@ -52,6 +52,11 @@ def atomic_composition(mol, charge=False):
     '''
     keys = reversed(sorted(ATOMIC_MASSES.keys()))
 
+    if mol == "Si-grain" or mol == "grain":
+        return { 'Si' : 1, 'O' : 3 }
+    if mol == "C-grain":
+        return { 'C' : 1 }
+
     atoms = defaultdict(int)
     for atom in keys:
         if mol == '': break

@@ -243,11 +243,11 @@ class CNOChemMadhu(object):
 
         # Make sure we have enough O for this CO abundance. If not, increase 
         # CH4 abundance.
-        xCO2 = np.maximum(xCO2, 1 - O / (np.minimum(C, 1e-300)))
+        xCO2 = np.maximum(xCO2, 1 - O / np.maximum(C, 1e-300))
 
         # Using the CH4 abundance, now update the maximum amount of CO2 
         # available
-        nCO2 = np.maximum(np.minimum((O - C * (1 - xCO2)) / (1 + xCO2), 0.1 * C), 0)
+        nCO2 = np.maximum(np.minimum((O - C * (1 - xCO2)) / (1 + xCO2), 0.1 * C), 0)        
 
         # Set up the number-density abundances for the molecules
         mol_abund['CO'] = (C - nCO2) * (1 - xCO2)
@@ -258,6 +258,9 @@ class CNOChemMadhu(object):
         O -= mol_abund['CO'] + 2 * mol_abund['CO2']
         mol_abund['H2O'] = np.maximum(O, 0)
 
+        #print(mol_abund.names[:4])
+        #print(mol_abund.data[:4, 41])
+        
         # Nitrogen
         if initial_abund or not self._fix_N:
             mol_abund['NH3'] = self._fNH3 * N

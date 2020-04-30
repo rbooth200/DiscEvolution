@@ -7,11 +7,12 @@
   },
 
   "disc" : {
-    "alpha"   : 1e-2,
+    "alpha"   : 1e-3,
     "mass"    : 0.01,
     "Rc"      : 100.0,
     "d2g"     : 0.01,
-    "Schmidt" : 10.0,
+    "Schmidt" : 1.0,
+    "f_grow"  : 1.0,
     "amin"    : 1e-5
     },
   
