@@ -103,6 +103,21 @@ class AccretionDisc(object):
         return self._eos.H
 
     @property
+    def h(self):
+        """Aspect ratio"""
+        return self.H/self.R
+
+    @property
+    def H_edge(self):
+        """Scale-height"""
+        return self._eos.H_edge
+
+    @property
+    def h_edge(self):
+        """Aspect ratio"""
+        return self.H_edge/self.R_edge
+
+    @property
     def P(self):
         return self.midplane_gas_density * self.cs**2
 

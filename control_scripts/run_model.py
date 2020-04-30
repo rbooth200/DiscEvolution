@@ -29,7 +29,7 @@ from DiscEvolution.diffusion import TracerDiffusion
 from DiscEvolution.driver import DiscEvolutionDriver
 from DiscEvolution.io import Event_Controller, DiscReader
 from DiscEvolution.disc_utils import mkdir_p
-from DiscEvolution.internal_photo import PrimordialDisc
+from DiscEvolution.internal_photo import PrimordialDiscXray, PrimordialDiscEUV
 import DiscEvolution.photoevaporation as photoevaporation
 import FRIED.photorate as photorate
 #import subprocess
@@ -57,8 +57,10 @@ def setup_disc(model):
 
     p = model['star']
     try:
-        if (model['x-ray']['L_X'] > 0):
-            star = PhotoStar(LX=model['x-ray']['L_X'], M=model['star']['mass'], R=model['star']['radius'], T_eff=model['star']['T_eff'])
+        if model['x-ray']['L_X'] > 0:
+            star = PhotoStar(LX=model['x-ray']['L_X'], Phi=0, M=p['mass'], R=p['radius'], T_eff=p['T_eff'])
+        elif model['euv']['Phi'] > 0:
+            star = PhotoStar(LX=0, Phi=model['euv']['Phi'], M=p['mass'], R=p['radius'], T_eff=p['T_eff'])
         else:
             star = SimpleStar(M=p['mass'], R=p['radius'], T_eff=p['T_eff'])
     except KeyError:
@@ -118,7 +120,7 @@ def setup_disc(model):
     else:
         disc = AccretionDisc(grid, star, eos, Sigma=Sigma)
 
-    # Setup the UV irradiation
+    # Setup the external FUV irradiation
     try:
         p = model['fuv']
         disc.set_FUV(p['fuv_field'])
@@ -172,8 +174,10 @@ def setup_model(model, disc, start_time=0, t_out = None):
 
     # Add internal photoevaporation
     try:
-        if (model['x-ray']['L_X'] > 0):
-            internal_photo = PrimordialDisc(disc)
+        if model['x-ray']['L_X'] > 0:
+            internal_photo = PrimordialDiscXray(disc)
+        elif model['euv']['Phi'] > 0:
+            internal_photo = PrimordialDiscEUV(disc)
         else:
             internal_photo = None
     except KeyError:
@@ -267,7 +271,7 @@ def setup_wrapper(model, restart, output=True):
             initial_trunk.optically_thin_weighting(disc)
             optically_thin = (disc.R > initial_trunk._Rot)
 
-        disc._Sigma[optically_thin] = 0
+        #disc._Sigma[optically_thin] = 0
         disc._Rot = np.array([])
 
         """Lines to truncate with no mass loss if required for direct comparison"""
@@ -283,7 +287,7 @@ def setup_wrapper(model, restart, output=True):
     return disc, driver, output_name, io_control, plot_name, Dt_nv
 
 def restart_model(model, disc, snap_number):
-    # Resteup model
+    # Resetup model
     out = model['output']
     reader = DiscReader(out['directory'], out['base'], out['format'])
 
@@ -416,6 +420,8 @@ def run(model, io, base_name, plot_name, mass_loss_mode, all_in, restart, verbos
     end = False     # Flag to set in order to end computation
     hole_open = 0   # Flag to set to snapshot hole opening
     hole_save = 0   # Flag to set to snapshot hole opening
+    hole_snap_no = 100000
+    hole_switch = False
 
     if restart:
         # Skip evolution already completed
@@ -448,14 +454,15 @@ def run(model, io, base_name, plot_name, mass_loss_mode, all_in, restart, verbos
                     # Stop
                     print ("No valid Hole radius as disc is depleted... terminating calculation at ~ {:.0f} yr".format(model.t/yr))
                     end = True
-                elif model._internal_photo._switch:
+                elif model._internal_photo._switch and not hole_switch:
                     hole_open = np.inf
+                    hole_switch = True
                 elif model._internal_photo._reset:
                     hole_open = 0
                     model._internal_photo._reset = False
                 if model._internal_photo._Hole:
                     hole_open += 1
-                    if (hole_open % 100000) == 1:
+                    if (hole_open % hole_snap_no) == 1:
                         ti = model.t
                         break
             if model._gas and end_low:
@@ -488,21 +495,19 @@ def run(model, io, base_name, plot_name, mass_loss_mode, all_in, restart, verbos
                 print('Nstep: {}'.format(model.num_steps))
                 print('Time: {} yr'.format(model.t / yr))
                 print('dt: {} yr'.format(dt / yr))
-                try:
+                if model._internal_photo and model._internal_photo._Hole:
                     print("Column density to hole is N = {} g cm^-2".format(model._internal_photo._N_hole))
                     print("Empty cells: {}".format(np.sum(model.disc.Sigma_G<=0)))
-                    #print("Total mdot: {}".format(model._internal_photo._Mdot_true))
-                except AttributeError:
-                    pass
+                
         grid = model.disc.grid
         
         ### Saving
-        if (io.check_event(model.t, 'save') or end or (hole_open % 100000)==1):
+        if (io.check_event(model.t, 'save') or end or (hole_open % hole_snap_no)==1):
             model._output_times.append(model.t / yr)
             save_no = len(model._output_times) - 1
 
             # Print message to record this
-            if (hole_open % 100000)==1:
+            if (hole_open % hole_snap_no)==1:
                 print ("Taking extra snapshot of properties while hole is clearing")
                 hole_save+=1
             elif end:
