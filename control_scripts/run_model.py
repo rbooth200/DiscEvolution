@@ -114,7 +114,8 @@ def setup_disc(model):
     # If non-zero dust, set up a two population model, else use a simple accretion disc
     if model['disc']['d2g'] > 0:
         try:
-            disc = DustGrowthTwoPop(grid, star, eos, p['d2g'], model['dust']['radii_thresholds'], Sigma=Sigma, Sc=model['disc']['Schmidt'], feedback=feedback, uf_ice=model['dust']['ice_frag_v'], distribution_slope=model['dust']['p'])
+            disc = DustGrowthTwoPop(grid, star, eos, p['d2g'], model['dust']['radii_thresholds'], Sigma=Sigma,
+                    rho_s=model['dust']['density'], Sc=model['disc']['Schmidt'], feedback=feedback, uf_ice=model['dust']['ice_frag_v'], f_grow=model['dust']['f_grow'], distribution_slope=model['dust']['p'])
         except:
             disc = DustGrowthTwoPop(grid, star, eos, p['d2g'], model['dust']['radii_thresholds'], Sigma=Sigma, Sc=model['disc']['Schmidt'], feedback=feedback, uf_ice=model['dust']['ice_frag_v'])
     else:

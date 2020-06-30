@@ -154,6 +154,11 @@ class PhotoBase():
             elif self._type == 'Transition':
                 if not self._empty:
                     print("Transition Disc has cleared to outside")
+                    '''print("empty_indisc {}".format(sum(empty_indisc)))
+                    print("Existing rhole: {}".format(self._R_hole))
+                    print(i_hole_in)
+                    print("R_in = {}".format(disc.R_edge[i_hole_in]))
+                    print(i_hole_out)'''
                     self._empty = True
                     # Proceed as usual to report but without update
 
@@ -501,10 +506,6 @@ class TransitionDiscEUV(PhotoBase):
         Sigmadot[where_photoevap] = (2 * self._mu * m_H * self._C2 * self._cs*1e5*yr/Omega0 * (star.Phi / (4*np.pi * (self.R_inner()*AU)**3 * self._aB * self._h))**(1/2) * x**(-self._a))[where_photoevap]  # g cm^-2 /yr
         Sigmadot = np.maximum(Sigmadot,0)
 
-        # Store values as average of mass loss rate at cell edges
-        #self._Sigmadot = Sigmadot
-        self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
-
         # Work out total mass loss rate
         dMdot = 2*np.pi * R * Sigmadot
         Mdot  = np.trapz(dMdot,R)  # g yr^-1 (AU/cm)^2
@@ -518,6 +519,9 @@ class TransitionDiscEUV(PhotoBase):
         # Mopping up in the gap
         mop_up = (R >= 0.1 * self._RG) * (x <= 1.0)
         Sigmadot[mop_up] = np.inf
+
+        # Store values as average of mass loss rate at cell edges
+        self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
 
     def __call__(self, disc, dt, photoevap=None):
         # Update the hole radius and hence the mass-loss profile
