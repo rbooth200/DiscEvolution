@@ -456,7 +456,7 @@ def run(model, io, base_name, restart, verbose=True, n_print=100):
     if plot:
         plt.show()
 
-def main():
+def main(*args):
     
     err_state = np.seterr(invalid='raise')
 
@@ -465,7 +465,7 @@ def main():
     parser.add_argument("--model", "-m", type=str, default=DefaultModel)
     parser.add_argument("--restart", "-r", type=int, default=0)
 
-    args = parser.parse_args()
+    args = parser.parse_args(*args)
 
     model = json.load(open(args.model, 'r'))
     
