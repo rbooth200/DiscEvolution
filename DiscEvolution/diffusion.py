@@ -45,18 +45,14 @@ class TracerDiffusion(object):
             flux_diffuse : diffusive flux at edges (between cells only)
         """
         D = disc.nu / Sc
-        Sigma = disc.Sigma_G
+        Sigma_G = disc.Sigma_G
 
         # Use geometric average to avoid problems at the edge of evaporating
         # regions., where Sigma_G = 0 (and eps_i is ill-defined)
-        DSig = D*Sigma
-        DS = np.sqrt(np.maximum(DSig[1:]*DSig[:-1], 0))
-        #DSig = 0.5 * np.maximum(DSig[1:]+DSig[:-1], 0)
-        #Upwind DSig
-        #DS = np.zeros_like(disc.grid.dRc)
-        #DS = DSig[1:] * (np.diff(eps_i)>0) + DSig[:-1] * (np.diff(eps_i)<0)
+        DSig = D*Sigma_G
+        DSig = np.sqrt(np.maximum(DSig[1:]*DSig[:-1], 0))
 
-        return - DS * np.diff(eps_i) / disc.grid.dRc
+        return - DSig * np.diff(eps_i) / disc.grid.dRc
 
     def _get_Schmidt(self, disc, Sc):
         if Sc is None:
@@ -87,7 +83,7 @@ class TracerDiffusion(object):
         Sc = self._get_Schmidt(disc, Sc)
 
         grid = disc.grid
-        Sigma = disc.Sigma #_G
+        Sigma = disc.Sigma
         F = self._diffusive_flux(disc, eps_i, Sc)
 
         if self._limit:

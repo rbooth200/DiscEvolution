@@ -16,19 +16,18 @@ class Formatter(object):
         return 'x={:.01f}, y={:.01f}, z={:.01f}'.format(x, y, z)
 
 if __name__ ==  "__main__":
-    from DiscEvolution.constants import *
+    from constants import *
     import sys
-    #DIR = os.path.join('..', 'planets', 'TimeDep', 'irradiated', 'Model2')
+    DIR = os.path.join('..', 'planets', 'TimeDep', 'irradiated', 'Model2')
     #DIR = os.path.join('..', 'output', 'TimeDep', 'irradiated', 'Model1')
     #DIR = os.path.join('..', 'output', 'TimeDep', 'isothermal', 'Model1')
-    DIR = os.path.join('.', 'dusty_disc_0') ## CHANGED to match my file structure - ADS
        
     try:
         DIR = sys.argv[1]
     except IndexError:
         pass
     
-    """params = {}
+    params = {}
     print('Model params:')
     for line in open(os.path.join(DIR, 'model.dat')):
         print('\t', line.strip())
@@ -36,20 +35,16 @@ if __name__ ==  "__main__":
         params[k] = val
     print()
 
-    alpha = float(params['alpha'])""" ## Not compatible with .json inputs - ADS
-    alpha = 1e-3 ## CHANGED to be hard coded for now - ADS
+    alpha = float(params['alpha'])
 
-    chemistry_on = False ## Added chemistry switch - ADS
-
-    reader = DiscReader(DIR, 'disc', chem_on=chemistry_on)
+    reader = DiscReader(DIR, 'disc')
     time = []
     Mdot = []
     M    = []
-    if chemistry_on:
-        solar = reader[0].chem.gas.atomic_abundance()
-        solar.set_solar_abundances()
+    solar = reader[0].chem.gas.atomic_abundance()
+    solar.set_solar_abundances()
 
-    #snaps = [0, 10, 100, 300]
+    snaps = [0, 10, 100, 300]
     
     for n in range(0, reader.Num_Snaps+1):
         disc = reader[n]

@@ -1,9 +1,10 @@
 # history.py
 #
-# Author: R. Booth
-# Date: 17 - Nov - 2016
+# Author: A. Sellek
+# Date: 30 Jun 2020
 #
-# Combined model for dust, gas and chemical evolution
+# Classes for tracking evolutino of global disc quantities
+#
 ################################################################################
 from __future__ import print_function
 import numpy as np
@@ -13,20 +14,27 @@ class history(object):
     def __init__(self):
         self._threshold = 1e-5          # Threshold for defining edge by density
 
+        self._times = np.array([])      # Output times
+
         """Radii"""
-        self._Rout  = np.array([])      # Outer radius of the disc (density), updated internally
-        self._Rc_t  = np.array([])      # Radius of current best fit scale radius, updated internally
+        self._Rout  = np.array([])      # Outer radius of the disc (density), updated through disc.py
+        self._Rc_t  = np.array([])      # Radius of current best fit scale radius, updated through disc.py
         self._Rot   = np.array([])      # Radius where Mdot maximum ie where becomes optically thick, updated internally
         self._Rh    = np.array([])      # Outer radius of the transition disc hole
 
         """Mass"""
-        self._Mtot = np.array([])       # Total mass, updated internally
+        self._Mtot = np.array([])       # Total mass, updated through disc.py
 
         """Mass Loss"""
-        self._Mdot_acc = np.array([])   # Accretion rate, updated with velocity passed
+        self._Mdot_acc = np.array([])   # Accretion rate, updated with velocity passed through disc.py
         self._Mdot_ext = np.array([])   # External photoevaporation rate
         self._Mdot_int = np.array([])   # Internal photoevaporation rate
 
+    # Return times
+    def times(self):
+        return self._times
+
+    # Return radii/masses/mass loss rates
     def radii(self):
         return self._Rout, self._Rc_t, self._Rot, self._Rh
 
@@ -36,6 +44,7 @@ class history(object):
     def mdot(self):
         return self._Mdot_acc, self._Mdot_ext, self._Mdot_int
 
+    # When restarting, for any variable found in input file, import data
     def restart(self, restartdata, time):
         not_future = restartdata['t'] <= time
 
@@ -74,6 +83,7 @@ class history(object):
 
         return not_future
 
+# Extra handles for the dust
 class dust_history(history):
 
     def __init__(self, thresholds):
@@ -91,12 +101,14 @@ class dust_history(history):
         self._Mwind = np.array([])      # Amount of dust lost to wind
         self._Mwind_cum  = 0.           # Amount of dust lost to wind       # THIS IS UPDATED EVERY STEP BY PHOTOEVAPORATION.PY
 
-    def mass_dust(self):
-        return self._Mdust, self._Mwind
-
+    # Return radii/masses/mass loss rates
     def radii_dust(self):
         return self._Rdust
 
+    def mass_dust(self):
+        return self._Mdust, self._Mwind
+
+    # When restarting, for any variable found in input file, import data
     def restart(self, restartdata, time):
         not_future = super().restart(restartdata, time)
 

@@ -29,12 +29,12 @@ class AccretionDisc(object):
             Sigma = np.zeros_like(self.R)
         self._Sigma = Sigma
         
-        # Extra properties for dealing with half empty cells in timescale approach
+        """ Extra properties for dealing with half empty cells in timescale approach """
         self.mass_lost = 0.0
         self.tot_mass_lost = 0.0
         self.i_edge = -1
 
-        # Global, time dependent properties stored as history
+        """ Global, time dependent properties stored as history """
         self.history = history()
 
     def ASCII_header(self):
@@ -109,12 +109,12 @@ class AccretionDisc(object):
 
     @property
     def H_edge(self):
-        """Scale-height"""
+        """Scale-height at cell edge"""
         return self._eos.H_edge
 
     @property
     def h_edge(self):
-        """Aspect ratio"""
+        """Aspect ratio at cell edge"""
         return self.H_edge/self.R_edge
 
     @property
@@ -167,6 +167,7 @@ class AccretionDisc(object):
     def FUV(self):
         return self._FUV
 
+    """Methods to determine global properties (and add to history)"""
     def Rout(self, fit_LBP=False, Track=False):
         """Determine the outer radius (density threshold) and add to history"""
         notempty = self.Sigma_G > self.history._threshold
@@ -186,8 +187,8 @@ class AccretionDisc(object):
         else:
             return R_outer
 
-    @property
     def Rot(self):
+        """Radius where the disc is optically thin to external FUV"""
         return self.history._Rot[-1]
 
     def Mtot(self, Track=False):
@@ -210,6 +211,7 @@ class AccretionDisc(object):
         else:
             return Mdot
 
+    """Other methods"""
     def set_surface_density(self, Sigma):
         self._Sigma[:] = Sigma
 

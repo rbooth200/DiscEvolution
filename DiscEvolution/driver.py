@@ -21,10 +21,12 @@ class DiscEvolutionDriver(object):
         disc : Disc model to update
 
     Optional Physics update:
-        gas       : Update due to gas effects, i.e. Viscous evolution
-        dust      : Update the dust, i.e. radial drift
-        diffusion : Seperate diffusion update
-        chemistry : Solver for the chemical evolution
+        dust             : Update the dust, i.e. radial drift
+        gas              : Update due to gas effects, i.e. Viscous evolution
+        diffusion        : Seperate diffusion update
+        internal_photo   : Remove gas by internal photoevaporation
+        photoevaporation : Remove gas by external photoevaporation
+        chemistry        : Solver for the chemical evolution
 
     Note: Diffusion is usually handled in the dust dynamics module
 
@@ -32,7 +34,8 @@ class DiscEvolutionDriver(object):
         t0  : Starting time, default = 0, code units
         t_out:Previous output times, default = None, years
     """
-    def __init__(self, disc, gas=None, dust=None, diffusion=None, chemistry=None, ext_photoevaporation=None, int_photoevaporation=None, t0=0., t_out=None):
+
+    def __init__(self, disc, gas=None, dust=None, diffusion=None, chemistry=None, ext_photoevaporation=None, int_photoevaporation=None, t0=0.):
 
         self._disc = disc
 
@@ -44,12 +47,7 @@ class DiscEvolutionDriver(object):
         self._internal_photo = int_photoevaporation
 
         self._t = t0
-        if t0>0.:
-            self._output_times = list(t_out[t_out <= t0/yr])
-        else:
-            self._output_times = []
         self._nstep = 0
-        self._nsincehole = 0
 
     def __call__(self, tmax):
         """Evolve the disc for a single timestep
@@ -161,19 +159,18 @@ class DiscEvolutionDriver(object):
         disc.update(dt)
 
         # Update the internal hole and check whether we need to switch the mass loss prescription
-        if self._internal_photo:                    # If doing internal photoevaporation
-            if not self._internal_photo._switch:      # If the inner disc is not already thin or Mdot low then continue
-                if self._internal_photo._Hole:      # If there is a hole, update its properties 
-                    R_hole, N_hole = self._internal_photo.get_Rhole(disc, self.photoevap)
-                if self._internal_photo._switch:      # If the hole is large enough that inner disc thin or Mdot low, switch internal photoevaporation to TD
-                    if (self._internal_photo._swiTyp == "Thin"):
-                        print("Column density to hole has fallen to N = {} < {} g cm^-2".format(N_hole,self._internal_photo._N_crit))
-                    elif (self._internal_photo._swiTyp == "loMd"):
-                        print("Mass loss rate has fallen below that for a transition disc.")
-                    if self._internal_photo._regime=='X-ray':
-                        self._internal_photo = TransitionDiscXray(disc, R_hole, N_hole)
-                    elif self._internal_photo._regime=='EUV':
-                        self._internal_photo = TransitionDiscEUV(disc, R_hole, N_hole)
+        if self._internal_photo and not self._internal_photo._switch:   # Only if doing internal photoevaporation and the inner disc is not already optically thin
+            if self._internal_photo._Hole:      # If there is a hole, update its properties 
+                R_hole, N_hole = self._internal_photo.get_Rhole(disc, self.photoevap)
+            if self._internal_photo._switch:    # If the hole is now large enough that inner disc optically thin, switch internal photoevaporation to direct field
+                if self._internal_photo._swiTyp == "Thin":
+                    print("Column density to hole has fallen to N = {} < {} g cm^-2".format(N_hole,self._internal_photo._N_crit))
+                #elif self._internal_photo._swiTyp == "loMd": # If the accretion rate is lower than that for direct field switch (don't do this - less physical)
+                #    print("Mass loss rate has fallen below that for an inner hole disc with direct field.")
+                if self._internal_photo._regime=='X-ray':
+                    self._internal_photo = TransitionDiscXray(disc, R_hole, N_hole)
+                elif self._internal_photo._regime=='EUV':
+                    self._internal_photo = TransitionDiscEUV(disc, R_hole, N_hole)
 
         self._t += dt
         self._nstep += 1

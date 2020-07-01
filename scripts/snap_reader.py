@@ -35,6 +35,8 @@ class DiscSnap(object):
 
                 # Get the number of dust species
                 Ndust = len([x for x in vars  if x.startswith('epsilon')])
+
+                # If chemistry was used, get the number of chemical species
                 if chem_on:
                     Nchem = (len(vars) - 3 - 2*Ndust) / 2
                     
@@ -56,6 +58,7 @@ class DiscSnap(object):
             self._eps[i] = data['epsilon{}'.format(i)]
             self._a[i]   = data['a{}'.format(i)]
 
+        # Only if chemistry used
         if chem_on:
             if Nchem == 6:
                 self._chem = chem.MolecularIceAbund(chem.SimpleCOMolAbund(Ndata),
@@ -188,6 +191,7 @@ class Reader(object):
                     
 class DiscReader(Reader):
     """Read disc snaphshots from file"""
+    # By default assume no chemistry
     def __init__(self, DIR, base='disc', chem_on=False):
         super(DiscReader, self).__init__(DiscSnap, DIR, base, chem_on)
 

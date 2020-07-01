@@ -51,10 +51,11 @@ def LBP_profile(R,R_C,Sigma_C):
 
 def setup_disc(model):
     '''Create disc object from initial conditions'''
-    # Setup the grid, star and equation of state
+    # Setup the grid
     p = model['grid']
     grid = Grid(p['R0'], p['R1'], p['N'], spacing=p['spacing'])
 
+    # Setup the star with photoionizing luminosity if provided and non-zero
     p = model['star']
     try:
         if model['x-ray']['L_X'] > 0:
@@ -66,6 +67,7 @@ def setup_disc(model):
     except KeyError:
         star = SimpleStar(M=p['mass'], R=p['radius'], T_eff=p['T_eff'])
     
+    # Setup the equation of state
     p = model['eos']
     try:
         mu = p['mu']
@@ -85,8 +87,8 @@ def setup_disc(model):
     # Setup the physical part of the disc
     p = model['disc']
     if (('profile' in model['disc']) == False):
-        Sigma = np.exp(-grid.Rc / p['Rc']) / (grid.Rc) # Catch missing profile by assuming Lynden-Bell & Pringle
-    elif (model['disc']['profile'] == 'LBP'):
+        Sigma = np.exp(-grid.Rc / p['Rc']) / (grid.Rc) # Catch missing profile by assuming Lynden-Bell & Pringle, gamma=1
+    elif model['disc']['profile'] == 'LBP':
         try:
             gamma_visc = model['disc']['gamma']
         except:
@@ -97,7 +99,7 @@ def setup_disc(model):
             gamma_visc = model['disc']['gamma']
         except:
             gamma_visc = 1.5 + 2 * model['eos']['q']               # Set gamma to steady state
-        Sigma = 1.0 / (grid.Rc**gamma_visc)                        # R^-gamma Power Law (default take match T(R))
+        Sigma = 1.0 / (grid.Rc**gamma_visc)                        # R^-gamma Power Law
     Sigma *= p['mass'] / np.trapz(Sigma, np.pi*grid.Rc**2)
     if (p['unit']=='jup'):          # Disc mass given in Jupiter masses
         Sigma *= Mjup / AU**2
@@ -113,6 +115,7 @@ def setup_disc(model):
 
     # If non-zero dust, set up a two population model, else use a simple accretion disc
     if model['disc']['d2g'] > 0:
+        # If model dust parameters not specified, resort to default
         try:
             disc = DustGrowthTwoPop(grid, star, eos, p['d2g'], model['dust']['radii_thresholds'], Sigma=Sigma,
                     rho_s=model['dust']['density'], Sc=model['disc']['Schmidt'], feedback=feedback, uf_ice=model['dust']['ice_frag_v'], f_grow=model['dust']['f_grow'], distribution_slope=model['dust']['p'])
@@ -186,7 +189,7 @@ def setup_model(model, disc, start_time=0, t_out = None):
 
     return DiscEvolutionDriver(disc, 
                                gas=gas, dust=dust, diffusion=diffuse, ext_photoevaporation=photoevap, int_photoevaporation=internal_photo,
-                               t0=start_time, t_out=t_out)
+                               t0=start_time)
 
 def setup_output(model):
     
@@ -232,7 +235,6 @@ def setup_output(model):
     
     # Base string for output:
     mkdir_p(out['directory'])
-    #mkdir_p(out['directory']+'_profiles')
     base_name = os.path.join(out['directory'], out['base'] + '_{:04d}')
 
     format = out['format']
@@ -272,7 +274,7 @@ def setup_wrapper(model, restart, output=True):
             initial_trunk.optically_thin_weighting(disc)
             optically_thin = (disc.R > initial_trunk._Rot)
 
-        #disc._Sigma[optically_thin] = 0
+        disc._Sigma[optically_thin] = 0
         disc._Rot = np.array([])
 
         """Lines to truncate with no mass loss if required for direct comparison"""
@@ -281,7 +283,7 @@ def setup_wrapper(model, restart, output=True):
         optically_thin = (disc.R > disc.Rot(photoevap))"""
     
     Dt_nv = np.zeros_like(disc.R)
-    if (driver.photoevap is not None):
+    if driver.photoevap:
         # Perform estimate of evolution for non-viscous case
         (_, _, M_cum, Dt_nv) = driver.photoevap.get_timescale(disc)
 
@@ -339,7 +341,7 @@ def restart_model(model, disc, snap_number):
 
 def save_summary(driver,model,):
     # 0 Select times of recording
-    used_times = driver._output_times
+    used_times = driver.disc.history.times()
     dust = isinstance(driver.disc,DustGrowthTwoPop)
 
     # 1 Retrieve radii
@@ -358,7 +360,7 @@ def save_summary(driver,model,):
     disc_masses = driver.disc.history.mass()
 
     # 3 Dust
-    if (isinstance(driver.disc,DustGrowthTwoPop)):
+    if driver.dust:
         dust_masses, dust_wind = driver.disc.history.mass_dust()
         dust_radii = driver.disc.history.radii_dust()
 
@@ -417,7 +419,9 @@ def save_summary(driver,model,):
 # Run
 ###############################################################################    
 
-def run(model, io, base_name, plot_name, mass_loss_mode, all_in, restart, verbose=True, n_print=1000, end_low=False):
+def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_low=False):
+    mass_loss_mode = all_in['fuv']['photoevaporation']
+
     end = False     # Flag to set in order to end computation
     hole_open = 0   # Flag to set to snapshot hole opening
     hole_save = 0   # Flag to set to snapshot hole opening
@@ -437,58 +441,66 @@ def run(model, io, base_name, plot_name, mass_loss_mode, all_in, restart, verbos
     while not io.finished():
         ti = io.next_event_time()
         while (model.t < ti and end==False):
-            """The model can break down when all at base rate because i_max = i_edge, Sigma(i_edge -> 0). Instead, terminate the model"""
-            """Moreover, the rates cannot be trusted to be physical by this point"""
-            """Also want to stop when reach unobservably low accretion rates"""
-            """Finally, internally photoevaporating models must stop if the disc is empty"""
-            if model.photoevap:
-                # Read mass loss rates
+            """
+            External photoevaporation - if present, model terminates when all cells at (or below) the base rate as unphysical (and prevents errors).
+            Internal photoevaporation - if present, model terminates once the disc is empty.
+            Accretion - optionally, the model terminates once unobservably low accretion rates (10^-11 solar mass/year)
+            """
+
+            # External photoevaporation -  Read mass loss rates
+            if model.photoevaporation:
                 not_empty = (model.disc.Sigma_G > 0)
-                Mdot_evap = model.photoevap.mass_loss_rate(model.disc,not_empty)
-                # If at base evaporation rates
+                Mdot_evap = model.photoevaporation.mass_loss_rate(model.disc,not_empty)
+                # Stopping condition
                 if (np.amax(Mdot_evap)<=1e-10):
-                    # Stop
                     print ("Photoevaporation rates below FRIED floor... terminating calculation at ~ {:.0f} yr".format(model.t/yr))
                     end = True
+
+            # Internal photoevaporation
             if model._internal_photo:
-                if model._internal_photo._empty:
-                    # Stop
+                # Stopping condition
+                if model.photoevaporation_internal._empty:
                     print ("No valid Hole radius as disc is depleted... terminating calculation at ~ {:.0f} yr".format(model.t/yr))
                     end = True
-                elif model._internal_photo._switch and not hole_switch:
+                # Check if need to reset the hole or if have switched to direct field
+                elif model.photoevaporation_internal._switch and not hole_switch:
                     hole_open = np.inf
                     hole_switch = True
-                elif model._internal_photo._reset:
+                elif model.photoevaporation_internal._reset:
                     hole_open = 0
-                    model._internal_photo._reset = False
-                if model._internal_photo._Hole:
+                    model.photoevaporation_internal._reset = False
+                # If the hole has opened, count steps and determine whether to do extra snapshot
+                if model.photoevaporation_internal._Hole:
                     hole_open += 1
                     if (hole_open % hole_snap_no) == 1:
                         ti = model.t
                         break
-            if model._gas and end_low:
-                # If below observable accretion rates
+
+            # Viscous evolution - Calculate accretion rate
+            if model.gas and end_low:
                 M_visc_out = 2*np.pi * model.disc.grid.Rc[0] * model.disc.Sigma[0] * model._gas.viscous_velocity(model.disc)[0] * (AU**2)
                 Mdot_acc = -M_visc_out*(yr/Msun)
+                # Stopping condition
                 if (Mdot_acc<1e-11):
-                    # Stop
                     print ("Accretion rates below observable limit... terminating calculation at ~ {:.0f} yr".format(model.t/yr))
                     end = True
                     
             if end:
+                ### Stop model ###
                 last_save=0
                 last_plot=0
                 # If there are save times left
-                if (np.size(io.event_times('save'))>0):
+                if np.size(io.event_times('save'))>0:
                     last_save = io.event_times('save')[-1]
                 # If there are plot times left 
-                if (np.size(io.event_times('plot'))>0):
+                if np.size(io.event_times('plot'))>0:
                     last_plot = io.event_times('plot')[-1]
                 # Remove all events up to the end
                 last_t = max(last_save,last_plot)
                 io.pop_events(last_t)
+
             else:
-            ### Evolve model and return timestep ###
+                ### Evolve model and return timestep ###
                 dt = model(ti)
 
             ### Printing
@@ -496,7 +508,7 @@ def run(model, io, base_name, plot_name, mass_loss_mode, all_in, restart, verbos
                 print('Nstep: {}'.format(model.num_steps))
                 print('Time: {} yr'.format(model.t / yr))
                 print('dt: {} yr'.format(dt / yr))
-                if model._internal_photo and model._internal_photo._Hole:
+                if model.photoevaporation_internal and model.photoevaporation_internal._Hole:
                     print("Column density to hole is N = {} g cm^-2".format(model._internal_photo._N_hole))
                     print("Empty cells: {}".format(np.sum(model.disc.Sigma_G<=0)))
                 
@@ -504,8 +516,8 @@ def run(model, io, base_name, plot_name, mass_loss_mode, all_in, restart, verbos
         
         ### Saving
         if (io.check_event(model.t, 'save') or end or (hole_open % hole_snap_no)==1):
-            model._output_times.append(model.t / yr)
-            save_no = len(model._output_times) - 1
+            model.disc.history._times = np.append(model.disc.history._times,[model.t / yr])
+            save_no = len(model.disc.history.times()) - 1
 
             # Print message to record this
             if (hole_open % hole_snap_no)==1:
@@ -523,7 +535,7 @@ def run(model, io, base_name, plot_name, mass_loss_mode, all_in, restart, verbos
             ### Measure disc properties and record
 
             # 1 Radius
-            if (model.photoevap or model._internal_photo):
+            if model.photoevaporation or model.photoevaporation_internal:
                 model.disc.Rout(Track = True)
             else:
                 model.disc.Rout(fit_LBP=True, Track=True) # Locate outer radius by the density threshold
@@ -532,38 +544,29 @@ def run(model, io, base_name, plot_name, mass_loss_mode, all_in, restart, verbos
             model.disc.Mtot(Track=True) # Total disc mass
 
             # 3 Dust radii and mass and wind loss mass
-            if (isinstance(model.disc,DustGrowthTwoPop)):
+            if model.dust:
                 model.disc.Rdust(Track=True) # Radius containing proportion of dust mass
                 model.disc.Mdust(Track=True) # Remaining dust mass
                 model.disc.Mwind(Track=True) # Total mass of dust lost in wind (NB can be 0 if no photoevaproation)
 
             # 4 Track total viscous accretion rate
-            if model._gas:
+            if model.gas:
                 model.disc.Mdot(model._gas.viscous_velocity(model.disc)[0], Track=True)
 
-            # 5 Photoevaporative mass loss
+            # 5 External photoevaporatipn mass loss
             if (mass_loss_mode == 'Integrated'):
                 # Get the raw mass loss rates
-                (_, _) = model.photoevap.unweighted_rates(model.disc, Track=True)
-            elif (model.photoevap is not None):
+                (_, _) = model.photoevaporation.unweighted_rates(model.disc, Track=True)
+            elif model.photoevaporation:
                 # Get the weighted mass loss rates
-                (Mdot_evap, _) = model.photoevap.optically_thin_weighting(model.disc, Track=True)
+                (Mdot_evap, _) = model.photoevaporation.optically_thin_weighting(model.disc, Track=True)
 
-            # 6 Internal_photoevaporation
-            if model._internal_photo:
-                model._internal_photo.get_Rhole(model.disc, Track=True)
+            # 6 Internal photoevaporation
+            if model.photoevaporation_internal:
+                model.photoevaporation_internal.get_Rhole(model.disc, Track=True)
                 
             # Save state
             save_summary(model,all_in)
-
-        ### Plotting
-        if (io.check_event(model.t, 'plot')  or end==True):
-            err_state = np.seterr(all='warn')
-
-            print('Nstep: {}'.format(model.num_steps))
-            print('Time: {} yr'.format(model.t / (2 * np.pi)))
-
-            np.seterr(**err_state)
 
         io.pop_events(model.t)
 
@@ -582,7 +585,7 @@ def main():
     disc, driver, output_name, io_control, plot_name, Dt_nv = setup_wrapper(model, args.restart)
 
     # Run model
-    run(driver, io_control, output_name, plot_name, model['fuv']['photoevaporation'], model, args.restart, end_low=args.end)
+    run(driver, io_control, output_name, model, args.restart, end_low=args.end)
         
     # Save disc properties
     outputdata = save_summary(driver,model)

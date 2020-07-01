@@ -112,11 +112,13 @@ class ViscousEvolution(object):
         """Compute the radial velocity due to viscosity"""
         self._setup_grid(disc.grid)
         self._init_fluxes(disc)
+
+        # Can accept other density specifications (e.g. gas only to match specification of dust drift by Dipierro+18)
         if Sigma is None:
             Sigma = disc.Sigma
-        
+               
         RS = Sigma * disc.R
-        return np.nan_to_num(- 3 * self._dS[1:-1] / (RS[1:] + RS[:-1]))
+        return np.nan_to_num(- 3 * self._dS[1:-1] / (RS[1:] + RS[:-1])) # Avoid nans when working with Sigma_G -> 0
 
     def max_timestep(self, disc):
         """Courant limited time-step"""
