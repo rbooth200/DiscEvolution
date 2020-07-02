@@ -29,7 +29,7 @@ from DiscEvolution.diffusion import TracerDiffusion
 from DiscEvolution.driver import DiscEvolutionDriver
 from DiscEvolution.io import Event_Controller, DiscReader
 from DiscEvolution.disc_utils import mkdir_p
-from DiscEvolution.internal_photo import PrimordialDiscXray, PrimordialDiscEUV
+from DiscEvolution.internal_photo import PrimordialDiscXray, PrimordialDiscEUV, InnerHoleDiscXray, InnerHoleDiscEUV
 import DiscEvolution.photoevaporation as photoevaporation
 import FRIED.photorate as photorate
 #import subprocess
@@ -135,7 +135,7 @@ def setup_disc(model):
     return disc
 
 
-def setup_model(model, disc, start_time=0, t_out = None):
+def setup_model(model, disc, start_time=0, internal_photo_type="Primordial", R_hole=None):
     '''Setup the physics of the model'''
     
     gas       = None
@@ -179,9 +179,21 @@ def setup_model(model, disc, start_time=0, t_out = None):
     # Add internal photoevaporation
     try:
         if model['x-ray']['L_X'] > 0:
-            internal_photo = PrimordialDiscXray(disc)
+            InnerHole = internal_photo_type.startswith('InnerHole')
+            if InnerHole:
+                internal_photo = InnerHoleDiscXray(disc,R_hole,None)
+            else:
+                internal_photo = PrimordialDiscXray(disc)
+                if R_hole:
+                    internal_photo._Hole=True
         elif model['euv']['Phi'] > 0:
-            internal_photo = PrimordialDiscEUV(disc)
+            InnerHole = internal_photo_type.startswith('InnerHole')
+            if InnerHole:
+                internal_photo = InnerHoleDiscEUV(disc,R_hole,None)
+            else:
+                internal_photo = PrimordialDiscEUV(disc)
+                if R_hole:
+                    internal_photo._Hole=True
         else:
             internal_photo = None
     except KeyError:
@@ -252,8 +264,9 @@ def setup_wrapper(model, restart, output=True):
     # Setup model
     disc = setup_disc(model)
     if restart:
-        disc, time, datadict = restart_model(model, disc, restart)
-        driver = setup_model(model, disc, time, t_out = datadict['t'])
+        disc, time, datadict, photo_type, R_hole = restart_model(model, disc, restart)
+        
+        driver = setup_model(model, disc, time, internal_photo_type=photo_type, R_hole=R_hole)
     else:
         driver = setup_model(model, disc)
 
@@ -265,7 +278,7 @@ def setup_wrapper(model, restart, output=True):
         output_name, io_control, plot_name = None, None, None
 
     # Truncate disc at base of wind
-    if (driver.photoevap is not None):
+    if driver.photoevap and not restart:
         if (isinstance(driver.photoevap,photoevaporation.FRIEDExternalEvaporationMS)):
             driver.photoevap.optically_thin_weighting(disc)
             optically_thin = (disc.R > driver.photoevap._Rot)
@@ -332,8 +345,16 @@ def restart_model(model, disc, snap_number):
     not_future = disc.history.restart(datadict, time/yr)    # Pass time in years
     print("Restarting with times:")
     print(datadict['t'][not_future])
+    try:
+        R_hole = datadict['R_hole'][-1]
+        if np.isnan(R_hole):
+            R_hole = None
+        else:
+            print("Hole is at: {} AU".format(R_hole))
+    except:
+        R_hole = None
 
-    return disc, time, datadict     # Return disc objects, input data and time in code units
+    return disc, time, datadict, snap.photo_type, R_hole     # Return disc objects, time (code units), input data and internal photoevaporation type
 
 ###############################################################################
 # Saving
@@ -342,7 +363,6 @@ def restart_model(model, disc, snap_number):
 def save_summary(driver,model,):
     # 0 Select times of recording
     used_times = driver.disc.history.times()
-    dust = isinstance(driver.disc,DustGrowthTwoPop)
 
     # 1 Retrieve radii
     outer_radii, scale_radii, ot_radii, hole_radii = driver.disc.history.radii()
@@ -369,16 +389,16 @@ def save_summary(driver,model,):
 
     # 5 Photoevaporation rates
     Mevap = {}
-    if driver.photoevap:
+    if driver.photoevaporation:
         Mevap['M_ext'] = Mext
-    if driver._internal_photo:
+    if driver.photoevaporation_internal:
         Mevap['M_int'] = Mint
 
     # Save data
     outputdata = np.column_stack((used_times, disc_masses))
     head  = ['t','M_D']
     units = ['yr','g']
-    if dust:
+    if driver.dust:
         outputdata = np.column_stack((outputdata, dust_masses))
         head.append('M_d')
         units.append('g')
@@ -387,13 +407,12 @@ def save_summary(driver,model,):
         outputdata = np.column_stack((outputdata, radii))
         head.append(key)
         units.append('AU')
-    if dust:
+    if driver.dust:
         for key, radii in dust_radii.items():
             outputdata = np.column_stack((outputdata, radii))
             head.append('R_{}'.format(int(float(key)*100)))
             units.append('AU')
-
-    if driver._gas:
+    if driver.gas:
         outputdata = np.column_stack((outputdata, Macc))
         head.append('M_acc')
         units.append('Msun/yr')
@@ -402,7 +421,7 @@ def save_summary(driver,model,):
         outputdata = np.column_stack((outputdata, mdot))
         head.append(key)
         units.append('Msun/yr')
-    if dust and driver.photoevap:
+    if driver.dust and driver.photoevaporation:
         outputdata = np.column_stack((outputdata, dust_wind))
         head.append('M_wind')
         units.append('g')
@@ -463,7 +482,7 @@ def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_l
                     print ("No valid Hole radius as disc is depleted... terminating calculation at ~ {:.0f} yr".format(model.t/yr))
                     end = True
                 # Check if need to reset the hole or if have switched to direct field
-                elif model.photoevaporation_internal._switch and not hole_switch:
+                elif model.photoevaporation_internal._Thin and not hole_switch:
                     hole_open = np.inf
                     hole_switch = True
                 elif model.photoevaporation_internal._reset:

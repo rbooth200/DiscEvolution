@@ -168,9 +168,11 @@ class AccretionDisc(object):
         return self._FUV
 
     """Methods to determine global properties (and add to history)"""
-    def Rout(self, fit_LBP=False, Track=False):
+    def Rout(self, fit_LBP=False, Track=False, thresh=None):
+        if not thresh:
+            thresh = self.history._threshold
         """Determine the outer radius (density threshold) and add to history"""
-        notempty = self.Sigma_G > self.history._threshold
+        notempty = self.Sigma_G > thresh
         notempty_cells = self.R[notempty]
         if np.size(notempty_cells>0):
             R_outer = notempty_cells[-1]
@@ -216,7 +218,7 @@ class AccretionDisc(object):
         self._Sigma[:] = Sigma
 
     def update(self, dt):
-        """Update the disc properites and age"""
+        """Update the disc properties and age"""
 
         new_age = self._star.age + dt/(2*np.pi)
         self._star.evolve(new_age)

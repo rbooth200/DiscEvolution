@@ -21,12 +21,17 @@ class DiscSnap(object):
         with open(filename) as f:
             for line in f:
                 if not vars:
-                    if not line.startswith('# time'):
+                    if not (line.startswith('# time') or line.startswith('# InternalEvaporation')):
                         head += line
-                    else:
+                    elif line.startswith('# InternalEvaporation'):
+                        # Get internal photoevaporation type
+                        self._IPE = line.strip().split(',')[1].split(':')[-1]
+                        print(self._IPE)
+                    elif line.startswith('# time'):
                         vars = True
                         # Get the time
-                        self._t = float(line.strip().split(':')[1][:-2])
+                        self._t = float(line.strip().split(':')[1][:-2])                    
+
                     count += 1
                     continue
                 # Get data variables stored
@@ -71,7 +76,12 @@ class DiscSnap(object):
                 self._chem.gas.data[i] = data[names[iChem+i]]
                 self._chem.ice.data[i] = data[names[iChem+Nchem+i]]
                                                         
-
+    @property
+    def photo_type(self):
+        if hasattr(self,"_IPE"):
+            return self._IPE        
+        else:
+            return None
     @property
     def time(self):
         return self._t
@@ -114,7 +124,7 @@ class PlanetSnap(object):
                     else:
                         vars = True
                         # Get the time
-                        self._t = float(line.strip().split(':')[1][:-2])
+                        self._t = float(line.strip().split(':')[1][:-2])                    
                     count += 1
                     continue
                 # Get data variables stored

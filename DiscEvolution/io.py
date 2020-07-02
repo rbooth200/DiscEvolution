@@ -292,6 +292,12 @@ def dump_hdf5(filename, disc, time, headers=None):
 class DiscSnap(object):
     """Base class for disc data"""
     @property
+    def photo_type(self):
+        if hasattr(self,"_IPE"):
+            return self._IPE        
+        else:
+            return None
+    @property
     def time(self):
         return self._t
     @property
@@ -333,9 +339,14 @@ class AsciiDiscSnap(DiscSnap):
         with open(filename) as f:
             for line in f:
                 if not found_time:
-                    if not line.startswith('# time'):
+
+                    if not (line.startswith('# time') or line.startswith('# InternalEvaporation')):
                         head += line
-                    else:
+                    elif line.startswith('# InternalEvaporation'):
+                        # Get internal photoevaporation type
+                        self._IPE = line.split(',')[1].split(':')[-1].lstrip()
+                        print(self._IPE)
+                    elif line.startswith('# time'):
                         found_time = True
                         # Get the time
                         self._t = float(line.strip().split(':')[1][:-2])

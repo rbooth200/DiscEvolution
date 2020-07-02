@@ -49,6 +49,10 @@ class history(object):
         not_future = restartdata['t'] <= time
 
         try:
+            self._times = restartdata['t'][not_future]
+        except KeyError:
+            pass
+        try:
             self._Rout = restartdata['R_out'][not_future]
         except KeyError:
             pass
@@ -63,7 +67,10 @@ class history(object):
         try:
             self._Rh   = restartdata['R_hole'][not_future]
         except KeyError:
-            pass
+            if 'M_int' in restartdata.keys():
+                self._Rh = np.full_like(self._times,np.nan)
+            else:
+                pass                
         try:
             self._Mtot = restartdata['M_D'][not_future]
         except KeyError:
