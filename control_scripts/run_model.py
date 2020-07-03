@@ -32,7 +32,6 @@ from DiscEvolution.disc_utils import mkdir_p
 from DiscEvolution.internal_photo import PrimordialDiscXray, PrimordialDiscEUV, InnerHoleDiscXray, InnerHoleDiscEUV
 import DiscEvolution.photoevaporation as photoevaporation
 import FRIED.photorate as photorate
-#import subprocess
 
 ###############################################################################
 # Global Constants
@@ -278,17 +277,16 @@ def setup_wrapper(model, restart, output=True):
         output_name, io_control, plot_name = None, None, None
 
     # Truncate disc at base of wind
-    if driver.photoevap and not restart:
-        if (isinstance(driver.photoevap,photoevaporation.FRIEDExternalEvaporationMS)):
-            driver.photoevap.optically_thin_weighting(disc)
-            optically_thin = (disc.R > driver.photoevap._Rot)
+    if driver.photoevaporation_external and not restart:
+        if (isinstance(driver.photoevaporation_external,photoevaporation.FRIEDExternalEvaporationMS)):
+            driver.photoevaporation_external.optically_thin_weighting(disc)
+            optically_thin = (disc.R > driver.photoevaporation_external._Rot)
         else:
             initial_trunk = photoevaporation.FRIEDExternalEvaporationMS(disc)
             initial_trunk.optically_thin_weighting(disc)
             optically_thin = (disc.R > initial_trunk._Rot)
 
         disc._Sigma[optically_thin] = 0
-        disc._Rot = np.array([])
 
         """Lines to truncate with no mass loss if required for direct comparison"""
     """else:
@@ -296,9 +294,9 @@ def setup_wrapper(model, restart, output=True):
         optically_thin = (disc.R > disc.Rot(photoevap))"""
     
     Dt_nv = np.zeros_like(disc.R)
-    if driver.photoevap:
+    if driver.photoevaporation_external:
         # Perform estimate of evolution for non-viscous case
-        (_, _, M_cum, Dt_nv) = driver.photoevap.get_timescale(disc)
+        (_, _, M_cum, Dt_nv) = driver.photoevaporation_external.get_timescale(disc)
 
     return disc, driver, output_name, io_control, plot_name, Dt_nv
 
@@ -367,7 +365,7 @@ def save_summary(driver,model,):
     # 1 Retrieve radii
     outer_radii, scale_radii, ot_radii, hole_radii = driver.disc.history.radii()
     radii_select = {}
-    if driver.photoevap:
+    if driver.photoevaporation_external:
         radii_select['R_out'] = ot_radii
     else:
         radii_select['R_out'] = outer_radii
@@ -389,7 +387,7 @@ def save_summary(driver,model,):
 
     # 5 Photoevaporation rates
     Mevap = {}
-    if driver.photoevaporation:
+    if driver.photoevaporation_external:
         Mevap['M_ext'] = Mext
     if driver.photoevaporation_internal:
         Mevap['M_int'] = Mint
@@ -421,7 +419,7 @@ def save_summary(driver,model,):
         outputdata = np.column_stack((outputdata, mdot))
         head.append(key)
         units.append('Msun/yr')
-    if driver.dust and driver.photoevaporation:
+    if driver.dust and driver.photoevaporation_external:
         outputdata = np.column_stack((outputdata, dust_wind))
         head.append('M_wind')
         units.append('g')
@@ -467,13 +465,16 @@ def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_l
             """
 
             # External photoevaporation -  Read mass loss rates
-            if model.photoevaporation:
+            if model.photoevaporation_external:
                 not_empty = (model.disc.Sigma_G > 0)
-                Mdot_evap = model.photoevaporation.mass_loss_rate(model.disc,not_empty)
+                Mdot_evap = model.photoevaporation_external.mass_loss_rate(model.disc,not_empty)
                 # Stopping condition
                 if (np.amax(Mdot_evap)<=1e-10):
                     print ("Photoevaporation rates below FRIED floor... terminating calculation at ~ {:.0f} yr".format(model.t/yr))
                     end = True
+                elif mass_loss_mode == 'Constant' and model.photoevaporation_external._empty:
+                    print ("Photoevaporation has cleared entire disc... terminating calculation at ~ {:.0f} yr".format(model.t/yr))
+                    end = True                
 
             # Internal photoevaporation
             if model._internal_photo:
@@ -554,7 +555,7 @@ def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_l
             ### Measure disc properties and record
 
             # 1 Radius
-            if model.photoevaporation or model.photoevaporation_internal:
+            if model.photoevaporation_external or model.photoevaporation_internal:
                 model.disc.Rout(Track = True)
             else:
                 model.disc.Rout(fit_LBP=True, Track=True) # Locate outer radius by the density threshold
@@ -572,13 +573,13 @@ def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_l
             if model.gas:
                 model.disc.Mdot(model._gas.viscous_velocity(model.disc)[0], Track=True)
 
-            # 5 External photoevaporatipn mass loss
-            if (mass_loss_mode == 'Integrated'):
+            # 5 External photoevaporation mass loss
+            if mass_loss_mode == 'Integrated' or mass_loss_mode == 'Constant':
                 # Get the raw mass loss rates
-                (_, _) = model.photoevaporation.unweighted_rates(model.disc, Track=True)
-            elif model.photoevaporation:
+                model.photoevaporation_external.get_timescale(model.disc, Track=True)
+            elif model.photoevaporation_external:
                 # Get the weighted mass loss rates
-                (Mdot_evap, _) = model.photoevaporation.optically_thin_weighting(model.disc, Track=True)
+                (Mdot_evap, _) = model.photoevaporation_external.optically_thin_weighting(model.disc, Track=True)
 
             # 6 Internal photoevaporation
             if model.photoevaporation_internal:

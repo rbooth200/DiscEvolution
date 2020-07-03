@@ -19,16 +19,16 @@ class history(object):
         """Radii"""
         self._Rout  = np.array([])      # Outer radius of the disc (density), updated through disc.py
         self._Rc_t  = np.array([])      # Radius of current best fit scale radius, updated through disc.py
-        self._Rot   = np.array([])      # Radius where Mdot maximum ie where becomes optically thick, updated internally
-        self._Rh    = np.array([])      # Outer radius of the transition disc hole
+        self._Rot   = np.array([])      # Radius where Mdot maximum ie where becomes optically thick, updated through photoevaproation.py
+        self._Rh    = np.array([])      # Outer radius of the transition disc hole, updated through internal_photo.py
 
         """Mass"""
         self._Mtot = np.array([])       # Total mass, updated through disc.py
 
         """Mass Loss"""
         self._Mdot_acc = np.array([])   # Accretion rate, updated with velocity passed through disc.py
-        self._Mdot_ext = np.array([])   # External photoevaporation rate
-        self._Mdot_int = np.array([])   # Internal photoevaporation rate
+        self._Mdot_ext = np.array([])   # External photoevaporation rate, updated through photoevaproation.py
+        self._Mdot_int = np.array([])   # Internal photoevaporation rate, updated through internal_photo.py
 
     # Return times
     def times(self):
@@ -99,14 +99,14 @@ class dust_history(history):
         self._dthresholds = thresholds  # Threshold percentiles of dust mass
         
         """Radii"""
-        self._Rdust = {}                # Radius containing user defined fraction of dust
+        self._Rdust = {}                # Radius containing user defined fraction of dust, updated through dust.py
         for threshold in self._dthresholds:
             self._Rdust[threshold] = np.array([])
 
         """Mass"""
-        self._Mdust = np.array([])      # Mass of dust in disc
-        self._Mwind = np.array([])      # Amount of dust lost to wind
-        self._Mwind_cum  = 0.           # Amount of dust lost to wind       # THIS IS UPDATED EVERY STEP BY PHOTOEVAPORATION.PY
+        self._Mdust = np.array([])      # Mass of dust in disc, updated through dust.py
+        self._Mwind = np.array([])      # Amount of dust lost to wind, updated through dust.py
+        self._Mwind_cum  = 0.           # Amount of dust lost to wind, updated through photoevaporation.py
 
     # Return radii/masses/mass loss rates
     def radii_dust(self):

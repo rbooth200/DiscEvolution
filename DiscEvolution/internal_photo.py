@@ -19,15 +19,15 @@ class PhotoBase():
         self._regime = None     # EUV or X-ray
 
         # Evolutionary state flags
-        self._Hole = False      # Has the hole started to open?
+        self._Hole  = False      # Has the hole started to open?
         self._reset = False     # Have we needed to reset a decoy hole
         self._empty = False     # When no longer a valid hole radius or all below density threshold
-        self._Thin = False      # Is the hole exposed (ie low column density to star)? 
+        self._Thin  = False      # Is the hole exposed (ie low column density to star)? 
 
         # Parameters of hole
         self._R_hole = None
         self._N_hole = None
-        self._N_crit  = 0.0     # The column density threshold below which the inner disc is "Thin" (if 0, can never switch)
+        self._N_crit = 0.0     # The column density threshold below which the inner disc is "Thin" (if 0, can never switch)
 
         # Outer radius
         self._R_out = max(disc.R_edge)
@@ -73,10 +73,10 @@ class PhotoBase():
             self._Hole = True       # Set hole flag
         return self._tw
 
-    def remove_mass(self, disc, dt, photoevap=None):
+    def remove_mass(self, disc, dt, external_photo=None):
         # Find disc "outer edge" so we can apply mass loss only inside
-        if photoevap:
-            self._R_out = photoevap._Rot      # If external photoevaporation is present, only consider radii inside its influence
+        if external_photo:
+            self._R_out = external_photo._Rot      # If external photoevaporation is present, only consider radii inside its influence
         else:
             self._R_out = disc.Rout(thresh=1e-10)
         if disc.Rout()==0.0:
@@ -105,7 +105,7 @@ class PhotoBase():
             dM = 2*np.pi * disc.R * dSigma
             self._Mdot_true = np.trapz(dM,disc.R) / dt * AU**2 / Msun
 
-    def get_Rhole(self, disc, photoevap=None, Track=False):
+    def get_Rhole(self, disc, external_photo=None, Track=False):
         """Deal with calls when there is no hole"""
         if not self._Hole:
             if Track:
@@ -117,8 +117,8 @@ class PhotoBase():
 
         """Otherwise continue on to find hole
            First find outer edge of disc - hole must be inside this"""
-        if photoevap:
-            self._R_out = photoevap._Rot      # If external photoevaporation is present, only consider radii inside its influence
+        if external_photo:
+            self._R_out = external_photo._Rot      # If external photoevaporation is present, only consider radii inside its influence
         else:
             self._R_out = disc.Rout(thresh=1e-10)
         empty_indisc = (disc.Sigma_G <= 1e-10) * (disc.R < self._R_out)   # Consider empty if below 10^-10 g/cm^2
@@ -137,7 +137,6 @@ class PhotoBase():
                     raise NotHoleError
 
             """If hole position drops by an order of magnitude, it is likely that the previous was really the clearing of low surface density material in the outer disc, so erase its history"""
-            # This has not been tested with external photoevaporation also active
             if self._R_hole:
                 R_old = self._R_hole
                 if disc.R_edge[i_hole_out+1]/R_old<0.1:
@@ -183,8 +182,8 @@ class PhotoBase():
     def dSigmadt(self):
         return self._Sigmadot
 
-    def __call__(self, disc, dt, photoevap=None):
-        self.remove_mass(disc,dt, photoevap)
+    def __call__(self, disc, dt, external_photo=None):
+        self.remove_mass(disc,dt, external_photo)
 
     def ASCII_header(self):
         return ("# InternalEvaporation, Type: {}, Mdot: {}"
@@ -355,11 +354,11 @@ class InnerHoleDiscXray(PhotoBase):
         # Store values as average of mass loss rate at cell edges
         self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
 
-    def __call__(self, disc, dt, photoevap=None):
+    def __call__(self, disc, dt, external_photo=None):
         # Update the hole radius and hence the mass-loss profile
         self.get_Rhole(disc)
         self.Sigma_dot(disc.R_edge, disc.star) # Need to update as the normalisation changes based on R, not just x~R-Rhole
-        super().__call__(disc, dt, photoevap)
+        super().__call__(disc, dt, external_photo)
 
 #################################################################################
 """""""""
@@ -504,11 +503,11 @@ class InnerHoleDiscEUV(PhotoBase):
         # Store values as average of mass loss rate at cell edges
         self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
 
-    def __call__(self, disc, dt, photoevap=None):
+    def __call__(self, disc, dt, external_photo=None):
         # Update the hole radius and hence the mass-loss profile
         self.get_Rhole(disc)
         self.Sigma_dot(disc.R_edge, disc.star) # Need to update as the normalisation changes based on R, not just x~R-Rhole
-        super().__call__(disc, dt, photoevap)
+        super().__call__(disc, dt, external_photo)
 
 #################################################################################
 """""""""
@@ -613,7 +612,7 @@ def Sigma_dot_plot():
 
 if __name__ == "__main__":
     # Set extra things
-    DefaultModel = "../test_internal_photo/DiscConfig_default.json"
+    DefaultModel = "../control_scripts/DiscConfig_default.json"
     plt.rcParams['text.usetex'] = "True"
     plt.rcParams['font.family'] = "serif"
 

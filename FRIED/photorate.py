@@ -21,7 +21,6 @@ class Formatter(object):
 grid_parameters = np.loadtxt(os.environ['DISC_CODE_ROOT']+'/FRIED/friedgrid.dat',skiprows=1,usecols=(0,1,2,3,4))
 # Import M_dot
 grid_rate = np.loadtxt(os.environ['DISC_CODE_ROOT']+'/FRIED/friedgrid.dat',skiprows=1,usecols=5)
-#grid_rate_exp = np.power(10,grid_rate)
 
 # Calculate mass within 400 AU and add to grid as column 6
 M_400 = 2*np.pi*grid_parameters[:,3]*grid_parameters[:,4]*400*cst.AU**2/cst.Mjup
@@ -29,7 +28,7 @@ M_400 = np.reshape(M_400,(np.size(M_400),1))
 grid_parameters = np.hstack((grid_parameters,M_400))
 
 """
-Define the limits of the grid
+Define the limits of the FRIED grid
 """
 def Sigma_max(R,M_star):
 	return 0.2    * M_star*cst.Msun / (2*np.pi*R*400*cst.AU**2)
@@ -45,9 +44,9 @@ class FRIEDInterpolator(object):
 		M_dot = self.M_dot_interp(query_log) # Perform the interpolation
 		return np.power(10,M_dot) # Return exponentiated mass rate
 
-"""Linear interpolators - using either disc mass (M), surface density (S)"""
 """
-2D interpolators (no stellar mass or UV for computational speed) in log space
+Linear interpolators - using either disc mass (M), surface density (S) or extrapolated mass within 400 au (M400)
+All interpolators are 2D (no stellar mass or UV for computational speed) in log space
 """
 class FRIED_2D(FRIEDInterpolator):
 	def __init__(self, grid_parameters, grid_rate, M_star, UV, use_keys):
@@ -75,7 +74,7 @@ class FRIED_2D(FRIEDInterpolator):
 		# At high surface densities, clip to top of grid
 		envelope_regime = ( query_inputs[0] > Sigma_max(query_inputs[1],self._Mstar) ) * (query_inputs[1] > 1) * (query_inputs[1] < 400)
 
-		return ot_regime , envelope_regime, calc_rates
+		return ot_regime, envelope_regime, calc_rates
 
 class FRIED_2DS(FRIED_2D):
 	#Interpolates on surface density (S)
@@ -232,6 +231,7 @@ def D2_space(interp_type = '400', extrapolate=True, UV=1000, M_star = 1.0, save=
 
 if __name__ == "__main__":
     # If run as main, create plot showing the interpolation as function of R and Sigma
+    parser = argparse.ArgumentParser()
     parser.add_argument("--FUV", "-u", type=float, default=1000)
     args = parser.parse_args()
 

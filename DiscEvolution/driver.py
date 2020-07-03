@@ -43,7 +43,7 @@ class DiscEvolutionDriver(object):
         self._dust      = dust
         self._diffusion = diffusion
         self._chemistry = chemistry
-        self.photoevap = ext_photoevaporation
+        self._external_photo = ext_photoevaporation
         self._internal_photo = int_photoevaporation
 
         self._t = t0
@@ -70,17 +70,12 @@ class DiscEvolutionDriver(object):
             if self._dust._diffuse:
                 dt = min(dt, self._dust._diffuse.max_timestep(self._disc))
         if self._diffusion:
-            dt = min(dt, self._diffusion.max_timestep(self._disc))
-        
-        '''# If we are not using the timescale method of removal, we need to limit the time step based on photoevaporation
-        if (self.photoevap is not None and not isinstance(self.photoevap,FixedExternalEvaporation)): # For FRIED photoevaporation
-            if (not isinstance(self.photoevap.FRIED_Rates,photorate.FRIED_2DM) and not isinstance(self.photoevap.FRIED_Rates,photorate.FRIED_2DM400M)): # For density determined photoevaporation
-                (dM_dot, dM_gas) = self.photoevap.optically_thin_weighting(disc)
-                Dt = dM_gas[(dM_dot>0)] / dM_dot[(dM_dot>0)]
-                Dt_min = np.min(Dt)
-                dt = min(dt,Dt_min)'''
-        """if self._internal_photo:
-            dt = min(dt, self._internal_photo.get_dt(self._disc, dt))"""
+            dt = min(dt, self._diffusion.max_timestep(self._disc))       
+        if self._external_photo and hasattr(self._external_photo,"_density"): # If we are using density to calculate mass loss rates, we need to limit the time step based on photoevaporation
+            (dM_dot, dM_gas) = self._external_photo.optically_thin_weighting(disc)
+            Dt = dM_gas[(dM_dot>0)] / dM_dot[(dM_dot>0)]
+            Dt_min = np.min(Dt)
+            dt = min(dt,Dt_min)
         
 		# Determine tracers for dust step
         gas_chem, ice_chem = None, None
@@ -121,12 +116,12 @@ class DiscEvolutionDriver(object):
                 dust[:] += dt * self._diffusion(disc, dust)
 
         # Do external photoevaporation
-        if self.photoevap:
-            self.photoevap(disc, dt, self.t)
+        if self._external_photo:
+            self._external_photo(disc, dt)
 
         # Do internal photoevaporation
         if self._internal_photo:
-            self._internal_photo(disc, dt/yr, self.photoevap)
+            self._internal_photo(disc, dt/yr, self._external_photo)
 
         # Pin the values to >= 0 and <=1:
         disc.Sigma[:] = np.maximum(disc.Sigma, 0)        
@@ -161,7 +156,7 @@ class DiscEvolutionDriver(object):
         # Update the internal hole and check whether we need to switch the mass loss prescription
         if self._internal_photo and not self._internal_photo._Thin:   # Only if doing internal photoevaporation and the inner disc is not already optically thin
             if self._internal_photo._Hole:      # If there is a hole, update its properties 
-                R_hole, N_hole = self._internal_photo.get_Rhole(disc, self.photoevap)
+                R_hole, N_hole = self._internal_photo.get_Rhole(disc, self._external_photo)
             if self._internal_photo._Thin:      # If the hole is now large enough that inner disc optically thin, switch internal photoevaporation to direct field
                 print("Column density to hole has fallen to N = {} < {} g cm^-2".format(N_hole,self._internal_photo._N_crit))
                 if self._internal_photo._regime=='X-ray':
@@ -198,8 +193,8 @@ class DiscEvolutionDriver(object):
     def chemistry(self):
         return self._chemistry
     @property
-    def photoevaporation(self):
-        return self.photoevap
+    def photoevaporation_external(self):
+        return self._external_photo
     @property
     def photoevaporation_internal(self):
         return self._internal_photo
@@ -218,8 +213,8 @@ class DiscEvolutionDriver(object):
             head += self._diffusion.ASCII_header() + '\n'
         if self._chemistry:
             head += self._chemistry.ASCII_header() + '\n'
-        if self.photoevap:
-            head += self.photoevap.ASCII_header() + '\n'
+        if self._external_photo:
+            head += self._external_photo.ASCII_header() + '\n'
         if self._internal_photo:
             head += self._internal_photo.ASCII_header() + '\n'
 
@@ -233,7 +228,7 @@ class DiscEvolutionDriver(object):
         if self._dust:           headers.append(self._dust.HDF5_attributes())
         if self._diffusion:      headers.append(self._diffusion.HDF5_attributes())
         if self._chemistry:      headers.append(self._chemistry.HDF5_attributes())
-        if self.photoevap:       headers.append(self.photoevap.HDF5_attributes())
+        if self._external_photo: headers.append(self._external_photo.HDF5_attributes())
         if self._internal_photo: headers.append(self._internal_photo.HDF5_attributes())
 
         io.dump_hdf5(filename, self._disc, self.t, headers)

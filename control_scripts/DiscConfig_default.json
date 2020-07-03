@@ -1,0 +1,75 @@
+{
+"grid" : {
+"N" : 5000,
+"R0" : 0.025,
+"R1" : 10000.0,
+"spacing" : "natural"
+},
+
+"disc" : {
+"alpha" : 1e-3,
+"mass" : 100.0,
+"unit" : "jup",
+"Rc" : 100.0,
+"d2g" : 0.01,
+"Schmidt" : 1.0,
+"profile" : "LBP",
+"gamma" : 1
+},
+
+"eos" : {
+"type" : "iso",
+"opacity" : "Tazzari2016",
+"h0" : 0.033,
+"q" : -0.25,
+"mu" : 2.5
+},
+
+"star" : {
+"mass" : 1.0,
+"radius" : 2.5,
+"T_eff" : 4000.0
+},
+
+"transport" : {
+"gas" : true,
+"radial drift" : true,
+"diffusion" : true
+},
+
+"output" : {
+"directory" : "dusty_disc",
+"base" : "disc",
+"format" : "ascii",
+"arrange" : "log",
+"first" : 1e3,
+"last" : 1e7,
+"interval" : 20,
+"plot" : true,
+"plot_times" : [0],
+"plot_name" : "disc"
+},
+
+"fuv" : {
+"photoevaporation" : "None",
+"fuv_field" : 0
+},
+
+"dust" : {
+"radii_thresholds" : [0.68, 0.95],
+"ice_frag_v" : 1000,
+"dust_frag_v" : 100,
+"p" : 3.5,
+"density" : 1.0,
+"f_grow" : 1.0
+},
+
+"x-ray" : {
+"L_X" : 0
+},
+
+"euv" : {
+"Phi" : 0
+}
+
+}
