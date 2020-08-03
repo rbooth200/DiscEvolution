@@ -29,7 +29,7 @@ from DiscEvolution.diffusion import TracerDiffusion
 from DiscEvolution.driver import DiscEvolutionDriver
 from DiscEvolution.io import Event_Controller, DiscReader
 from DiscEvolution.disc_utils import mkdir_p
-from DiscEvolution.internal_photo import XrayDiscOwen, PrimordialDiscEUV, InnerHoleDiscEUV
+from DiscEvolution.internal_photo import XrayDiscOwen, EUVDiscAlexander
 import DiscEvolution.photoevaporation as photoevaporation
 import FRIED.photorate as photorate
 
@@ -180,7 +180,7 @@ def setup_model(model, disc, start_time=0, internal_photo_type="Primordial", R_h
         if model['x-ray']['L_X'] > 0:
             InnerHole = internal_photo_type.startswith('InnerHole')
             if InnerHole:
-                internal_photo = XrayDiscOwen(disc)
+                internal_photo = XrayDiscOwen(disc,Type='InnerHole')
             else:
                 internal_photo = XrayDiscOwen(disc)
                 if R_hole:
@@ -188,9 +188,9 @@ def setup_model(model, disc, start_time=0, internal_photo_type="Primordial", R_h
         elif model['euv']['Phi'] > 0:
             InnerHole = internal_photo_type.startswith('InnerHole')
             if InnerHole:
-                internal_photo = InnerHoleDiscEUV(disc,R_hole,None)
+                internal_photo = EUVDiscAlexander(disc,Type='InnerHole')
             else:
-                internal_photo = PrimordialDiscEUV(disc)
+                internal_photo = EUVDiscAlexander(disc)
                 if R_hole:
                     internal_photo._Hole=True
         else:
@@ -440,6 +440,7 @@ def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_l
     mass_loss_mode = all_in['fuv']['photoevaporation']
 
     end = False     # Flag to set in order to end computation
+    first = True    # Avoid duplicating output during hole clearing
     hole_open = 0   # Flag to set to snapshot hole opening
     hole_save = 0   # Flag to set to snapshot hole opening
     hole_snap_no = 100000
@@ -492,7 +493,7 @@ def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_l
                 # If the hole has opened, count steps and determine whether to do extra snapshot
                 if model.photoevaporation_internal._Hole:
                     hole_open += 1
-                    if (hole_open % hole_snap_no) == 1:
+                    if (hole_open % hole_snap_no) == 1 and not first:
                         ti = model.t
                         break
 
@@ -522,6 +523,7 @@ def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_l
             else:
                 ### Evolve model and return timestep ###
                 dt = model(ti)
+                first = False
 
             ### Printing
             if verbose and (model.num_steps % n_print) == 0:
@@ -535,7 +537,7 @@ def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_l
         grid = model.disc.grid
         
         ### Saving
-        if (io.check_event(model.t, 'save') or end or (hole_open % hole_snap_no)==1):
+        if io.check_event(model.t, 'save') or end or (hole_open % hole_snap_no)==1:
             model.disc.history._times = np.append(model.disc.history._times,[model.t / yr])
             save_no = len(model.disc.history.times()) - 1
 

@@ -27,10 +27,13 @@ class PhotoBase():
         # Parameters of hole
         self._R_hole = None
         self._N_hole = None
+        # The column density threshold below which the inner disc is "Thin"
         if self._regime=='X-ray':
             self._N_crit = 1e22
+        elif self._regime=='EUV':
+            self._N_crit = 1e18
         else:
-            self._N_crit = 0.0      # The column density threshold below which the inner disc is "Thin" (if 0, can never switch)
+            self._N_crit = 0.0      # (if 0, can never switch)
 
         # Outer radius
         self._R_out = max(disc.R_edge)
@@ -194,10 +197,6 @@ class PhotoBase():
     @property
     def dSigmadt(self):
         return self._Sigmadot
-        """if self._type=='Primordial':
-            return self._Sigmadot_Primordial
-        if self._type=='InnerHole':
-            return self._Sigmadot_InnerHole"""
 
     def __call__(self, disc, dt, external_photo=None):
         # For inner hole discs, need to update the hole radius and then the mass-loss as the normalisation changes based on R, not just x~R-Rhole.
@@ -226,7 +225,7 @@ class PhotoBase():
 
     def ASCII_header(self):
         return ("# InternalEvaporation, Type: {}, Mdot: {}"
-                "".format(self.__class__.__name__,self._Mdot))
+                "".format(self._type+self.__class__.__name__,self._Mdot))
 
     def HDF5_attributes(self):
         header = {}
@@ -284,11 +283,11 @@ class XrayDiscOwen(PhotoBase):
 
     def scaled_R(self, R, star):
         # Where R in AU
-        x = 0.85 * R / star.M                   # Equation B3
+        x = 0.85 * R / star.M                       # Equation B3
         if self._Hole:
             y = 0.95 * (R-self._R_hole) / star.M    # Equation B6
         else:
-            y = 0
+            y = R
         return x, y
 
     def R_inner(self, star):
@@ -368,17 +367,11 @@ and based on Font, McCarthy, Johnstone and Ballantyne (2004) for Primordial Disc
 and based on Alexander, Clarke and Pringle (2006) for Inner Hole Discs
 """""""""
 #################################################################################
-
-"""Primoridal Discs"""
-class PrimordialDiscEUV(PhotoBase):
-    def __init__(self, disc):
-        super().__init__(disc)
-        self._type = 'Primordial'
-        self._regime = 'EUV'
-        # Critical value for switching
-        self._N_crit = 1e18
+class EUVDiscAlexander(PhotoBase):
+    def __init__(self, disc, Type='Primordial'):
+        super().__init__(disc, Regime='EUV', Type=Type)
         
-        # Parameters for mass loss profile
+        # Parameters for mass loss profiles
         self._cs = 10                                           # Sound speed in km s^-1
         self._RG = disc.star.M / (self._cs*1e5 /Omega0/AU)**2   # Gravitational Radius in AU
         self._mu = 1.35
@@ -387,6 +380,14 @@ class PrimordialDiscEUV(PhotoBase):
         self._A  = 0.3423
         self._B  = -0.3612
         self._D  = 0.2457
+        self._C2 = 0.235
+        self._a  = 2.42
+        self._h  = disc.h_edge
+
+        # If initiating with an Inner Hole disc, need to update properties
+        if self._type == 'InnerHole':
+            self._Hole = True
+            self.get_Rhole(disc)
 
         # Run the mass loss rates to update the table
         self.Sigma_dot(disc.R_edge, disc.star)
@@ -397,14 +398,23 @@ class PrimordialDiscEUV(PhotoBase):
         self._Mdot_true = self._Mdot
 
     def scaled_R(self, R, star):
-        x = R / self._RG
-        return x
+        if self._type=='Primordial':
+            return R / self._RG         # Normalise to RG
+        elif self._type=='InnerHole':
+            return R / self.R_inner()   # Normalise to inner edge
+        else:
+            return R                    # If unspecified, don't modify
 
     def R_inner(self):
         # Innermost mass loss
-        return 0.1 * self._RG
+        if self._type=='Primordial':
+            return 0.1 * self._RG   # Mass loss profile is only positive for >0.1 RG
+        elif self._type=='InnerHole':
+            return self._R_hole     # Mass loss profile applies outside hole
+        else:
+            return 0                # If unspecified, assume mass-loss possible throughout 
 
-    def Sigma_dot(self, R, star):
+    def Sigma_dot_Primordial(self, R, star):
         Sigmadot = np.zeros_like(R)
         x = self.scaled_R(R,star)
         where_photoevap = (x >= 0.1)    # No mass loss close to star
@@ -421,9 +431,6 @@ class PrimordialDiscEUV(PhotoBase):
         Sigmadot[where_photoevap] = 2 * self._mu * m_H * (n0 * u1)[where_photoevap]  # g cm^-2 /yr
         Sigmadot = np.maximum(Sigmadot,0)
 
-        # Store values as average of mass loss rate at cell edges
-        self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
-
         # Work out total mass loss rate
         dMdot = 2*np.pi * R * Sigmadot
         Mdot  = np.trapz(dMdot,R)  # g yr^-1 (AU/cm)^2
@@ -434,50 +441,10 @@ class PrimordialDiscEUV(PhotoBase):
         # Store result
         self.mdot_XE(star, Mdot=Mdot)
 
-"""Inner Hole Discs"""
-class InnerHoleDiscEUV(PhotoBase):
-    def __init__(self, disc, R_hole, N_hole):
-        super().__init__(disc)
-        self._type = 'InnerHole'
-        self._regime = 'EUV'
-        # Parameters of hole
-        self._R_hole = R_hole
-        self._N_hole = N_hole
-        # Update flags
-        self._Hole = True        
-        self._Thin = True
-        # Critical value for switching
-        self._N_crit = 1e18
-        
-        # Parameters for mass loss profile
-        self._cs = 10                                           # Sound speed in km s^-1
-        self._RG = disc.star.M / (self._cs*1e5 /Omega0/AU)**2   # Gravitational Radius in AU
-        self._mu = 1.35
-        self._aB = 2.6e-13                                      # Case B Recombination coeff. in cm^3 s^-1
-        self._C2 = 0.235
-        self._a  = 2.42
-        self._h  = disc.h_edge
+        # Store values as average of mass loss rate at cell edges
+        self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
 
-        # Run the mass loss rates to update the table
-        self.Sigma_dot(disc.R_edge, disc.star)
-        
-        # Report
-        print("At initiation, M_D = {} M_J, Mdot = {}, t_clear ~ {} yr".format(disc.Mtot()/Mjup, self._Mdot, disc.Mtot()/Msun/self._Mdot))
-
-    def mdot_XE(self, star, Mdot=0):
-        # Store Mdot calculated from profile
-        self._Mdot = Mdot  # In Msun/yr
-        self._Mdot_true = self._Mdot
-
-    def scaled_R(self, R, star):
-        x = R / self.R_inner()
-        return x
-
-    def R_inner(self):
-        # Innermost mass loss
-        return self._R_hole
-
-    def Sigma_dot(self, R, star):
+    def Sigma_dot_InnerHole(self, R, star):
         Sigmadot = np.zeros_like(R)
         x = self.scaled_R(R,star)
         where_photoevap = (x > 1)    # No mass loss inside hole
@@ -502,12 +469,6 @@ class InnerHoleDiscEUV(PhotoBase):
 
         # Store values as average of mass loss rate at cell edges
         self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
-
-    def __call__(self, disc, dt, external_photo=None):
-        # Update the hole radius and hence the mass-loss profile
-        self.get_Rhole(disc)
-        self.Sigma_dot(disc.R_edge, disc.star) # Need to update as the normalisation changes based on R, not just x~R-Rhole
-        super().__call__(disc, dt, external_photo)
 
 #################################################################################
 """""""""

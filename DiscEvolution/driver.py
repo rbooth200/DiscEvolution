@@ -11,7 +11,6 @@ import os
 import FRIED.photorate as photorate
 from .photoevaporation import FixedExternalEvaporation
 from .constants import yr
-from .internal_photo import InnerHoleDiscEUV
 from . import io
 
 class DiscEvolutionDriver(object):
