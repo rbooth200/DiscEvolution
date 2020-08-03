@@ -443,7 +443,10 @@ def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_l
     first = True    # Avoid duplicating output during hole clearing
     hole_open = 0   # Flag to set to snapshot hole opening
     hole_save = 0   # Flag to set to snapshot hole opening
-    hole_snap_no = 100000
+    if all_in['transport']['radial drift']:
+        hole_snap_no = 1e5
+    else:
+        hole_snap_no = 1e4
     hole_switch = False
 
     if restart:

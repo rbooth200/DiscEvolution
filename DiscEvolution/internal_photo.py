@@ -1,3 +1,10 @@
+# internal_photo.py
+#
+# Author: A. Sellek
+# Date: 03 - Aug - 2018
+#
+# Implementation of Photoevaporation Models
+################################################################################
 import numpy as np
 import argparse
 import json
@@ -141,13 +148,17 @@ class PhotoBase():
 
         try:
             if np.sum(empty_indisc) == 0:                   # If none in disc are empty
-                i_hole_out = argrelmin(disc.Sigma_G)[0][0]  # Position of hole is minimum density
+                minima = argrelmin(disc.Sigma_G)
+                if len(minima[0]) > 0:
+                    i_hole_out = minima[0][0]  # Position of hole is minimum density
+                else:   # No empty cells anymore - disc has cleared to outside
+                    raise NotHoleError
             else:
                 # First find the inner edge of the innermost hole
                 i_hole_in  = np.nonzero(empty_indisc)[0][0]
                 # The hole cell is defined as the one inside the first non-empty cell outside the inner edge of the hole
                 outer_disc = ~empty_indisc * (disc.R>disc.R_edge[i_hole_in])
-                if np.sum(outer_disc) != 0:
+                if np.sum(outer_disc) > 0:
                     i_hole_out = np.nonzero(outer_disc)[0][0] - 1  
                 else:   # No non-empty cells outside this - this isn't a hole but an outer edge.
                     raise NotHoleError
@@ -177,7 +188,7 @@ class PhotoBase():
                 if self._R_hole:
                     print("Last known location {} AU".format(self._R_hole))
                 return 0, 0
-            elif self._type == 'Inner Hole':
+            elif self._type == 'InnerHole':
                 if not self._empty:
                     print("Transition Disc has cleared to outside")
                     self._empty = True
