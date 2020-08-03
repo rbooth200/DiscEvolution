@@ -11,23 +11,26 @@ class NotHoleError(Exception):
     pass
 
 class PhotoBase():
-    def __init__(self, disc):
+    def __init__(self, disc, Regime=None, Type=None):
         # Basic mass loss properties
-        self.mdot_XE(disc.star)
+        self._regime = Regime   # EUV or X-ray
+        self._type   = Type     # 'Primordial' or 'InnerHole'
         self._Sigmadot = np.zeros_like(disc.R)
-        self._type   = None     # Primordial or Inner Hole
-        self._regime = None     # EUV or X-ray
+        self.mdot_XE(disc.star)
 
         # Evolutionary state flags
-        self._Hole  = False      # Has the hole started to open?
-        self._reset = False     # Have we needed to reset a decoy hole
+        self._Hole  = False     # Has the hole started to open?
+        self._reset = False     # Have we needed to reset a decoy hole?
         self._empty = False     # When no longer a valid hole radius or all below density threshold
-        self._Thin  = False      # Is the hole exposed (ie low column density to star)? 
+        self._Thin  = False     # Is the hole exposed (ie low column density to star)? 
 
         # Parameters of hole
         self._R_hole = None
         self._N_hole = None
-        self._N_crit = 0.0     # The column density threshold below which the inner disc is "Thin" (if 0, can never switch)
+        if self._regime=='X-ray':
+            self._N_crit = 1e22
+        else:
+            self._N_crit = 0.0      # The column density threshold below which the inner disc is "Thin" (if 0, can never switch)
 
         # Outer radius
         self._R_out = max(disc.R_edge)
@@ -39,6 +42,16 @@ class PhotoBase():
         self._Mdot_true = Mdot
 
     def Sigma_dot(self, R, star):
+        if self._type=='Primordial':
+            self.Sigma_dot_Primordial(R, star)
+        elif self._type=='InnerHole':
+            self.Sigma_dot_InnerHole(R, star)
+
+    def Sigma_dot_Primordial(self, R, star):
+        # Without prescription, mass loss is 0
+        self._Sigmadot = np.zeros_like(R)
+
+    def Sigma_dot_InnerHole(self, R, star):
         # Without prescription, mass loss is 0
         self._Sigmadot = np.zeros_like(R)
 
@@ -181,14 +194,39 @@ class PhotoBase():
     @property
     def dSigmadt(self):
         return self._Sigmadot
+        """if self._type=='Primordial':
+            return self._Sigmadot_Primordial
+        if self._type=='InnerHole':
+            return self._Sigmadot_InnerHole"""
 
     def __call__(self, disc, dt, external_photo=None):
-        self.remove_mass(disc,dt, external_photo)
+        # For inner hole discs, need to update the hole radius and then the mass-loss as the normalisation changes based on R, not just x~R-Rhole.
+        if self._type=='InnerHole':
+            self.get_Rhole(disc)
+            self.Sigma_dot(disc.R_edge, disc.star)
+
+        # Remove the mass
+        self.remove_mass(disc,dt, external_photo)   
+
+        # Check for new holes
+        if self._Hole and not self._Thin:   #  If there is a hole but the inner disc is not already optically thin, update its properties
+            R_hole, N_hole = self.get_Rhole(disc, external_photo)
+
+            # Check if hole is now large enough that inner disc optically thin, switch internal photoevaporation to direct field if so
+            if self._Thin:
+                print("Column density to hole has fallen to N = {} < {} g cm^-2".format(N_hole,self._N_crit))
+                self._type = 'InnerHole'
+
+                # Run the mass loss rates to update the table
+                self.mdot_XE(disc.star)
+                self.Sigma_dot(disc.R_edge, disc.star)
+
+                # Report
+                print("At initiation of InnerHole Type, M_D = {} M_J, Mdot = {}, t_clear ~ {} yr".format(disc.Mtot()/Mjup, self._Mdot, disc.Mtot()/Msun/self._Mdot))
 
     def ASCII_header(self):
         return ("# InternalEvaporation, Type: {}, Mdot: {}"
                 "".format(self.__class__.__name__,self._Mdot))
-
 
     def HDF5_attributes(self):
         header = {}
@@ -200,19 +238,15 @@ class PhotoBase():
 """""""""
 X-ray dominated photoevaporation
 Following prescription of Owen, Ercolano and Clarke (2012)
+Following prescription of Picogna et al. (2019)
 """""""""
 #################################################################################
+"""Owen, Ercolano and Clarke (2012)"""
+class XrayDiscOwen(PhotoBase):
+    def __init__(self, disc, Type='Primordial'):
+        super().__init__(disc, Regime='X-ray', Type=Type)
 
-"""Primoridal Discs"""
-class PrimordialDiscXray(PhotoBase):
-    def __init__(self, disc):
-        super().__init__(disc)
-        self._type = 'Primordial'
-        self._regime = 'X-ray'
-        # Critical value for switching
-        self._N_crit = 1e22
-
-        # Parameters for mass loss profile
+        # Parameters for Primordial mass loss profile
         self._a1 = 0.15138
         self._b1 = -1.2182
         self._c1 = 3.4046
@@ -220,31 +254,51 @@ class PrimordialDiscXray(PhotoBase):
         self._e1 = -0.32762
         self._f1 = 3.6064
         self._g1 = -2.4918
+        # Parameters for Inner Hole mass loss profile
+        self._a2 = -0.438226
+        self._b2 = -0.10658387
+        self._c2 = 0.5699464
+        self._d2 = 0.010732277
+        self._e2 = -0.131809597
+        self._f2 = -1.32285709
+
+        # If initiating with an Inner Hole disc, need to update properties
+        if self._type == 'InnerHole':
+            self._Hole = True
+            self.get_Rhole(disc)
+
         # Run the mass loss rates to update the table
         self.Sigma_dot(disc.R_edge, disc.star)
 
     def mdot_XE(self, star, Mdot=None):
-        # Equation B1
+        # In Msun/yr
         if Mdot is not None:
             self._Mdot = Mdot
+        elif self._type=='Primordial':
+            self._Mdot = 6.25e-9 * star.M**(-0.068) * (star.L_X / 1e30)**(1.14) # Equation B1
+        elif self._type=='InnerHole':
+            self._Mdot = 4.8e-9 * star.M**(-0.148) * (star.L_X / 1e30)**(1.14)  # Equation B4
         else:
-            self._Mdot = 6.25e-9 * star.M**(-0.068) * (star.L_X / 1e30)**(1.14) # In Msun/yr
+            raise NotImplementedError("Disc is of unrecognised type, and no mass-loss rate has been manually specified")
         self._Mdot_true = self._Mdot
 
     def scaled_R(self, R, star):
-        # Equation B3
         # Where R in AU
-        x = 0.85 * R / star.M
-        return x
+        x = 0.85 * R / star.M                   # Equation B3
+        if self._Hole:
+            y = 0.95 * (R-self._R_hole) / star.M    # Equation B6
+        else:
+            y = 0
+        return x, y
 
     def R_inner(self, star):
         # Innermost mass loss
         return 0.7 / 0.85 * star.M
 
-    def Sigma_dot(self, R, star):
+    def Sigma_dot_Primordial(self, R, star):
         # Equation B2
         Sigmadot = np.zeros_like(R)
-        x = self.scaled_R(R,star)
+        x, y = self.scaled_R(R,star)
         where_photoevap = (x >= 0.7) * (x<=99) # No mass loss close to star, mass loss prescription becomes negative at log10(x)=1.996
         logx = np.log(x[where_photoevap])
         log10 = np.log(10)
@@ -275,56 +329,7 @@ class PrimordialDiscXray(PhotoBase):
         # Store values as average of mass loss rate at cell edges
         self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
 
-"""Inner Hole Discs"""
-class InnerHoleDiscXray(PhotoBase):
-    def __init__(self, disc, R_hole, N_hole):
-        super().__init__(disc)
-        self._type = 'InnerHole'
-        self._regime = 'X-ray'
-        # Parameters of hole
-        self._R_hole = R_hole
-        self._N_hole = N_hole
-        # Update flags
-        self._Hole = True        
-        self._Thin = True
-        # Critical value for switching
-        self._N_crit = 1e22
-
-        # Parameters for mass loss
-        self._a2 = -0.438226
-        self._b2 = -0.10658387
-        self._c2 = 0.5699464
-        self._d2 = 0.010732277
-        self._e2 = -0.131809597
-        self._f2 = -1.32285709
-
-        # Run the mass loss rates to update the table
-        self.Sigma_dot(disc.R_edge, disc.star)
-
-        # Report
-        print("At initiation, M_D = {} M_J, Mdot = {}, t_clear = {} yr".format(disc.Mtot()/Mjup, self._Mdot, disc.Mtot()/Msun/self._Mdot))
-
-
-    def mdot_XE(self, star, Mdot=None):
-        # Equation B4
-        if Mdot is not None:
-            self._Mdot = Mdot
-        else:
-            self._Mdot = 4.8e-9 * star.M**(-0.148) * (star.L_X / 1e30)**(1.14) # In Msun/yr
-        self._Mdot_true = self._Mdot
-
-    def scaled_R(self, R, star):
-        # Equation B6
-        # Where R in AU
-        x = 0.85 * R / star.M
-        y = 0.95 * (R-self._R_hole) / star.M
-        return x, y
-
-    def R_inner(self, star):
-        # Innermost mass loss
-        return 0.7 / 0.85 * star.M
-
-    def Sigma_dot(self, R, star):
+    def Sigma_dot_InnerHole(self, R, star):
         # Equation B5
         Sigmadot = np.zeros_like(R)
         x, y = self.scaled_R(R,star)
@@ -345,6 +350,7 @@ class InnerHoleDiscXray(PhotoBase):
         total = np.trapz(M_dot,R)
 
         # Normalise, convert to cgs
+        Sigmadot = np.maximum(Sigmadot,0)
         Sigmadot *= self.Mdot / total * Msun / AU**2 # in g cm^-2 / yr
 
         # Mopping up in the gap
@@ -353,12 +359,6 @@ class InnerHoleDiscXray(PhotoBase):
 
         # Store values as average of mass loss rate at cell edges
         self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
-
-    def __call__(self, disc, dt, external_photo=None):
-        # Update the hole radius and hence the mass-loss profile
-        self.get_Rhole(disc)
-        self.Sigma_dot(disc.R_edge, disc.star) # Need to update as the normalisation changes based on R, not just x~R-Rhole
-        super().__call__(disc, dt, external_photo)
 
 #################################################################################
 """""""""
@@ -462,7 +462,7 @@ class InnerHoleDiscEUV(PhotoBase):
         self.Sigma_dot(disc.R_edge, disc.star)
         
         # Report
-        print("At initiation, M_D = {} M_J, Mdot = {}, t_clear = {} yr".format(disc.Mtot()/Mjup, self._Mdot, disc.Mtot()/Msun/self._Mdot))
+        print("At initiation, M_D = {} M_J, Mdot = {}, t_clear ~ {} yr".format(disc.Mtot()/Mjup, self._Mdot, disc.Mtot()/Msun/self._Mdot))
 
     def mdot_XE(self, star, Mdot=0):
         # Store Mdot calculated from profile

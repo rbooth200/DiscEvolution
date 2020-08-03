@@ -11,7 +11,7 @@ import os
 import FRIED.photorate as photorate
 from .photoevaporation import FixedExternalEvaporation
 from .constants import yr
-from .internal_photo import InnerHoleDiscXray, InnerHoleDiscEUV
+from .internal_photo import InnerHoleDiscEUV
 from . import io
 
 class DiscEvolutionDriver(object):
@@ -153,7 +153,7 @@ class DiscEvolutionDriver(object):
         # Now we should update the auxillary properties, do grain growth etc
         disc.update(dt)
 
-        # Update the internal hole and check whether we need to switch the mass loss prescription
+        """# Update the internal hole and check whether we need to switch the mass loss prescription
         if self._internal_photo and not self._internal_photo._Thin:   # Only if doing internal photoevaporation and the inner disc is not already optically thin
             if self._internal_photo._Hole:      # If there is a hole, update its properties 
                 R_hole, N_hole = self._internal_photo.get_Rhole(disc, self._external_photo)
@@ -162,7 +162,7 @@ class DiscEvolutionDriver(object):
                 if self._internal_photo._regime=='X-ray':
                     self._internal_photo = InnerHoleDiscXray(disc, R_hole, N_hole)
                 elif self._internal_photo._regime=='EUV':
-                    self._internal_photo = InnerHoleDiscEUV(disc, R_hole, N_hole)
+                    self._internal_photo = InnerHoleDiscEUV(disc, R_hole, N_hole)"""
 
         self._t += dt
         self._nstep += 1

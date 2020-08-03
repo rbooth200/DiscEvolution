@@ -29,7 +29,7 @@ from DiscEvolution.diffusion import TracerDiffusion
 from DiscEvolution.driver import DiscEvolutionDriver
 from DiscEvolution.io import Event_Controller, DiscReader
 from DiscEvolution.disc_utils import mkdir_p
-from DiscEvolution.internal_photo import PrimordialDiscXray, PrimordialDiscEUV, InnerHoleDiscXray, InnerHoleDiscEUV
+from DiscEvolution.internal_photo import XrayDiscOwen, PrimordialDiscEUV, InnerHoleDiscEUV
 import DiscEvolution.photoevaporation as photoevaporation
 import FRIED.photorate as photorate
 
@@ -180,9 +180,9 @@ def setup_model(model, disc, start_time=0, internal_photo_type="Primordial", R_h
         if model['x-ray']['L_X'] > 0:
             InnerHole = internal_photo_type.startswith('InnerHole')
             if InnerHole:
-                internal_photo = InnerHoleDiscXray(disc,R_hole,None)
+                internal_photo = XrayDiscOwen(disc)
             else:
-                internal_photo = PrimordialDiscXray(disc)
+                internal_photo = XrayDiscOwen(disc)
                 if R_hole:
                     internal_photo._Hole=True
         elif model['euv']['Phi'] > 0:
