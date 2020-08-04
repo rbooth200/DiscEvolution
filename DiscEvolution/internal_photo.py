@@ -87,20 +87,25 @@ class PhotoBase():
         t_w[where_photoevap] = disc.Sigma_G[where_photoevap] / self.dSigmadt[where_photoevap]
 
         # Return minimum value for cells inside outer edge        
-        indisc = (disc.R < self._R_out)
+        indisc = (disc.R < self._R_out) * where_photoevap   # Prohibit hole outside of mass loss region.
         try:
             imin = argrelmin(t_w[indisc])[0][0] # Find local minima in clearing time, neglecting outer edge where tails off. Take first to avoid solutions due to noise in dusty outskirts
+            if imin == np.nonzero(indisc)[-1]:
+                self._Hole = False
+                return 0
+
         except:
-            imin = np.argmin(t_w[indisc])       # Above can break if Rout = Outermost from which Sigmadot is > 0, and no local minimum at small R in this case just take global min. 
-        self._tw = t_w[imin]
+            imin = np.argmin(t_w[indisc])       # Above can break if Rout = Outermost from which Sigmadot is > 0, and no local minimum at small R in this case there can be no hole. 
+            self._Hole = False
+            return 0
 
         # Check against timestep and report
-        if (dt > self._tw):         # If an entire cell can deplete
+        if (dt > t_w[imin]):         # If an entire cell can deplete
             if not self._Hole:
                 print("Alert - hole can open after this timestep at {:.2f} AU".format(disc.R[imin]))
                 print("Outer radius is currently {:.2f} AU".format(self._R_out))
             self._Hole = True       # Set hole flag
-        return self._tw
+        return t_w[imin]
 
     def remove_mass(self, disc, dt, external_photo=None):
         # Find disc "outer edge" so we can apply mass loss only inside
