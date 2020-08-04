@@ -57,13 +57,19 @@ class PhotoBase():
         elif self._type=='InnerHole':
             self.Sigma_dot_InnerHole(R, star)
 
-    def Sigma_dot_Primordial(self, R, star):
+    def Sigma_dot_Primordial(self, R, star, ret=False):
         # Without prescription, mass loss is 0
-        self._Sigmadot = np.zeros_like(R)
+        if ret:
+            return np.zeros(len(R)+1)
+        else:
+            self._Sigmadot = np.zeros_like(R)
 
-    def Sigma_dot_InnerHole(self, R, star):
+    def Sigma_dot_InnerHole(self, R, star, ret=False):
         # Without prescription, mass loss is 0
-        self._Sigmadot = np.zeros_like(R)
+        if ret:
+            return np.zeros(len(R)+1)
+        else:
+            self._Sigmadot = np.zeros_like(R)
 
     def scaled_R(self, R, star):
         # Prescriptions may rescale the radius variable 
@@ -82,11 +88,11 @@ class PhotoBase():
 
         # Return minimum value for cells inside outer edge        
         indisc = (disc.R < self._R_out)
-        imin = argrelmin(t_w[indisc])[0]    # Find local minima in clearing time, neglecting outer edge where tails off. Take first to avoid solutions due to noise in dusty outskirts
+        try:
+            imin = argrelmin(t_w[indisc])[0][0] # Find local minima in clearing time, neglecting outer edge where tails off. Take first to avoid solutions due to noise in dusty outskirts
+        except:
+            imin = np.argmin(t_w[indisc])       # Above can break if Rout = Outermost from which Sigmadot is > 0, and no local minimum at small R in this case just take global min. 
         self._tw = t_w[imin]
-        imin2 = np.argmin(self._tw)         # In case there are several minima, identify the lowest
-        self._tw = self._tw[imin2]
-        imin = imin[imin2]
 
         # Check against timestep and report
         if (dt > self._tw):         # If an entire cell can deplete
@@ -247,8 +253,8 @@ class PhotoBase():
 #################################################################################
 """""""""
 X-ray dominated photoevaporation
-Following prescription of Owen, Ercolano and Clarke (2012)
-Following prescription of Picogna et al. (2019)
+-Following prescription of Owen, Ercolano and Clarke (2012)
+-Following prescription of Picogna, Ercolano, Owen and Weber (2019)
 """""""""
 #################################################################################
 """Owen, Ercolano and Clarke (2012)"""
@@ -305,7 +311,7 @@ class XrayDiscOwen(PhotoBase):
         # Innermost mass loss
         return 0.7 / 0.85 * star.M
 
-    def Sigma_dot_Primordial(self, R, star):
+    def Sigma_dot_Primordial(self, R, star, ret=False):
         # Equation B2
         Sigmadot = np.zeros_like(R)
         x, y = self.scaled_R(R,star)
@@ -336,10 +342,14 @@ class XrayDiscOwen(PhotoBase):
         Sigmadot = np.maximum(Sigmadot,0)
         Sigmadot *= self.Mdot / total * Msun / AU**2 # in g cm^-2 / yr
 
-        # Store values as average of mass loss rate at cell edges
-        self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
+        if ret:
+            # Return unaveraged values at cell edges
+            return Sigmadot
+        else:
+            # Store values as average of mass loss rate at cell edges
+            self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
 
-    def Sigma_dot_InnerHole(self, R, star):
+    def Sigma_dot_InnerHole(self, R, star, ret=False):
         # Equation B5
         Sigmadot = np.zeros_like(R)
         x, y = self.scaled_R(R,star)
@@ -367,15 +377,144 @@ class XrayDiscOwen(PhotoBase):
         mop_up = (x >= 0.7) * (y < 0.0)
         Sigmadot[mop_up] = np.inf
 
-        # Store values as average of mass loss rate at cell edges
-        self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
+        if ret:
+            # Return unaveraged values at cell edges
+            return Sigmadot
+        else:
+            # Store values as average of mass loss rate at cell edges
+            self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
+
+"""Picogna, Ercolano, Owen and Weber (2019)"""
+class XrayDiscPicogna(PhotoBase):
+    def __init__(self, disc, Type='Primordial'):
+        super().__init__(disc, Regime='X-ray', Type=Type)
+
+        # Parameters for Primordial mass loss profile
+        self._a1 = -0.5885
+        self._b1 = 4.3130
+        self._c1 = -12.1214
+        self._d1 = 16.3587
+        self._e1 = -11.4721
+        self._f1 = 5.7248
+        self._g1 = -2.8562
+        # Parameters for Inner Hole mass loss profile
+        self._a2 = 0.11843
+        self._b2 = 0.99695
+        self._c2 = 0.48835
+
+        # If initiating with an Inner Hole disc, need to update properties
+        if self._type == 'InnerHole':
+            self._Hole = True
+            self.get_Rhole(disc)
+
+        # Run the mass loss rates to update the table
+        self.Sigma_dot(disc.R_edge, disc.star)
+
+    def mdot_XE(self, star, Mdot=None):
+        # In Msun/yr
+        if Mdot is not None:
+            self._Mdot = Mdot
+        elif self._type=='Primordial':
+            logMd = -2.7326 * np.exp((np.log(np.log(star.L_X)/np.log(10))-3.3307)**2/-2.9868e-3) - 7.2580  # Equation 5
+            self._Mdot = 10**logMd
+        elif self._type=='InnerHole':
+            logMd = -2.7326 * np.exp((np.log(np.log(star.L_X)/np.log(10))-3.3307)**2/-2.9868e-3) - 7.2580  # 1.12 * Equation 5
+            self._Mdot = 1.12 * (10**logMd)
+        else:
+            raise NotImplementedError("Disc is of unrecognised type, and no mass-loss rate has been manually specified")
+        self._Mdot_true = self._Mdot
+
+    def scaled_R(self, R, star):
+        # Where R in AU
+        # All are divided by stellar mass normalised to 0.7 Msun (value used by Picogna+19) to represent rescaling by gravitational radius 
+        x = R / (star.M/0.7)
+        if self._Hole:
+            y = (R-self._R_hole) / (star.M/0.7)    # Equation B6
+        else:
+            y = R / (star.M/0.7)
+        return x, y
+
+    def R_inner(self, star):
+        # Innermost mass loss
+        if self._type=='Primordial':
+            return 0                # Mass loss possible throughout
+        elif self._type=='InnerHole':
+            return self._R_hole     # Mass loss profile applies outside hole
+        else:
+            return 0                # If unspecified, assume mass loss possible throughout 
+
+    def Sigma_dot_Primordial(self, R, star, ret=False):
+        # Equation B2
+        Sigmadot = np.zeros_like(R)
+        x, y = self.scaled_R(R,star)
+        where_photoevap = (x<=137) # Mass loss prescription becomes negative at x=1.3785
+        logx = np.log(x[where_photoevap])
+        log10 = np.log(10)
+        log10x = logx/log10
+
+        # First term
+        exponent = self._a1 * log10x**6 + self._b1 * log10x**5 + self._c1 * log10x**4 + self._d1 * log10x**3 + self._e1 * log10x**2 + self._f1 * log10x + self._g1
+        t1 = 10**exponent
+
+        # Second term
+        terms = 6*self._a1*log10x**5 + 5*self._b1*log10x**4 + 4*self._c1*log10x**3 + 3*self._d1*log10x**2 + 2*self._e1*log10x + self._f1
+        t2 = terms/(2*np.pi*x[where_photoevap]**2)
+
+        # Combine terms
+        Sigmadot[where_photoevap] = t1 * t2
+
+        # Work out total mass loss rate for normalisation
+        M_dot = 2*np.pi * R * Sigmadot
+        total = np.trapz(M_dot,R)
+
+        # Normalise, convert to cgs
+        Sigmadot = np.maximum(Sigmadot,0)
+        Sigmadot *= self.Mdot / total * Msun / AU**2 # in g cm^-2 / yr
+
+        if ret:
+            # Return unaveraged values at cell edges
+            return Sigmadot
+        else:
+            # Store values as average of mass loss rate at cell edges
+            self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
+
+    def Sigma_dot_InnerHole(self, R, star, ret=False):
+        # Equation B5
+        Sigmadot = np.zeros_like(R)
+        x, y = self.scaled_R(R,star)
+        where_photoevap = (y > 0.0) * (y < -self._c2/np.log(self._b2)) # No mass loss inside hole, becomes negative at x=-c/ln(b)
+        use_y = y[where_photoevap]
+
+        # Numerator
+        terms = self._a2 * np.power(self._b2,use_y) * np.power(use_y,self._c2-1) * (use_y * np.log(self._b2) + self._c2)
+
+        # Divide by Denominator
+        Sigmadot[where_photoevap] = terms/(2*np.pi*R[where_photoevap])
+
+        # Work out total mass loss rate for normalisation
+        M_dot = 2*np.pi * R * Sigmadot
+        total = np.trapz(M_dot,R)
+
+        # Normalise, convert to cgs
+        Sigmadot = np.maximum(Sigmadot,0)
+        Sigmadot *= self.Mdot / total * Msun / AU**2 # in g cm^-2 / yr
+
+        # Mopping up in the gap - assume usual primordial rates there.
+        Sigmadot[(y<=0.0) * (x<=137)] = self.Sigma_dot_Primordial(R, star, ret=True)[(y<=0.0)*(x<=137)]/1.12 # divide by 1.12 so that normalise to correct mass loss rate
+
+        if ret:
+            # Return unaveraged values at cell edges
+            return Sigmadot
+        else:
+            # Store values as average of mass loss rate at cell edges
+            self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
 
 #################################################################################
 """""""""
 EUV dominated photoevaporation
-Following prescription given in Alexander and Armitage (2007)
-and based on Font, McCarthy, Johnstone and Ballantyne (2004) for Primordial Discs
-and based on Alexander, Clarke and Pringle (2006) for Inner Hole Discs
+-Following prescription given in Alexander and Armitage (2007)
+ and based on Font, McCarthy, Johnstone and Ballantyne (2004) for Primordial Discs
+ and based on Alexander, Clarke and Pringle (2006) for Inner Hole Discs
 """""""""
 #################################################################################
 class EUVDiscAlexander(PhotoBase):
@@ -425,7 +564,7 @@ class EUVDiscAlexander(PhotoBase):
         else:
             return 0                # If unspecified, assume mass-loss possible throughout 
 
-    def Sigma_dot_Primordial(self, R, star):
+    def Sigma_dot_Primordial(self, R, star, ret=False):
         Sigmadot = np.zeros_like(R)
         x = self.scaled_R(R,star)
         where_photoevap = (x >= 0.1)    # No mass loss close to star
@@ -452,10 +591,15 @@ class EUVDiscAlexander(PhotoBase):
         # Store result
         self.mdot_XE(star, Mdot=Mdot)
 
-        # Store values as average of mass loss rate at cell edges
-        self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
+        if ret:
+            # Return unaveraged values at cell edges
+            return Sigmadot
+        else:
+            # Store values as average of mass loss rate at cell edges
+            self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
 
-    def Sigma_dot_InnerHole(self, R, star):
+
+    def Sigma_dot_InnerHole(self, R, star, ret=False):
         Sigmadot = np.zeros_like(R)
         x = self.scaled_R(R,star)
         where_photoevap = (x > 1)    # No mass loss inside hole
@@ -478,8 +622,12 @@ class EUVDiscAlexander(PhotoBase):
         mop_up = (R >= 0.1 * self._RG) * (x <= 1.0)
         Sigmadot[mop_up] = np.inf
 
-        # Store values as average of mass loss rate at cell edges
-        self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
+        if ret:
+            # Return unaveraged values at cell edges
+            return Sigmadot
+        else:
+            # Store values as average of mass loss rate at cell edges
+            self._Sigmadot = (Sigmadot[1:] + Sigmadot[:-1]) / 2
 
 #################################################################################
 """""""""
@@ -489,11 +637,12 @@ Designed for plotting to test things out
 #################################################################################
         
 class DummyDisc(object):
-    def __init__(self, R, star):
-        self._M = 10 * Mjup
+    def __init__(self, R, star, MD=10, RC=100):
+        self._M = MD * Mjup
+        self.Rc = RC
         self.R_edge = R
         self.R = 0.5*(self.R_edge[1:]+self.R_edge[:-1])
-        self._Sigma = self._M / (2 * np.pi * self.Rout() * self.R * AU**2)
+        self._Sigma = self._M / (2 * np.pi * self.Rc * self.R * AU**2) * np.exp(-self.R/self.Rc)
         self.star = star
 
     def Rout(self, thresh=None):
@@ -509,19 +658,19 @@ class DummyDisc(object):
 
 def main():
     Sigma_dot_plot()
-    Test_Removal()
+    #Test_Removal()
 
 def Test_Removal():
     """Removes gas fom a power law disc in regular timesteps without viscous evolution etc"""
     star1 = PhotoStar(LX=1e30, M=1.0, R=2.5, T_eff=4000)
-    R = np.linspace(0,200,2001)
-    disc1 = DummyDisc(R, star1)
+    R = np.linspace(0.1,200,2000)
+    disc1 = DummyDisc(R, star1, RC=10)
 
-    internal_photo = PrimordialDiscXray(disc1)
+    internal_photo = XrayDiscPicogna(disc1)
 
     plt.figure()
-    for t in np.linspace(0,2e5,9):
-        internal_photo(disc1, 2e4)
+    for t in np.linspace(0,2e3,6):
+        internal_photo(disc1, 2e3)
         plt.loglog(0.5*(R[1:]+R[:-1]), disc1.Sigma, label='{}'.format(t))
     plt.xlabel("R / AU")
     plt.ylabel("$\Sigma_G~/~\mathrm{g~cm^{-2}}$")
@@ -543,29 +692,39 @@ def Sigma_dot_plot():
     disc = run_model.setup_disc(model)
     R = disc.R
 
-    # Calculate X-ray rates
-    disc._star = starX
-    internal_photo_X = PrimordialDiscXray(disc)    
-    Sigma_dot_X = internal_photo_X.dSigmadt
-    photoevaporating_X = (Sigma_dot_X>0)
-    t_w_X = disc.Sigma[photoevaporating_X] / Sigma_dot_X[photoevaporating_X]
-    print("Mdot maximum at R = {} AU".format(R[np.argmax(Sigma_dot_X)]))    
-    print("Time minimum at R = {} AU".format(R[photoevaporating_X][np.argmin(t_w_X)]))
-    plt.loglog(R, R*Sigma_dot_X, label='X-ray (OEC12), $L_X={}~\mathrm{{erg~s^{{-1}}}}$'.format(1e30))
-
     # Calculate EUV rates
     disc._star = starE
-    internal_photo_E = PrimordialDiscEUV(disc)    
+    internal_photo_E = EUVDiscAlexander(disc)    
     Sigma_dot_E = internal_photo_E.dSigmadt
     photoevaporating_E = (Sigma_dot_E>0)
     t_w_E = disc.Sigma[photoevaporating_E] / Sigma_dot_E[photoevaporating_E]
     print("Mdot maximum at R = {} AU".format(R[np.argmax(Sigma_dot_E)]))    
     print("Time minimum at R = {} AU".format(R[photoevaporating_E][np.argmin(t_w_E)]))
-    plt.loglog(R, R*Sigma_dot_E, label='EUV (AA07), $\Phi={}~\mathrm{{s^{{-1}}}}$'.format(1e42))
+    plt.loglog(R, Sigma_dot_E, label='EUV (AA07), $\Phi={}~\mathrm{{s^{{-1}}}}$'.format(1e42), linestyle='--')
+
+    # Calculate X-ray rates
+    disc._star = starX
+    internal_photo_X = XrayDiscOwen(disc)    
+    Sigma_dot_X = internal_photo_X.dSigmadt
+    photoevaporating_X = (Sigma_dot_X>0)
+    t_w_X = disc.Sigma[photoevaporating_X] / Sigma_dot_X[photoevaporating_X]
+    print("Mdot maximum at R = {} AU".format(R[np.argmax(Sigma_dot_X)]))    
+    print("Time minimum at R = {} AU".format(R[photoevaporating_X][np.argmin(t_w_X)]))
+    plt.loglog(R, Sigma_dot_X, label='X-ray (OEC12), $L_X={}~\mathrm{{erg~s^{{-1}}}}$'.format(1e30))
+
+    # Calculate X-ray rates
+    disc._star = starX
+    internal_photo_X2 = XrayDiscPicogna(disc)    
+    Sigma_dot_X2 = internal_photo_X2.dSigmadt
+    photoevaporating_X2 = (Sigma_dot_X2>0)
+    t_w_X2 = disc.Sigma[photoevaporating_X2] / Sigma_dot_X2[photoevaporating_X2]
+    print("Mdot maximum at R = {} AU".format(R[np.argmax(Sigma_dot_X2)]))    
+    print("Time minimum at R = {} AU".format(R[photoevaporating_X2][np.argmin(t_w_X2)]))
+    plt.loglog(R, Sigma_dot_X2, label='X-ray (PEOW19), $L_X={}~\mathrm{{erg~s^{{-1}}}}$'.format(1e30))
 
     # Plot mass loss rates
     plt.xlabel("R / AU")
-    plt.ylabel("$\dot{\Sigma}_{\\rm w}$ / g cm$^{-2}$ s$^{-1}$")
+    plt.ylabel("$\dot{\Sigma}_{\\rm w}$ / g cm$^{-2}$ yr$^{-1}$")
     plt.xlim([0.1,1000])
     plt.ylim([1e-8,1e-2])
     plt.legend()
@@ -573,8 +732,9 @@ def Sigma_dot_plot():
 
     # Plot depletion time
     plt.figure(figsize=(6,6))
+    plt.loglog(R[photoevaporating_E], t_w_E, label='EUV (AA07), $\Phi={}~\mathrm{{s^{{-1}}}}$'.format(1e42), linestyle='--')
     plt.loglog(R[photoevaporating_X], t_w_X, label='X-ray (OEC12), $L_X={}~\mathrm{{erg~s^{{-1}}}}$'.format(1e30))
-    plt.loglog(R[photoevaporating_E], t_w_E, label='EUV (AA07), $\Phi={}~\mathrm{{s^{{-1}}}}$'.format(1e42))
+    plt.loglog(R[photoevaporating_X2], t_w_X2, label='X-ray (PEOW19), $L_X={}~\mathrm{{erg~s^{{-1}}}}$'.format(1e30))
     plt.xlabel("R / AU")
     plt.ylabel("$t_w / \mathrm{yr}$")
     plt.xlim([0.1,1000])

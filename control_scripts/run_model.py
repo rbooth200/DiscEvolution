@@ -29,7 +29,7 @@ from DiscEvolution.diffusion import TracerDiffusion
 from DiscEvolution.driver import DiscEvolutionDriver
 from DiscEvolution.io import Event_Controller, DiscReader
 from DiscEvolution.disc_utils import mkdir_p
-from DiscEvolution.internal_photo import XrayDiscOwen, EUVDiscAlexander
+from DiscEvolution.internal_photo import EUVDiscAlexander, XrayDiscOwen, XrayDiscPicogna
 import DiscEvolution.photoevaporation as photoevaporation
 import FRIED.photorate as photorate
 
@@ -178,12 +178,28 @@ def setup_model(model, disc, start_time=0, internal_photo_type="Primordial", R_h
     # Add internal photoevaporation
     try:
         if model['x-ray']['L_X'] > 0:
+            try:
+                photomodel = model['x-ray']['model']
+            except KeyError:
+                photomodel = 'Picogna'
             InnerHole = internal_photo_type.startswith('InnerHole')
             if InnerHole:
-                internal_photo = XrayDiscOwen(disc,Type='InnerHole')
+                if photomodel=='Picogna':
+                    internal_photo = XrayDiscPicogna(disc,Type='InnerHole')
+                elif photomodel=='Owen':
+                    internal_photo = XrayDiscOwen(disc,Type='InnerHole')
+                else:
+                    print("Photoevaporation Mode Unrecognised: Default to 'None'")
+                    internal_photo = None
             else:
-                internal_photo = XrayDiscOwen(disc)
-                if R_hole:
+                if photomodel=='Picogna':
+                    internal_photo = XrayDiscPicogna(disc)
+                elif photomodel=='Owen':
+                    internal_photo = XrayDiscOwen(disc)
+                else:
+                    print("Photoevaporation Mode Unrecognised: Default to 'None'")
+                    internal_photo = None
+                if internal_photo and R_hole:
                     internal_photo._Hole=True
         elif model['euv']['Phi'] > 0:
             InnerHole = internal_photo_type.startswith('InnerHole')
