@@ -43,8 +43,8 @@
 "format" : "ascii",
 "arrange" : "log",
 "first" : 1e3,
-"last" : 1e7,
-"interval" : 20,
+"last" : 1e8,
+"interval" : 50,
 "plot" : true,
 "plot_times" : [0],
 "plot_name" : "disc"
@@ -65,6 +65,7 @@
 },
 
 "x-ray" : {
+"model": "Picogna",
 "L_X" : 0
 },
 
