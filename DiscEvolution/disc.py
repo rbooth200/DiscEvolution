@@ -173,7 +173,7 @@ class AccretionDisc(object):
             thresh = self.history._threshold
         """Determine the outer radius (density threshold) and add to history"""
         notempty = self.Sigma_G > thresh
-        notempty_cells = self.R[notempty]
+        notempty_cells = self.R_edge[1:][notempty]
         if np.size(notempty_cells>0):
             R_outer = notempty_cells[-1]
         else:
