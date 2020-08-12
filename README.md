@@ -70,7 +70,7 @@ Contains prescriptions for the growth and migration of planets. Currently does n
 Contains prescriptions for external photoevaporation, either with constant mass loss rate, or determined from the Haworth et al. (2017) FRIED grid. This includes the removal of dust that is entrained in the wind.
 
 #### Internal Photoevaporaion
-Contains prescriptions for internal photoevaporation, both EUV-driven (Alexander & Armitage 2007) and X-ray-driven (Owen et al. 2012). The module switches to the direct field prescription for a inner hole source once the column density to the hole drops sufficiently. Dust is not removed by these prescriptions.
+Contains prescriptions for internal photoevaporation, both EUV-driven (Alexander & Armitage 2007) and X-ray-driven (Owen et al. 2012 or Picogna et al. 2019). The module switches to the direct field prescription for a inner hole source once the column density to the hole drops sufficiently. Dust is not removed by these prescriptions.
 
 ## Contact
 Please report any bugs or issues here on github. 
