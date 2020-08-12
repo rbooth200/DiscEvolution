@@ -90,23 +90,8 @@ class PhotoBase():
         indisc = (disc.R < self._R_out) * where_photoevap   # Prohibit hole outside of mass loss region.
         try:
             imin = argrelmin(t_w[indisc])[0][0] # Find local minima in clearing time, neglecting outer edge where tails off. Take first to avoid solutions due to noise in dusty outskirts            
-            #if imin == np.nonzero(indisc)[0][-1]:
-            #    self._Hole = False
-            #    return 0
-        except IndexError:                      # If no local minimum, there can't be a hole - NOT TRUE            
+        except IndexError:                      # If no local minimum, try to find hole as wherever the min is.          
             imin = np.argmin(t_w[indisc])           
-            #print(imin)
-            #print(np.nonzero(indisc)[0][-1])
-            #print(t_w[imin])
-            #print(t_w[np.nonzero(indisc)[0][-1]-1:np.nonzero(indisc)[0][-1]+2])
-            #print(disc.R[np.nonzero(indisc)[0][-1]], "AU")
-            #raise Exception
-            #print(np.nonzero(indisc)[0][-1])
-            #print(imin)
-            #if imin == np.nonzero(indisc)[0][-1]:
-            #    self._Hole = False
-            #self._Hole = False
-            #return 0"""
 
         # Check against timestep and report
         if (dt > t_w[imin]):         # If an entire cell can deplete
@@ -115,12 +100,6 @@ class PhotoBase():
             #    print("Outer radius is currently {:.2f} AU".format(self._R_out))
             self._Hole = True       # Set hole flag
         return t_w[imin]
-
-    """def check_hole(self, disc):
-        # Define valid domain
-        indisc = (disc.R < self._R_out) * where_photoevap   # Prohibit hole outside of mass loss region.   
-
-        # Find minima in surface density"""
 
     def remove_mass(self, disc, dt, external_photo=None):
         # Find disc "outer edge" so we can apply mass loss only inside
@@ -190,7 +169,6 @@ class PhotoBase():
                     i_hole_out = np.nonzero(outer_disc)[0][0] - 1  
                 else:   # No non-empty cells outside this - this is not a hole, but an outer edge.
                     raise NotHoleError
-                #print(i_hole_in, i_hole_out)
 
             if i_hole_out == np.nonzero(indisc)[0][-1]: # This is not a hole, but the outermost photoevaporating cell
                 raise NotHoleError
@@ -233,9 +211,6 @@ class PhotoBase():
             disc.history._Rh = np.append(disc.history._Rh,[self._R_hole])
             disc.history._Mdot_int = np.append(disc.history._Mdot_int, self._Mdot_true)
         else:
-            #print(self._R_hole)
-            #print(disc.R_edge[np.nonzero(indisc)[0][-1]+1])
-            #raise Exception
             return self._R_hole, self._N_hole
         
     @property
@@ -689,7 +664,7 @@ class DummyDisc(object):
 
 def main():
     Sigma_dot_plot()
-    #Test_Removal()
+    Test_Removal()
 
 def Test_Removal():
     """Removes gas fom a power law disc in regular timesteps without viscous evolution etc"""
