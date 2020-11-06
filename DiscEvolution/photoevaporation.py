@@ -40,7 +40,7 @@ class ExternalPhotoevaporationBase(object):
 
         return (dM_dot, dM_gas)
 
-    def get_timescale(self, disc, Track=False):
+    def get_timescale(self, disc):
         """From mass loss rates, calculate mass loss timescales for each cell"""
         # Retrieve unweighted rates
         (dM_evap, dM_gas) = self.unweighted_rates(disc)     
@@ -53,25 +53,22 @@ class ExternalPhotoevaporationBase(object):
         Dt = np.cumsum(Dt_R[::-1])[::-1] # Dynamical time to deplete each annulus and those exterior
 
         # Record mass loss
-        if Track:
-            if sum(not_empty)!=0:
-                self._Rot  = disc.R[not_empty][-1]
-                self._Mdot = dM_evap[not_empty][-1]*(yr/Msun)
-            else:
-                self._Rot  = 0
-                self._Mdot = 0
-                self._empty = True
-            disc.history._Mdot_ext  = np.append(disc.history._Mdot_ext,[self._Mdot])
-            disc.history._Rot       = np.append(disc.history._Rot,[self._Rot])
+        if sum(not_empty)!=0:
+            self._Rot  = disc.R[not_empty][-1]
+            self._Mdot = dM_evap[not_empty][-1]*(yr/Msun)
+        else:
+            self._Rot  = 0
+            self._Mdot = 0
+            self._empty = True
         
         # Return mass loss rate, annulus mass, cumulative mass and cumulative timescale
         return (dM_evap, dM_gas, M_tot, Dt)
 
-    def timescale_remove(self, disc, dt, Track=False):
+    def timescale_remove(self, disc, dt):
         """Remove gas from cells according to timescale implementation"""
         """Only implemented correctly for case with no dust"""
         # Retrieve timescales
-        (dM_evap, dM_tot, M_tot, Dt) = self.get_timescale(disc, Track)
+        (dM_evap, dM_tot, M_tot, Dt) = self.get_timescale(disc)
 
         # Calculate which cells have times shorter than the timestep and empty
         excess_t = dt - Dt
@@ -82,8 +79,10 @@ class ExternalPhotoevaporationBase(object):
         if (np.sum(empty)<np.size(disc.Sigma_G)):
             half_empty = -(np.sum(empty) + 1) # ID (from end) of half depleted cell
             disc._Sigma[half_empty] *= -1.0*excess_t[half_empty] / (Dt[half_empty]-Dt[half_empty+1]) # Work out fraction left in cell 
+
+        self._Mcum_gas  += dt*dM_evap[empty].sum()+dM_tot[half_empty]*-1.0*excess_t[half_empty] / (Dt[half_empty]-Dt[half_empty+1])  # Record mass loss
         
-    def optically_thin_weighting(self, disc, Track=False):
+    def optically_thin_weighting(self, disc):
         """Identify optical thickness transition and weight raw mass loss rates exterior"""
         # Retrieve unweighted rates
         (Mdot, dM_gas) = self.unweighted_rates(disc)
@@ -103,15 +102,12 @@ class ExternalPhotoevaporationBase(object):
 
         # Record mass loss
         self._Mdot = M_dot_tot*(yr/Msun)
-        if Track:
-            disc.history._Mdot_ext  = np.append(disc.history._Mdot_ext,[self._Mdot])
-            disc.history._Rot       = np.append(disc.history._Rot,[self._Rot])
 
         return (M_dot_eff, dM_gas)
 
-    def weighted_removal(self, disc, dt, Track=False):
+    def weighted_removal(self, disc, dt):
         """Remove gas according to the weighted prescription"""
-        (dM_dot, dM_gas) = self.optically_thin_weighting(disc, Track)
+        (dM_dot, dM_gas) = self.optically_thin_weighting(disc)
 
         # Account for dust entrainment
         if (isinstance(disc,DustyDisc)):
@@ -132,6 +128,8 @@ class ExternalPhotoevaporationBase(object):
 
         dM_evap = dM_dot * dt
         disc._Sigma -= dM_evap / dA # This amount of mass is lost in GAS
+
+        self._Mcum_gas  += dM_evap.sum()  # Record mass loss
         
         if (isinstance(disc,DustyDisc)):
             # Remove dust mass proportionally to gas loss 
@@ -147,8 +145,7 @@ class ExternalPhotoevaporationBase(object):
             disc._eps[0][not_empty] = new_dust_frac[not_empty] * (1.0-f_m[not_empty])
             disc._eps[1][not_empty] = new_dust_frac[not_empty] * f_m[not_empty]
 
-            # Record mass loss
-            disc.history._Mwind_cum += M_ent_w.sum(0)
+            self._Mcum_dust += M_ent_w.sum() # Record mass loss
 
     def dust_entrainment(self, disc):
         # Representative sizes
@@ -213,6 +210,9 @@ class FixedExternalEvaporation(ExternalPhotoevaporationBase):
         self._amax = amax * np.ones_like(disc.R)
         self._empty = False
 
+        self._Mcum_gas  = 0.0
+        self._Mcum_dust = 0.0
+
     def __call__(self, disc, dt):
         if (self._Mdot > 0):
             self.timescale_remove(disc, dt)
@@ -246,6 +246,9 @@ class TimeExternalEvaportation(ExternalPhotoevaporationBase):
     def __init__(self, time=1e6, amax=1e-3):
         self._time = time
         self._amax = amax
+
+        self._Mcum_gas  = 0.0
+        self._Mcum_dust = 0.0
 
     def mass_loss_rate(self, disc):
         k = np.pi * AU**2 / Msun
@@ -282,6 +285,9 @@ class FRIEDExternalEvaporationS(ExternalPhotoevaporationBase):
         self._FUV = disc.FUV
         self._Rot = max(disc.R)
         self._density = True
+
+        self._Mcum_gas  = 0.0
+        self._Mcum_dust = 0.0
 
     def __call__(self, disc, dt):
         self.weighted_removal(disc, dt) # For FRIED mass loss rates calculated with density, need to use optical depth method
@@ -322,6 +328,9 @@ class FRIEDExternalEvaporationMS(ExternalPhotoevaporationBase):
         self._Rot = max(disc.R)
         self._density = True
 
+        self._Mcum_gas  = 0.0
+        self._Mcum_dust = 0.0
+
     def __call__(self, disc, dt):
         self.weighted_removal(disc, dt) # For FRIED mass loss rates calculated with density, need to use optical depth method
 
@@ -359,6 +368,9 @@ class FRIEDExternalEvaporationM(ExternalPhotoevaporationBase):
         self._amax = amax * np.ones_like(disc.R)
         self._FUV = disc.FUV
         self._Rot = max(disc.R)
+
+        self._Mcum_gas  = 0.0
+        self._Mcum_dust = 0.0
 
     def __call__(self, disc, dt):
         self.timescale_remove(disc, dt) # For FRIED mass loss rates calculated with total mass, can use timescale method (doesn't account for dust)

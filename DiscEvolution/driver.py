@@ -27,6 +27,9 @@ class DiscEvolutionDriver(object):
         photoevaporation : Remove gas by external photoevaporation
         chemistry        : Solver for the chemical evolution
 
+    History:
+        history          : Tracks values of key parameters over time
+
     Note: Diffusion is usually handled in the dust dynamics module
 
     Other options:
@@ -34,7 +37,7 @@ class DiscEvolutionDriver(object):
         t_out:Previous output times, default = None, years
     """
 
-    def __init__(self, disc, gas=None, dust=None, diffusion=None, chemistry=None, ext_photoevaporation=None, int_photoevaporation=None, t0=0.):
+    def __init__(self, disc, gas=None, dust=None, diffusion=None, chemistry=None, ext_photoevaporation=None, int_photoevaporation=None, history=None, t0=0.):
 
         self._disc = disc
 
@@ -44,6 +47,8 @@ class DiscEvolutionDriver(object):
         self._chemistry = chemistry
         self._external_photo = ext_photoevaporation
         self._internal_photo = int_photoevaporation
+
+        self._history = history
 
         self._t = t0
         self._nstep = 0
@@ -152,17 +157,6 @@ class DiscEvolutionDriver(object):
         # Now we should update the auxillary properties, do grain growth etc
         disc.update(dt)
 
-        """# Update the internal hole and check whether we need to switch the mass loss prescription
-        if self._internal_photo and not self._internal_photo._Thin:   # Only if doing internal photoevaporation and the inner disc is not already optically thin
-            if self._internal_photo._Hole:      # If there is a hole, update its properties 
-                R_hole, N_hole = self._internal_photo.get_Rhole(disc, self._external_photo)
-            if self._internal_photo._Thin:      # If the hole is now large enough that inner disc optically thin, switch internal photoevaporation to direct field
-                print("Column density to hole has fallen to N = {} < {} g cm^-2".format(N_hole,self._internal_photo._N_crit))
-                if self._internal_photo._regime=='X-ray':
-                    self._internal_photo = InnerHoleDiscXray(disc, R_hole, N_hole)
-                elif self._internal_photo._regime=='EUV':
-                    self._internal_photo = InnerHoleDiscEUV(disc, R_hole, N_hole)"""
-
         self._t += dt
         self._nstep += 1
         return dt
@@ -197,6 +191,9 @@ class DiscEvolutionDriver(object):
     @property
     def photoevaporation_internal(self):
         return self._internal_photo
+    @property
+    def history(self):
+        return self._history
 
     def dump_ASCII(self, filename):
         """Write the current state to a file, including header information"""

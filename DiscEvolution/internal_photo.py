@@ -1,7 +1,7 @@
 # internal_photo.py
 #
 # Author: A. Sellek
-# Date: 03 - Aug - 2018
+# Date: 12 - Aug - 2020
 #
 # Implementation of Photoevaporation Models
 ################################################################################
@@ -133,15 +133,11 @@ class PhotoBase():
             dM = 2*np.pi * disc.R * dSigma
             self._Mdot_true = np.trapz(dM,disc.R) / dt * AU**2 / Msun
 
-    def get_Rhole(self, disc, external_photo=None, Track=False):
+    def get_Rhole(self, disc, external_photo=None):
         """Deal with calls when there is no hole"""
         if not self._Hole:
-            if Track:
-                disc.history._Rh = np.append(disc.history._Rh, [np.nan])
-                disc.history._Mdot_int = np.append(disc.history._Mdot_int, self._Mdot_true)
-            else:
-                print("No hole for which to get radius. Ignoring command.")
-            return 0, 0
+            print("No hole for which to get radius. Ignoring command and returning nans.")
+            return np.nan, np.nan
 
         """Otherwise continue on to find hole
            First find outer edge of disc - hole must be inside this"""
@@ -207,11 +203,7 @@ class PhotoBase():
                     # Proceed as usual to report but without update
 
         # Save state if tracking
-        if Track:
-            disc.history._Rh = np.append(disc.history._Rh,[self._R_hole])
-            disc.history._Mdot_int = np.append(disc.history._Mdot_int, self._Mdot_true)
-        else:
-            return self._R_hole, self._N_hole
+        return self._R_hole, self._N_hole
         
     @property
     def Mdot(self):
@@ -265,7 +257,7 @@ X-ray dominated photoevaporation
 #################################################################################
 """Owen, Ercolano and Clarke (2012)"""
 class XrayDiscOwen(PhotoBase):
-    def __init__(self, disc, Type='Primordial'):
+    def __init__(self, disc, Type='Primordial', R_hole=None):
         super().__init__(disc, Regime='X-ray', Type=Type)
 
         # Parameters for Primordial mass loss profile
@@ -287,7 +279,8 @@ class XrayDiscOwen(PhotoBase):
         # If initiating with an Inner Hole disc, need to update properties
         if self._type == 'InnerHole':
             self._Hole = True
-            self.get_Rhole(disc)
+            self._R_hole = R_hole
+            #self.get_Rhole(disc)
 
         # Run the mass loss rates to update the table
         self.Sigma_dot(disc.R_edge, disc.star)
@@ -392,7 +385,7 @@ class XrayDiscOwen(PhotoBase):
 
 """Picogna, Ercolano, Owen and Weber (2019)"""
 class XrayDiscPicogna(PhotoBase):
-    def __init__(self, disc, Type='Primordial'):
+    def __init__(self, disc, Type='Primordial', R_hole=None):
         super().__init__(disc, Regime='X-ray', Type=Type)
 
         # Parameters for Primordial mass loss profile
@@ -411,7 +404,8 @@ class XrayDiscPicogna(PhotoBase):
         # If initiating with an Inner Hole disc, need to update properties
         if self._type == 'InnerHole':
             self._Hole = True
-            self.get_Rhole(disc)
+            self._R_hole = R_hole
+            #self.get_Rhole(disc)
 
         # Run the mass loss rates to update the table
         self.Sigma_dot(disc.R_edge, disc.star)
@@ -524,7 +518,7 @@ EUV dominated photoevaporation
 """""""""
 #################################################################################
 class EUVDiscAlexander(PhotoBase):
-    def __init__(self, disc, Type='Primordial'):
+    def __init__(self, disc, Type='Primordial', R_hole=None):
         super().__init__(disc, Regime='EUV', Type=Type)
         
         # Parameters for mass loss profiles
@@ -543,7 +537,8 @@ class EUVDiscAlexander(PhotoBase):
         # If initiating with an Inner Hole disc, need to update properties
         if self._type == 'InnerHole':
             self._Hole = True
-            self.get_Rhole(disc)
+            self._R_hole = R_hole
+            #self.get_Rhole(disc)
 
         # Run the mass loss rates to update the table
         self.Sigma_dot(disc.R_edge, disc.star)
@@ -684,6 +679,7 @@ def Test_Removal():
     plt.show()
 
 def Sigma_dot_plot():
+    """Plot a comparison of the mass loss rate prescriptions"""
     from control_scripts import run_model
     # Set up dummy model
     parser = argparse.ArgumentParser()

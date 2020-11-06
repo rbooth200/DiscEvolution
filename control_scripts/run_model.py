@@ -30,6 +30,7 @@ from DiscEvolution.driver import DiscEvolutionDriver
 from DiscEvolution.io import Event_Controller, DiscReader
 from DiscEvolution.disc_utils import mkdir_p
 from DiscEvolution.internal_photo import EUVDiscAlexander, XrayDiscOwen, XrayDiscPicogna
+from DiscEvolution.history import History
 import DiscEvolution.photoevaporation as photoevaporation
 import FRIED.photorate as photorate
 
@@ -39,17 +40,18 @@ import FRIED.photorate as photorate
 
 DefaultModel = "DiscConfig_default.json"
 
-###############################################################################
-# Setup Functions
-###############################################################################
-
 def LBP_profile(R,R_C,Sigma_C):
     # For profile fitting
     x = R/R_C
     return np.log(Sigma_C) - np.log(x)-x
 
+###############################################################################
+# Setup Functions
+###############################################################################
+
 def setup_disc(model):
     '''Create disc object from initial conditions'''
+
     # Setup the grid
     p = model['grid']
     grid = Grid(p['R0'], p['R1'], p['N'], spacing=p['spacing'])
@@ -116,10 +118,10 @@ def setup_disc(model):
     if model['disc']['d2g'] > 0:
         # If model dust parameters not specified, resort to default
         try:
-            disc = DustGrowthTwoPop(grid, star, eos, p['d2g'], model['dust']['radii_thresholds'], Sigma=Sigma,
+            disc = DustGrowthTwoPop(grid, star, eos, p['d2g'], Sigma=Sigma,
                     rho_s=model['dust']['density'], Sc=model['disc']['Schmidt'], feedback=feedback, uf_ice=model['dust']['ice_frag_v'], f_grow=model['dust']['f_grow'], distribution_slope=model['dust']['p'])
         except:
-            disc = DustGrowthTwoPop(grid, star, eos, p['d2g'], model['dust']['radii_thresholds'], Sigma=Sigma, Sc=model['disc']['Schmidt'], feedback=feedback, uf_ice=model['dust']['ice_frag_v'])
+            disc = DustGrowthTwoPop(grid, star, eos, p['d2g'], Sigma=Sigma, Sc=model['disc']['Schmidt'], feedback=feedback, uf_ice=model['dust']['ice_frag_v'])
     else:
         disc = AccretionDisc(grid, star, eos, Sigma=Sigma)
 
@@ -134,7 +136,7 @@ def setup_disc(model):
     return disc
 
 
-def setup_model(model, disc, start_time=0, internal_photo_type="Primordial", R_hole=None):
+def setup_model(model, disc, history, start_time=0, internal_photo_type="Primordial", R_hole=None):
     '''Setup the physics of the model'''
     
     gas       = None
@@ -185,9 +187,9 @@ def setup_model(model, disc, start_time=0, internal_photo_type="Primordial", R_h
             InnerHole = internal_photo_type.startswith('InnerHole')
             if InnerHole:
                 if photomodel=='Picogna':
-                    internal_photo = XrayDiscPicogna(disc,Type='InnerHole')
+                    internal_photo = XrayDiscPicogna(disc,Type='InnerHole',R_hole=R_hole)
                 elif photomodel=='Owen':
-                    internal_photo = XrayDiscOwen(disc,Type='InnerHole')
+                    internal_photo = XrayDiscOwen(disc,Type='InnerHole',R_hole=R_hole)
                 else:
                     print("Photoevaporation Mode Unrecognised: Default to 'None'")
                     internal_photo = None
@@ -212,11 +214,12 @@ def setup_model(model, disc, start_time=0, internal_photo_type="Primordial", R_h
         else:
             internal_photo = None
     except KeyError:
-        internal_photo = None
+        internal_photo = None    
 
     return DiscEvolutionDriver(disc, 
                                gas=gas, dust=dust, diffusion=diffuse, ext_photoevaporation=photoevap, int_photoevaporation=internal_photo,
-                               t0=start_time)
+                               history=history, t0=start_time)
+
 
 def setup_output(model):
     
@@ -276,17 +279,25 @@ def setup_output(model):
 
 
 def setup_wrapper(model, restart, output=True):
-    # Setup model
+    # Setup basics
     disc = setup_disc(model)
-    if restart:
-        disc, time, datadict, photo_type, R_hole = restart_model(model, disc, restart)
-        
-        driver = setup_model(model, disc, time, internal_photo_type=photo_type, R_hole=R_hole)
+    if model['disc']['d2g'] > 0:
+        dust = True
+        d_thresh = model['dust']['radii_thresholds']
     else:
-        driver = setup_model(model, disc)
+        dust = False
+        d_thresh = None
+    history = History(dust, d_thresh)
 
+    # Setup model
+    if restart:
+        disc, history, time, photo_type, R_hole = restart_model(model, disc, history, restart)       
+        driver = setup_model(model, disc, history, time, internal_photo_type=photo_type, R_hole=R_hole)
+    else:
+        driver = setup_model(model, disc, history)
+
+    # Setup outputs
     if output:
-        # Setup outputs
         output_name, io_control, output_times = setup_output(model)
         plot_name = model['output']['plot_name']
     else:
@@ -316,7 +327,8 @@ def setup_wrapper(model, restart, output=True):
 
     return disc, driver, output_name, io_control, plot_name, Dt_nv
 
-def restart_model(model, disc, snap_number):
+
+def restart_model(model, disc, history, snap_number):
     # Resetup model
     out = model['output']
     reader = DiscReader(out['directory'], out['base'], out['format'])
@@ -334,33 +346,13 @@ def restart_model(model, disc, snap_number):
 
     disc.update(0)
 
-    # Revise history
+    # Revise and write history
+    infile = model['output']['directory']+"/"+"discproperties.dat"
+    history.restart(infile, snap_number)
+
+    # Find current location of hole, if appropriate
     try:
-        inputdata = np.loadtxt(model['output']['directory']+"/"+"discproperties.dat")
-        infile = open(model['output']['directory']+"/"+"discproperties.dat", 'r')
-    except:
-        inputdata = np.loadtxt(model['output']['directory']+"/"+model['output']['directory']+"_discproperties.dat")
-        infile = open(model['output']['directory']+"/"+"discproperties.dat", 'r')
-
-    # Data headers
-    for line in infile:
-        head=line
-        break
-    infile.close()
-    head = head.split("\t")
-    head[0]  = head[0].split("# ")[-1]
-    head[-1] = head[-1].split("\n")[0]
-
-    datadict = {}
-    for h in range(0,len(head)):
-        datadict[head[h]] = inputdata[:snap_number+1,h]
-
-    # Rewrite history
-    not_future = disc.history.restart(datadict, time/yr)    # Pass time in years
-    print("Restarting with times:")
-    print(datadict['t'][not_future])
-    try:
-        R_hole = datadict['R_hole'][-1]
+        R_hole = history._Rh[-1]
         if np.isnan(R_hole):
             R_hole = None
         else:
@@ -368,92 +360,18 @@ def restart_model(model, disc, snap_number):
     except:
         R_hole = None
 
-    return disc, time, datadict, snap.photo_type, R_hole     # Return disc objects, time (code units), input data and internal photoevaporation type
+    return disc, history, time, snap.photo_type, R_hole     # Return disc objects, history, time (code units), input data and internal photoevaporation type
 
 ###############################################################################
-# Saving
+# Saving - now moved to the history module
 ###############################################################################
-
-def save_summary(driver,model,):
-    # 0 Select times of recording
-    used_times = driver.disc.history.times()
-
-    # 1 Retrieve radii
-    outer_radii, scale_radii, ot_radii, hole_radii = driver.disc.history.radii()
-    radii_select = {}
-    if driver.photoevaporation_external:
-        radii_select['R_out'] = ot_radii
-    else:
-        radii_select['R_out'] = outer_radii
-    if np.isnan(scale_radii).sum() < len(scale_radii):
-        radii_select['R_C'] = scale_radii
-    if np.isnan(hole_radii).sum() < len(hole_radii):
-        radii_select['R_hole'] = hole_radii
-
-    # 2 Retrieve masses
-    disc_masses = driver.disc.history.mass()
-
-    # 3 Dust
-    if driver.dust:
-        dust_masses, dust_wind = driver.disc.history.mass_dust()
-        dust_radii = driver.disc.history.radii_dust()
-
-    # 4 Accretion rates
-    Macc, Mext, Mint = driver.disc.history.mdot()
-
-    # 5 Photoevaporation rates
-    Mevap = {}
-    if driver.photoevaporation_external:
-        Mevap['M_ext'] = Mext
-    if driver.photoevaporation_internal:
-        Mevap['M_int'] = Mint
-
-    # Save data
-    outputdata = np.column_stack((used_times, disc_masses))
-    head  = ['t','M_D']
-    units = ['yr','g']
-    if driver.dust:
-        outputdata = np.column_stack((outputdata, dust_masses))
-        head.append('M_d')
-        units.append('g')
-
-    for key, radii in radii_select.items():
-        outputdata = np.column_stack((outputdata, radii))
-        head.append(key)
-        units.append('AU')
-    if driver.dust:
-        for key, radii in dust_radii.items():
-            outputdata = np.column_stack((outputdata, radii))
-            head.append('R_{}'.format(int(float(key)*100)))
-            units.append('AU')
-    if driver.gas:
-        outputdata = np.column_stack((outputdata, Macc))
-        head.append('M_acc')
-        units.append('Msun/yr')
-
-    for key, mdot in Mevap.items():
-        outputdata = np.column_stack((outputdata, mdot))
-        head.append(key)
-        units.append('Msun/yr')
-    if driver.dust and driver.photoevaporation_external:
-        outputdata = np.column_stack((outputdata, dust_wind))
-        head.append('M_wind')
-        units.append('g')
-
-    head  = "\t".join(head)
-    units = "\t".join(units)
-    full_head = "\n".join([head,units])
-        
-    np.savetxt(model['output']['directory']+"/"+"discproperties.dat", outputdata, delimiter='\t', header=full_head)
-
-    return outputdata
 
 ###############################################################################
 # Run
 ###############################################################################    
 
 def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_low=False):
-    mass_loss_mode = all_in['fuv']['photoevaporation']
+    external_mass_loss_mode = all_in['fuv']['photoevaporation']
 
     end = False     # Flag to set in order to end computation
     first = True    # Avoid duplicating output during hole clearing
@@ -492,7 +410,7 @@ def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_l
                 if (np.amax(Mdot_evap)<=1e-10):
                     print ("Photoevaporation rates below FRIED floor... terminating calculation at ~ {:.0f} yr".format(model.t/yr))
                     end = True
-                elif mass_loss_mode == 'Constant' and model.photoevaporation_external._empty:
+                elif external_mass_loss_mode == 'Constant' and model.photoevaporation_external._empty:
                     print ("Photoevaporation has cleared entire disc... terminating calculation at ~ {:.0f} yr".format(model.t/yr))
                     end = True                
 
@@ -557,8 +475,7 @@ def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_l
         
         ### Saving
         if io.check_event(model.t, 'save') or end or (hole_open % hole_snap_no)==1:
-            model.disc.history._times = np.append(model.disc.history._times,[model.t / yr])
-            save_no = len(model.disc.history.times()) - 1
+            save_no = len(model.history.times)
 
             # Print message to record this
             if (hole_open % hole_snap_no)==1:
@@ -574,40 +491,10 @@ def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_l
                     model.dump_ASCII(base_name.format(save_no))
 
             ### Measure disc properties and record
+            model.history(model)
 
-            # 1 Radius
-            if model.photoevaporation_external or model.photoevaporation_internal:
-                model.disc.Rout(Track = True)
-            else:
-                model.disc.Rout(fit_LBP=True, Track=True) # Locate outer radius by the density threshold
-
-            # 2 Disc Mass
-            model.disc.Mtot(Track=True) # Total disc mass
-
-            # 3 Dust radii and mass and wind loss mass
-            if model.dust:
-                model.disc.Rdust(Track=True) # Radius containing proportion of dust mass
-                model.disc.Mdust(Track=True) # Remaining dust mass
-                model.disc.Mwind(Track=True) # Total mass of dust lost in wind (NB can be 0 if no photoevaproation)
-
-            # 4 Track total viscous accretion rate
-            if model.gas:
-                model.disc.Mdot(model._gas.viscous_velocity(model.disc)[0], Track=True)
-
-            # 5 External photoevaporation mass loss
-            if mass_loss_mode == 'Integrated' or mass_loss_mode == 'Constant':
-                # Get the raw mass loss rates
-                model.photoevaporation_external.get_timescale(model.disc, Track=True)
-            elif model.photoevaporation_external:
-                # Get the weighted mass loss rates
-                (Mdot_evap, _) = model.photoevaporation_external.optically_thin_weighting(model.disc, Track=True)
-
-            # 6 Internal photoevaporation
-            if model.photoevaporation_internal:
-                model.photoevaporation_internal.get_Rhole(model.disc, Track=True)
-                
             # Save state
-            save_summary(model,all_in)
+            model.history.save(model,all_in['output']['directory'])
 
         io.pop_events(model.t)
 
@@ -629,7 +516,7 @@ def main():
     run(driver, io_control, output_name, model, args.restart, end_low=args.end)
         
     # Save disc properties
-    outputdata = save_summary(driver,model)
+    outputdata = driver.save(driver,model['output']['directory'])
 
 if __name__ == "__main__":
     main()

@@ -10,7 +10,6 @@ import numpy as np
 from .constants import *
 from .disc import AccretionDisc
 from .reconstruction import DonorCell, VanLeer
-from .history import dust_history
 
 class DustyDisc(AccretionDisc):
     """Dusty accretion disc. Base class for an accretion disc that also
@@ -20,14 +19,13 @@ class DustyDisc(AccretionDisc):
         grid     : Disc gridding object
         star     : Stellar object
         eos      : Equation of state
-        d_thresh : Mass percentiles used to define dust radii
         Sigma    : Initial surface density distribution
         rho_s    : solid density, default=1
         Sc       : Schmidt number, default=1
         feedback : When False, the dust mass is considered to be a negligible
                    fraction of the total mass.
     """
-    def __init__(self, grid, star, eos, d_thresh, Sigma=None, rho_s=1., Sc=1.,
+    def __init__(self, grid, star, eos, Sigma=None, rho_s=1., Sc=1.,
                  feedback=True):
 
         super(DustyDisc, self).__init__(grid, star, eos, Sigma)
@@ -37,9 +35,6 @@ class DustyDisc(AccretionDisc):
 
         self._Sc = Sc
         self._feedback = feedback
-
-        """ Global, time dependent properties stored as history """
-        self.history = dust_history(d_thresh)
 
     def Stokes(self, Sigma=None, size=None):
         """Stokes number of the particle"""
@@ -114,41 +109,27 @@ class DustyDisc(AccretionDisc):
 
         return self.H * np.sqrt(eta * a / (a + St))
 
-    """Methods to determine global properties (and add to history)"""
-    def Rdust(self, Track=False):
-        """Determine the dust radii and add to history"""
+    """Methods to determine global properties of a dust disc"""
+    def Rdust(self, thresholds=[0.68]):
+        """Determine the dust radius by mass"""
         Re = self.R_edge * AU
         dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
         dM_dust = self.Sigma_D.sum(0) * dA
         M_cum = np.cumsum(dM_dust)
-        radii = []
-        for thresh in self.history._dthresholds:
+        radii = {}
+        for thresh in thresholds:
             outside = M_cum > (M_cum[-1] * thresh)
             R_outer = self.R[outside][0]
-            if Track:
-                self.history._Rdust[thresh] = np.append(self.history._Rdust[thresh],[R_outer])
-            else:
-                radii.append(R_outer)
-        if not Track:
-            return radii
+            radii[thresh] = R_outer
+        return radii
 
-    def Mdust(self, Track=False):
-        """Determine the dust mass and add to history"""
+    def Mdust(self):
+        """Determine the dust mass"""
         Re = self.R_edge * AU
         dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
         dM_dust = self.Sigma_D.sum(0) * dA
         M_dust = np.sum(dM_dust)
-        if Track:
-            self.history._Mdust = np.append(self.history._Mdust,[M_dust])
-        else:
-            return M_dust
-
-    def Mwind(self, Track=False):
-        """Track the dust mass lost to the wind"""
-        if Track:
-            self.history._Mwind = np.append(self.history._Mwind,[self.history._Mwind_cum])
-        else:
-            return self.history._Mwind_cum
+        return M_dust
     
     def update(self, dt):
         """Update the disc properites and age"""
@@ -191,14 +172,13 @@ class FixedSizeDust(DustyDisc):
         eos      : Equation of state
         eps      : Initial dust fraction (must broadcast to [size.shape, Ncell])
         size     : size, cm (float or 1-d array of sizes)
-        d_thresh : Mass percentiles used to define dust radii
         Sigma    : Initial surface density distribution
         rhos     : solid density, default=1 g / cm^3
         feedback : default=True
     """
-    def __init__(self, grid, star, eos, eps, size, d_thresh, Sigma=None, rhos=1, feedback=True):
+    def __init__(self, grid, star, eos, eps, size, Sigma=None, rhos=1, feedback=True):
 
-        super(FixedSizeDust, self).__init__(grid, star, eos, d_thresh, Sigma, rhos, feedback)
+        super(FixedSizeDust, self).__init__(grid, star, eos, Sigma, rhos, feedback)
 
         shape = np.atleast_1d(size).shape + (self.Ncells,)
         self._eps  = np.empty(shape, dtype='f8')
@@ -224,7 +204,6 @@ class DustGrowthTwoPop(DustyDisc):
         star      : Stellar object
         eos       : Equation of state
         eps       : Initital dust fraction
-        d_thresh  : Mass percentiles used to define dust radii
         Sigma     : Initial surface density distribution
         rho_s     : solid density, default=1
         Sc        : Schmidt number, default=1
@@ -245,10 +224,10 @@ class DustGrowthTwoPop(DustyDisc):
         distribution_slope:
                     The slope d ln n(a) / d ln a of the number distribution with size (3.5 for MRN)
     """
-    def __init__(self, grid, star, eos, eps, d_thresh, Sigma=None,
+    def __init__(self, grid, star, eos, eps, Sigma=None,
                  rho_s=1., Sc=1., uf_0=100., uf_ice=1e3, f_ice=1, thresh=0.1,
                  f_grow=1.0, a0=1e-5, amin=1e-5, f_drift=0.55, f_frag=0.37, feedback=True, start_small=True, distribution_slope=3.5):
-        super(DustGrowthTwoPop, self).__init__(grid, star, eos, d_thresh, Sigma, rho_s, Sc, feedback)
+        super(DustGrowthTwoPop, self).__init__(grid, star, eos, Sigma, rho_s, Sc, feedback)
         
         self._uf_0   = uf_0 / (AU * Omega0)
         self._uf_ice = uf_ice / (AU * Omega0)
