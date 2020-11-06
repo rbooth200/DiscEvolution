@@ -232,15 +232,28 @@ def setup_output(model):
         output_times = np.arange(out['first'], out['last'], out['interval']) * yr
         if not np.allclose(out['last'], output_times[-1], 1e-12):
             output_times = np.append(output_times, out['last'] * yr)
+            output_times = np.insert(output_times,0,0) # Prepend 0
 
         # Setup of the plot controller
-        if out['plot']:
-            plot = np.array(out["plot_times"]) * yr
+        # Setup of the plot controller
+        if out['plot'] and out['plot_times']!=[0]:
+            plot = np.array([0]+out["plot_times"]) * yr
+        elif out['plot']:
+            plot = output_times
         else:
             plot = []
 
+        # Setup of the history controller
+        if out['history'] and out['history_times']!=[0]:
+            history = np.array([0]+out['history_times']) * yr
+        elif out['history']:
+            history = output_times
+        else:
+            history = []
+
     # For regular, logarithmic output times
     elif (out['arrange'] == 'log'):
+        print("Logarithmic spacing of outputs chosen - overrides the anything entered manually for plot/history times.")
 
         # Setup of the output controller
         if out['interval']<10:
@@ -251,7 +264,7 @@ def setup_output(model):
         last_log  = np.floor( np.log10(out['last'])  * perdec ) / perdec
         no_saves = (last_log-first_log)*perdec+1
         output_times = np.logspace(first_log,last_log,no_saves,endpoint=True,base=10,dtype=int) * yr
-        output_times = np.insert(output_times,0,0)
+        output_times = np.insert(output_times,0,0) # Prepend 0
         if not np.allclose(out['last'], output_times[-1], 1e-12):
             output_times = np.append(output_times, out['last'] * yr)
 
@@ -261,7 +274,13 @@ def setup_output(model):
         else:
             plot = []      
 
-    EC = Event_Controller(save=output_times, plot=plot)
+        # Setup of the history controller
+        if out['history']:
+            history = output_times
+        else:
+            history = []      
+
+    EC = Event_Controller(save=output_times, plot=plot, history=history)
     
     # Base string for output:
     mkdir_p(out['directory'])
@@ -373,6 +392,7 @@ def restart_model(model, disc, history, snap_number):
 def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_low=False):
     external_mass_loss_mode = all_in['fuv']['photoevaporation']
 
+    save_no = 0
     end = False     # Flag to set in order to end computation
     first = True    # Avoid duplicating output during hole clearing
     hole_open = 0   # Flag to set to snapshot hole opening
@@ -447,14 +467,18 @@ def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_l
                 ### Stop model ###
                 last_save=0
                 last_plot=0
+                last_history=0
                 # If there are save times left
                 if np.size(io.event_times('save'))>0:
                     last_save = io.event_times('save')[-1]
                 # If there are plot times left 
                 if np.size(io.event_times('plot'))>0:
                     last_plot = io.event_times('plot')[-1]
+                # If there are history times left 
+                if np.size(io.event_times('history'))>0:
+                    last_history = io.event_times('history')[-1]
                 # Remove all events up to the end
-                last_t = max(last_save,last_plot)
+                last_t = max(last_save,last_plot,last_history)
                 io.pop_events(last_t)
 
             else:
@@ -475,8 +499,7 @@ def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_l
         
         ### Saving
         if io.check_event(model.t, 'save') or end or (hole_open % hole_snap_no)==1:
-            save_no = len(model.history.times)
-
+            #save_no = len(model.history.times)
             # Print message to record this
             if (hole_open % hole_snap_no)==1:
                 print ("Taking extra snapshot of properties while hole is clearing")
@@ -489,10 +512,10 @@ def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_l
                     model.dump_hdf5( base_name.format(save_no))
             else:
                     model.dump_ASCII(base_name.format(save_no))
-
-            ### Measure disc properties and record
+            save_no+=1
+        if io.check_event(model.t, 'history') or end or (hole_open % hole_snap_no)==1:
+            # Measure disc properties and record
             model.history(model)
-
             # Save state
             model.history.save(model,all_in['output']['directory'])
 
@@ -516,7 +539,7 @@ def main():
     run(driver, io_control, output_name, model, args.restart, end_low=args.end)
         
     # Save disc properties
-    outputdata = driver.save(driver,model['output']['directory'])
+    outputdata = driver.history.save(driver,model['output']['directory'])
 
 if __name__ == "__main__":
     main()

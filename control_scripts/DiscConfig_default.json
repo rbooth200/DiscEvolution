@@ -43,11 +43,13 @@
 "format" : "ascii",
 "arrange" : "log",
 "first" : 1e3,
-"last" : 1e8,
+"last" : 1e7,
 "interval" : 50,
-"plot" : true,
+"plot" : false,
 "plot_times" : [0],
-"plot_name" : "disc"
+"plot_name" : "disc",
+"history" : true,
+"history_times": [0]
 },
 
 "fuv" : {
