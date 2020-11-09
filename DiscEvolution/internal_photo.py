@@ -169,12 +169,11 @@ class PhotoBase():
             if i_hole_out == np.nonzero(indisc)[0][-1]: # This is not a hole, but the outermost photoevaporating cell
                 raise NotHoleError
 
-            """If hole position drops by an order of magnitude, it is likely that the previous was really the clearing of low surface density material in the outer disc, so erase its history"""
+            """If hole position drops by an order of magnitude, it is likely that the previous was really the clearing of low surface density material in the outer disc, so reset"""
             if self._R_hole:
                 R_old = self._R_hole
                 if disc.R_edge[i_hole_out+1]/R_old<0.1:
                     self._reset = True
-                    disc.history._Rh = np.full_like(disc.history._Rh, np.nan)
                     
             """If everything worked, update hole properties"""
             if not self._R_hole:
@@ -191,7 +190,6 @@ class PhotoBase():
             if self._type == 'Primordial':
                 self._Hole = False
                 self._reset = True
-                disc.history._Rh = np.full_like(disc.history._Rh, np.nan)
                 if self._R_hole:
                     print("No hole found")
                     print("Last known location {} AU".format(self._R_hole))

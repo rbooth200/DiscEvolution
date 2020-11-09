@@ -447,6 +447,7 @@ def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_l
                 elif model.photoevaporation_internal._reset:
                     hole_open = 0
                     model.photoevaporation_internal._reset = False
+                    model.history.clear_hole()
                 # If the hole has opened, count steps and determine whether to do extra snapshot
                 if model.photoevaporation_internal._Hole:
                     hole_open += 1
@@ -499,7 +500,6 @@ def run(model, io, base_name, all_in, restart, verbose=True, n_print=1000, end_l
         
         ### Saving
         if io.check_event(model.t, 'save') or end or (hole_open % hole_snap_no)==1:
-            #save_no = len(model.history.times)
             # Print message to record this
             if (hole_open % hole_snap_no)==1:
                 print ("Taking extra snapshot of properties while hole is clearing")

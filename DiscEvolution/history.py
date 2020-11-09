@@ -179,6 +179,10 @@ class History(object):
             self._Rh = np.append(self._Rh,[R_hole])
             self._Mdot_int = np.append(self._Mdot_int, [driver.photoevaporation_internal._Mdot_true])
 
+    """Remove hole radii if identification of hole later deemed to be wrong"""
+    def clear_hole(self):
+        self._R = np.full_like(self._Rh, np.nan)
+
     """Save the history so far"""
     def save(self, driver, save_directory):
         # 0 Select times of recording
