@@ -536,10 +536,10 @@ class EUVDiscAlexander(PhotoBase):
         h = disc.H/disc.R
         he = np.empty_like(disc.R_edge)
         he[1:-1] = 0.5*(h[1:] + h[-1:])
-        he[0] = 2*h[0] - h[1]
-        he[-1] = 2*h[-1] - h[-2]
+        he[0] = 1.5*h[0] - 0.5*h[1] 
+        he[-1] = 1.5*h[-1] - 0.5*h[-2]
         self._h = he
-        
+
         # If initiating with an Inner Hole disc, need to update properties
         if self._type == 'InnerHole':
             self._Hole = True
