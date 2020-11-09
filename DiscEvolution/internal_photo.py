@@ -94,12 +94,12 @@ class PhotoBase():
             imin = np.argmin(t_w[indisc])           
 
         # Check against timestep and report
-        if (dt > t_w[imin]):         # If an entire cell can deplete
+        if (dt > t_w[where_photoevap][imin]):         # If an entire cell can deplete
             #if not self._Hole:
             #    print("Alert - hole can open after this timestep at {:.2f} AU".format(disc.R[imin]))
             #    print("Outer radius is currently {:.2f} AU".format(self._R_out))
             self._Hole = True       # Set hole flag
-        return t_w[imin]
+        return t_w[where_photoevap][imin]
 
     def remove_mass(self, disc, dt, external_photo=None):
         # Find disc "outer edge" so we can apply mass loss only inside
