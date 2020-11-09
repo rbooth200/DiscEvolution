@@ -77,7 +77,7 @@ class StarBase(object):
 
     @property
     def M(self):
-        """Mass in Mun"""
+        """Mass in Msun"""
         return self._M
 
     @property
@@ -142,8 +142,22 @@ class SimpleStar(StarBase):
                                      "known".format(key))
         return SimpleStar(**kwargs)
                                      
-            
-        
+# A star with a photoevaporating luminosity
+class PhotoStar(SimpleStar):
+    def __init__(self, LX=1e30, Phi=0, **kwargs):
+        super().__init__(**kwargs)
+        self._L_X = LX
+        self._Phi = Phi
+
+    @property
+    def L_X(self):
+        """X-ray Luminosity"""
+        return self._L_X
+
+    @property
+    def Phi(self):
+        """EUV Photon Luminosity"""
+        return self._Phi
 
 
 def from_file(filename):

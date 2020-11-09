@@ -3,17 +3,16 @@ import re
 import numpy as np
 
 sys.path.append('/data/rab200/ChemoDrift/new/')
-import chemistry as chem
-from planet_formation import Planets
+import DiscEvolution.chemistry as chem
+from DiscEvolution.planet_formation import Planets
 
 
 class DiscSnap(object):
 
-    def __init__(self, filename):
-        self.read(filename)
+    def __init__(self, filename, chem_on=False):
+        self.read(filename, chem_on)
 
-
-    def read(self, filename):
+    def read(self, filename, chem_on=False):
         """Read disc data from file"""
         # read the header
         head = ''
@@ -22,12 +21,17 @@ class DiscSnap(object):
         with open(filename) as f:
             for line in f:
                 if not vars:
-                    if not line.startswith('# time'):
+                    if not (line.startswith('# time') or line.startswith('# InternalEvaporation')):
                         head += line
-                    else:
+                    elif line.startswith('# InternalEvaporation'):
+                        # Get internal photoevaporation type
+                        self._IPE = line.strip().split(',')[1].split(':')[-1]
+                        print(self._IPE)
+                    elif line.startswith('# time'):
                         vars = True
                         # Get the time
-                        self._t = float(line.strip().split(':')[1][:-2])
+                        self._t = float(line.strip().split(':')[1][:-2])                    
+
                     count += 1
                     continue
                 # Get data variables stored
@@ -36,10 +40,13 @@ class DiscSnap(object):
 
                 # Get the number of dust species
                 Ndust = len([x for x in vars  if x.startswith('epsilon')])
-                Nchem = (len(vars) - 3 - 2*Ndust) / 2
-                
-                iChem = 2*Ndust + 3
-                chem_spec = vars[iChem:iChem + Nchem]
+
+                # If chemistry was used, get the number of chemical species
+                if chem_on:
+                    Nchem = (len(vars) - 3 - 2*Ndust) / 2
+                    
+                    iChem = 2*Ndust + 3
+                    chem_spec = vars[iChem:iChem + Nchem]
                 break
             
         # Parse the actual data:
@@ -56,19 +63,25 @@ class DiscSnap(object):
             self._eps[i] = data['epsilon{}'.format(i)]
             self._a[i]   = data['a{}'.format(i)]
 
+        # Only if chemistry used
+        if chem_on:
+            if Nchem == 6:
+                self._chem = chem.MolecularIceAbund(chem.SimpleCOMolAbund(Ndata),
+                                                    chem.SimpleCOMolAbund(Ndata))
+            else:
+                raise AttributeError('Nchem = {}'.format(Nchem) + 
+                                     '. Chemistry not recognized')
 
-        if Nchem == 6:
-            self._chem = chem.MolecularIceAbund(chem.SimpleCOMolAbund(Ndata),
-                                                chem.SimpleCOMolAbund(Ndata))
-        else:
-            raise AttributeError('Nchem = {}'.format(Nchem) + 
-                                 '. Chemistry not recognized')
-
-        for i in range(Nchem):
-            self._chem.gas.data[i] = data[names[iChem+i]]
-            self._chem.ice.data[i] = data[names[iChem+Nchem+i]]
+            for i in range(Nchem):
+                self._chem.gas.data[i] = data[names[iChem+i]]
+                self._chem.ice.data[i] = data[names[iChem+Nchem+i]]
                                                         
-
+    @property
+    def photo_type(self):
+        if hasattr(self,"_IPE"):
+            return self._IPE        
+        else:
+            return None
     @property
     def time(self):
         return self._t
@@ -111,7 +124,7 @@ class PlanetSnap(object):
                     else:
                         vars = True
                         # Get the time
-                        self._t = float(line.strip().split(':')[1][:-2])
+                        self._t = float(line.strip().split(':')[1][:-2])                    
                     count += 1
                     continue
                 # Get data variables stored
@@ -157,9 +170,10 @@ class PlanetSnap(object):
 
 class Reader(object):
 
-    def __init__(self, SnapType, DIR, base='*'):
+    def __init__(self, SnapType, DIR, base='*', chem_on=False):
         self._SnapType = SnapType
         self._DIR = DIR
+        self._chem_on = chem_on
 
         m = re.compile(r'^'+base+r'_\d\d\d\d.dat$')
         self._files = [ f for f in os.listdir(DIR) if m.findall(f)]
@@ -175,7 +189,7 @@ class Reader(object):
         
             
     def __getitem__(self, n):
-        return self._SnapType(self._snaps[n])
+        return self._SnapType(self._snaps[n], self._chem_on)
 
     def filename(self, n):
         return self._snaps[n]
@@ -187,8 +201,9 @@ class Reader(object):
                     
 class DiscReader(Reader):
     """Read disc snaphshots from file"""
-    def __init__(self, DIR, base='disc'):
-        super(DiscReader, self).__init__(DiscSnap, DIR, base)
+    # By default assume no chemistry
+    def __init__(self, DIR, base='disc', chem_on=False):
+        super(DiscReader, self).__init__(DiscSnap, DIR, base, chem_on)
 
 class PlanetReader(Reader):
     """Read disc snaphshots from file"""

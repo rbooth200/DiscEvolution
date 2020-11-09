@@ -8,7 +8,9 @@
 from __future__ import print_function
 import numpy as np
 import os
-
+import FRIED.photorate as photorate
+from .photoevaporation import FixedExternalEvaporation
+from .constants import yr
 from . import io
 
 class DiscEvolutionDriver(object):
@@ -18,20 +20,24 @@ class DiscEvolutionDriver(object):
         disc : Disc model to update
 
     Optional Physics update:
-        gas       : Update due to gas effects, i.e. Viscous evolution
-        dust      : Update the dust, i.e. radial drift
-        diffusion : Seperate diffusion update
-        chemistry : Solver for the chemical evolution
+        dust             : Update the dust, i.e. radial drift
+        gas              : Update due to gas effects, i.e. Viscous evolution
+        diffusion        : Seperate diffusion update
+        internal_photo   : Remove gas by internal photoevaporation
+        photoevaporation : Remove gas by external photoevaporation
+        chemistry        : Solver for the chemical evolution
+
+    History:
+        history          : Tracks values of key parameters over time
 
     Note: Diffusion is usually handled in the dust dynamics module
 
     Other options:
-        t0  : Starting time, default = 0.
+        t0  : Starting time, default = 0, code units
+        t_out:Previous output times, default = None, years
     """
-    def __init__(self, disc,
-                 gas=None, dust=None, diffusion=None, chemistry=None,
-                 photoevaporation=None,
-                 t0=0.):
+
+    def __init__(self, disc, gas=None, dust=None, diffusion=None, chemistry=None, ext_photoevaporation=None, int_photoevaporation=None, history=None, t0=0.):
 
         self._disc = disc
 
@@ -39,7 +45,10 @@ class DiscEvolutionDriver(object):
         self._dust      = dust
         self._diffusion = diffusion
         self._chemistry = chemistry
-        self._photoevap = photoevaporation
+        self._external_photo = ext_photoevaporation
+        self._internal_photo = int_photoevaporation
+
+        self._history = history
 
         self._t = t0
         self._nstep = 0
@@ -53,25 +62,46 @@ class DiscEvolutionDriver(object):
         returns:
             dt : Time step taken
         """
+        disc = self._disc
+
         # Compute the maximum time-step
         dt = tmax - self.t
         if self._gas:
             dt = min(dt, self._gas.max_timestep(self._disc))
         if self._dust:
-            dt = min(dt, self._dust.max_timestep(self._disc))
+            v_visc = self._gas.viscous_velocity(disc, Sigma = disc.Sigma_G)
+            dt = min(dt, self._dust.max_timestep(self._disc, v_visc))
+            if self._dust._diffuse:
+                dt = min(dt, self._dust._diffuse.max_timestep(self._disc))
         if self._diffusion:
-            dt = min(dt, self._diffusion.max_timestep(self._disc))
-
-        disc = self._disc
-
+            dt = min(dt, self._diffusion.max_timestep(self._disc))       
+        if self._external_photo and hasattr(self._external_photo,"_density"): # If we are using density to calculate mass loss rates, we need to limit the time step based on photoevaporation
+            (dM_dot, dM_gas) = self._external_photo.optically_thin_weighting(disc)
+            Dt = dM_gas[(dM_dot>0)] / dM_dot[(dM_dot>0)]
+            Dt_min = np.min(Dt)
+            dt = min(dt,Dt_min)
+        
+		# Determine tracers for dust step
         gas_chem, ice_chem = None, None
+        dust = None
         try:
             gas_chem = disc.chem.gas.data
             ice_chem = disc.chem.ice.data
         except AttributeError:
             pass
 
-        dust = None
+		# Do dust evolution        
+        if self._dust:
+            self._dust(dt, disc,
+                       gas_tracers=gas_chem,
+                       dust_tracers=ice_chem, v_visc=v_visc)
+
+		# Determine tracers for gas steps
+        try:
+            gas_chem = disc.chem.gas.data
+            ice_chem = disc.chem.ice.data
+        except AttributeError:
+            pass
         try:
             dust = disc.dust_frac
         except AttributeError:
@@ -81,11 +111,6 @@ class DiscEvolutionDriver(object):
         if self._gas:
             self._gas(dt, disc, [dust, gas_chem, ice_chem])
 
-        if self._dust:
-            self._dust(dt, disc,
-                       gas_tracers=gas_chem,
-                       dust_tracers=ice_chem)
-
         if self._diffusion:
             if gas_chem is not None:
                 gas_chem[:] += dt * self._diffusion(disc, gas_chem)
@@ -94,10 +119,19 @@ class DiscEvolutionDriver(object):
             if dust is not None:
                 dust[:] += dt * self._diffusion(disc, dust)
 
-        # Pin the values to >= 0:
-        disc.Sigma[:] = np.maximum(disc.Sigma, 0)
+        # Do external photoevaporation
+        if self._external_photo:
+            self._external_photo(disc, dt)
+
+        # Do internal photoevaporation
+        if self._internal_photo:
+            self._internal_photo(disc, dt/yr, self._external_photo)
+
+        # Pin the values to >= 0 and <=1:
+        disc.Sigma[:] = np.maximum(disc.Sigma, 0)        
         try:
             disc.dust_frac[:] = np.maximum(disc.dust_frac, 0)
+            disc.dust_frac[:] /= np.maximum(disc.dust_frac.sum(0), 1.0)
         except AttributeError:
             pass
         try:
@@ -105,7 +139,7 @@ class DiscEvolutionDriver(object):
             disc.chem.ice.data[:] = np.maximum(disc.chem.ice.data, 0)
         except AttributeError:
             pass
-            
+
         # Chemistry
         if self._chemistry:
             rho = disc.midplane_gas_density
@@ -119,9 +153,6 @@ class DiscEvolutionDriver(object):
             # If we have dust, we should update it now the ice fraction has
             # changed
             disc.update_ices(disc.chem.ice)
-
-        if self._photoevap:
-            self._photoevap(disc, dt)
 
         # Now we should update the auxillary properties, do grain growth etc
         disc.update(dt)
@@ -155,9 +186,14 @@ class DiscEvolutionDriver(object):
     def chemistry(self):
         return self._chemistry
     @property
-    def photoevaporation(self):
-        return self.photoevap
-    
+    def photoevaporation_external(self):
+        return self._external_photo
+    @property
+    def photoevaporation_internal(self):
+        return self._internal_photo
+    @property
+    def history(self):
+        return self._history
 
     def dump_ASCII(self, filename):
         """Write the current state to a file, including header information"""
@@ -173,8 +209,10 @@ class DiscEvolutionDriver(object):
             head += self._diffusion.ASCII_header() + '\n'
         if self._chemistry:
             head += self._chemistry.ASCII_header() + '\n'
-        if self._photoevap:
-            head += self._photoevap.ASCII_header() + '\n'
+        if self._external_photo:
+            head += self._external_photo.ASCII_header() + '\n'
+        if self._internal_photo:
+            head += self._internal_photo.ASCII_header() + '\n'
 
         # Write it all to disc
         io.dump_ASCII(filename, self._disc, self.t, head)
@@ -182,11 +220,12 @@ class DiscEvolutionDriver(object):
     def dump_hdf5(self, filename):
         """Write the current state in HDF5 format, with header information"""
         headers = []
-        if self._gas:       headers.append(self._gas.HDF5_attributes())
-        if self._dust:      headers.append(self._dust.HDF5_attributes())
-        if self._diffusion: headers.append(self._diffusion.HDF5_attributes())
-        if self._chemistry: headers.append(self._chemistry.HDF5_attributes())
-        if self._photoevap: headers.append(self._photoevap.HDF5_attributes())
+        if self._gas:            headers.append(self._gas.HDF5_attributes())
+        if self._dust:           headers.append(self._dust.HDF5_attributes())
+        if self._diffusion:      headers.append(self._diffusion.HDF5_attributes())
+        if self._chemistry:      headers.append(self._chemistry.HDF5_attributes())
+        if self._external_photo: headers.append(self._external_photo.HDF5_attributes())
+        if self._internal_photo: headers.append(self._internal_photo.HDF5_attributes())
 
         io.dump_hdf5(filename, self._disc, self.t, headers)
 

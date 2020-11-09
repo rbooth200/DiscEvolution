@@ -9,7 +9,13 @@
 #
 ################################################################################
 import numpy as np
-from .constants import AU, sig_H2, m_H
+from scipy import optimize
+from .constants import AU, sig_H2, m_H, yr, Msun
+
+def LBP_profile(R,R_C,Sigma_C):
+    """Defined for profile fitting"""
+    x = R/R_C
+    return np.log(Sigma_C) - np.log(x)-x
 
 class AccretionDisc(object):
 
@@ -17,10 +23,18 @@ class AccretionDisc(object):
         self._grid = grid
         self._star = star
         self._eos  = eos
+        self._FUV = 0.0
         if Sigma is None:
             Sigma = np.zeros_like(self.R)
         self._Sigma = Sigma
+        
+        """ Extra properties for dealing with half empty cells in timescale approach """
+        self.mass_lost = 0.0
+        self.tot_mass_lost = 0.0
+        self.i_edge = -1
 
+        #""" Global, time dependent properties stored as history """
+        #self.history = history()
 
     def ASCII_header(self):
         """Write header information about the disc"""
@@ -35,6 +49,10 @@ class AccretionDisc(object):
         return self.__class__.__name__, dict([ self._grid.HDF5_attributes(),
                                                self._star.HDF5_attributes(),
                                                self._eos.HDF5_attributes() ])
+
+    def set_FUV(self,FUV):
+        """Update the external FUV flux irradiating the disc"""
+        self._FUV = FUV
 
     @property
     def star(self):
@@ -84,8 +102,23 @@ class AccretionDisc(object):
         return self._eos.H
 
     @property
+    def h(self):
+        """Aspect ratio"""
+        return self.H/self.R
+
+    @property
+    def H_edge(self):
+        """Scale-height at cell edge"""
+        return self._eos.H_edge
+
+    @property
+    def h_edge(self):
+        """Aspect ratio at cell edge"""
+        return self.H_edge/self.R_edge
+
+    @property
     def P(self):
-        return self.midplane_gas_density * self.cs**2 
+        return self.midplane_gas_density * self.cs**2
 
     @property
     def midplane_gas_density(self):
@@ -94,6 +127,14 @@ class AccretionDisc(object):
     @property
     def midplane_density(self):
         return self.Sigma / (np.sqrt(2*np.pi) * self.H * AU)
+
+    @property
+    def column_density(self):
+        n = self.midplane_gas_density / (self._eos._mu * m_H)
+        Re = self.R_edge * AU
+        ndR = n * (Re[1:] - Re[:-1])
+        N = np.cumsum(ndR)
+        return N
 
     @property
     def Ncells(self):
@@ -121,11 +162,48 @@ class AccretionDisc(object):
     def Omega_k(self):
         return self._star.Omega_k(self.R)
 
+    @property
+    def FUV(self):
+        return self._FUV
+
+    """Methods to determine global properties of a viscous accretion disc"""
+    def Rout(self, thresh=1e-5):
+        """Determine the outer radius via density threshold"""
+        notempty = self.Sigma_G > thresh
+        notempty_cells = self.R_edge[1:][notempty]
+        if np.size(notempty_cells>0):
+            R_outer = notempty_cells[-1]
+        else:
+            R_outer = 0.0
+
+        return R_outer
+
+    def RC(self):
+        """Fit an LBP profile to the disc and return the scale radius"""
+        not_empty = (self.R < self.Rout())
+        popt,pcov = optimize.curve_fit(LBP_profile,self.R[not_empty],np.log(self.Sigma_G[not_empty]),p0=[100,0.01],maxfev=5000)
+        return popt[0]
+
+    def Mtot(self):
+        """Determine the total mass"""
+        Re = self.R_edge * AU
+        dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
+        dM_tot = self.Sigma * dA
+        M_tot = np.sum(dM_tot)
+        return M_tot
+
+    def Mdot(self,viscous_velocity):
+        """Determine the viscous accretion rate"""
+        M_visc_out = 2*np.pi * self.R[0] * self.Sigma[0] * viscous_velocity * (AU**2)
+        Mdot = -M_visc_out*(yr/Msun)
+        return Mdot
+
+    """Other methods"""
     def set_surface_density(self, Sigma):
         self._Sigma[:] = Sigma
 
     def update(self, dt):
-        """Update the disc properites and age"""
+        """Update the disc properties and age"""
 
         new_age = self._star.age + dt/(2*np.pi)
         self._star.evolve(new_age)

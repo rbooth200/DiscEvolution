@@ -7,10 +7,10 @@
 ################################################################################
 from __future__ import print_function
 import numpy as np
-
+import copy
 
 class ViscousEvolution(object):
-    """Solves the 1D viscous evoluation equation.
+    """Solves the 1D viscous evolution equation.
 
     This class handles the inclusion of dust species in the one-fluid
     approximation. The total surface density (Sigma = Sigma_G + Sigma_D) is
@@ -22,15 +22,20 @@ class ViscousEvolution(object):
     args:
        tol       : Ratio of the time-step to the maximum stable one.
                    Default = 0.5
+       in_bound  : Type of internal boundary condition:
+                     'Zero'      : Zero torque boundary
+                     'Mdot'      : Constant Mdot (power law).
        boundary  : Type of external boundary condition:
                      'Zero'      : Zero torque boundary
                      'power_law' : Power-law extrapolation
-                     'Mdot'      : Constant Mdot, same as inner.
+                     'Mdot_inn'  : Constant Mdot, same as inner (power law).
+                     'Mdot_out'  : Constant Mdot, for tail of LBP.
     """
 
-    def __init__(self, tol=0.5, boundary='power_law'):
+    def __init__(self, tol=0.5, boundary='power_law', in_bound='Mdot'):
         self._tol = tol
         self._bound = boundary
+        self._in_bound = in_bound
 
     def ASCII_header(self):
         """header"""
@@ -56,13 +61,23 @@ class ViscousEvolution(object):
         S = np.zeros(len(nuX) + 2, dtype='f8')
         S[1:-1] = disc.Sigma_G * nuX
 
-        S[0] = S[1] * self._X[0] / self._X[1]
-        if self._bound == 'Zero':
+        # Inner boundary
+        if self._in_bound == 'Zero':            # Zero torque
+            S[0] = 0
+        elif self._in_bound == 'Mdot':          # Constant flux (appropriate for power law)
+            S[0] = S[1] * self._X[0] / self._X[1]
+        else:
+            raise ValueError("Error boundary type not recognised")
+
+        # Outer boundary
+        if self._bound == 'Zero':               # Zero torque
             S[-1] = 0
         elif self._bound == 'power_law':
             S[-1] = S[-2] ** 2 / S[-3]
-        elif self._bound == 'Mdot':
+        elif self._bound == 'Mdot_out':         # Constant flux (appropriate for tail of LBP)
             S[-1] = S[-2] * self._X[-2] / self._X[-1]
+        elif self._bound == 'Mdot_inn':         # Constant flux (appropriate for power law)
+            S[-1] = S[-2] * self._X[-1] / self._X[-2]
         else:
             raise ValueError("Error boundary type not recognised")
 
@@ -93,13 +108,17 @@ class ViscousEvolution(object):
         # Compute the viscous update
         return 3. * np.diff(ds) / self._RXdXe
 
-    def viscous_velocity(self, disc):
+    def viscous_velocity(self, disc, Sigma=None):
         """Compute the radial velocity due to viscosity"""
         self._setup_grid(disc.grid)
         self._init_fluxes(disc)
 
-        RS = disc.Sigma * disc.R
-        return - 3 * self._dS[1:-1] / (RS[1:] + RS[:-1])
+        # Can accept other density specifications (e.g. gas only to match specification of dust drift by Dipierro+18)
+        if Sigma is None:
+            Sigma = disc.Sigma
+               
+        RS = Sigma * disc.R
+        return np.nan_to_num(- 3 * self._dS[1:-1] / (RS[1:] + RS[:-1])) # Avoid nans when working with Sigma_G -> 0
 
     def max_timestep(self, disc):
         """Courant limited time-step"""
@@ -124,19 +143,16 @@ class ViscousEvolution(object):
 
         f = self._fluxes()
         Sigma_new = disc.Sigma + dt * f
-
+        
         for t in tracers:
             if t is None: continue
-            t[:] += dt*(self._tracer_fluxes(t) - t*f) / (Sigma_new + 1e-300)
+            tracer_density = t*disc.Sigma
+            t[:] = (dt*self._tracer_fluxes(t) + tracer_density) / (Sigma_new + 1e-300)
 
         disc.Sigma[:] = Sigma_new
 
-
-
-
-
 class ViscousEvolutionFV(object):
-    """Solves the 1D viscous evoluation equation via a finite-volume method
+    """Solves the 1D viscous evolution equation via a finite-volume method
 
     This class handles the inclusion of dust species in the one-fluid
     approximation. The total surface density (Sigma = Sigma_G + Sigma_D) is
@@ -148,15 +164,20 @@ class ViscousEvolutionFV(object):
     args:
        tol       : Ratio of the time-step to the maximum stable one.
                    Default = 0.5
+       in_bound  : Type of internal boundary condition:
+                     'Zero'      : Zero torque boundary
+                     'Mdot'      : Constant Mdot (power law).
        boundary  : Type of external boundary condition:
                      'Zero'      : Zero torque boundary
                      'power_law' : Power-law extrapolation
-                     'Mdot'      : Constant Mdot, same as inner.
+                     'Mdot_inn'  : Constant Mdot, same as inner (power law).
+                     'Mdot_out'  : Constant Mdot, for tail of LBP.
     """
 
-    def __init__(self, tol=0.5, boundary='power_law'):
+    def __init__(self, tol=0.5, boundary='power_law', in_bound='Mdot'):
         self._tol = tol
         self._bound = boundary
+        self._in_bound = in_bound
 
     def ASCII_header(self):
         """header"""
@@ -181,13 +202,23 @@ class ViscousEvolutionFV(object):
         S = np.zeros(len(nuRh) + 2, dtype='f8')
         S[1:-1] = disc.Sigma_G * nuRh
 
-        S[0] = S[1] * self._Rh[0] / self._Rh[1]
+        # Inner boundary
+        if self._in_bound == 'Zero':            # Zero torque
+            S[0] = 0
+        elif self._in_bound == 'Mdot':          # Constant flux (appropriate for power law)
+            S[0] = S[1] * self._Rh[0] / self._Rh[1]
+        else:
+            raise ValueError("Error boundary type not recognised")
+
+        # Outer boundary
         if self._bound == 'Zero':
             S[-1] = 0
         elif self._bound == 'power_law':
             S[-1] = S[-2] ** 2 / S[-3]
-        elif self._bound == 'Mdot':
+        elif self._bound == 'Mdot_out':         # Constant flux (appropriate for tail of LBP)
             S[-1] = S[-2] * self._Rh[-2] / self._Rh[-1]
+        elif self._bound == 'Mdot_inn':         # Constant flux (appropriate for power law)
+            S[-1] = S[-2] * self._Rh[-1] / self._Rh[-2]
         else:
             raise ValueError("Error boundary type not recognised")
 
@@ -255,7 +286,6 @@ class ViscousEvolutionFV(object):
             t[:] += dt*(self._tracer_fluxes(t) - t*f) / (Sigma_new + 1e-300)
 
         disc.Sigma[:] = Sigma_new
-
 
 class LBP_Solution(object):
     """Analytical solution for the evolution of an accretion disc,

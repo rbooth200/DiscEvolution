@@ -27,7 +27,7 @@ The code is not intended to be used as a stand alone tool, but includes a set of
 that can be used to include different physics when modelling the evolution of protoplanetary discs.
 As such, it contains a series of classes each of which handle one aspect of the disc's evolution, 
 such as viscous evolution or grain growth. An example model, along with a script to drive the main
-code is included in the "example" directory.
+code is included in the "example" directory (alternative scripts that work with the photoevaporation modules are given in the "control_scripts" directory).
 
 In addition to the physics, there are a number of core classes upon which the physics modules are built.
 
@@ -66,7 +66,11 @@ Contains simple modules for following the evolution of volatile species such as 
 #### Planet formation
 Contains prescriptions for the growth and migration of planets. Currently does not include their feedback on the disc's evolution.
 
+#### External Photoevaporation
+Contains prescriptions for external photoevaporation, either with constant mass loss rate, or determined from the Haworth et al. (2017) FRIED grid. This includes the removal of dust that is entrained in the wind.
 
+#### Internal Photoevaporaion
+Contains prescriptions for internal photoevaporation, both EUV-driven (Alexander & Armitage 2007) and X-ray-driven (Owen et al. 2012 or Picogna et al. 2019). The module switches to the direct field prescription for a inner hole source once the column density to the hole drops sufficiently. Dust is not removed by these prescriptions.
 
 ## Contact
 Please report any bugs or issues here on github. 

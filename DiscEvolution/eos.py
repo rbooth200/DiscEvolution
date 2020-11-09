@@ -17,15 +17,18 @@ class EOS_Table(object):
         self._mu    = 2.4
     
     def set_grid(self, grid):
-        self._R = grid.Rc
+        self._R      = grid.Rc
+        self._R_edge = grid.Re
         self._set_arrays()
 
     def _set_arrays(self):
-        R = self._R
-        self._cs    = self._f_cs(R)
-        self._H     = self._f_H(R)
-        self._nu    = self._f_nu(R)
-        self._alpha = self._f_alpha(R)
+        R  = self._R
+        Re = self._R_edge
+        self._cs     = self._f_cs(R)
+        self._H      = self._f_H(R)
+        self._H_edge = self._f_H(Re)
+        self._nu     = self._f_nu(R)
+        self._alpha  = self._f_alpha(R)
 
     @property
     def cs(self):
@@ -34,6 +37,10 @@ class EOS_Table(object):
     @property
     def H(self):
         return self._H
+
+    @property
+    def H_edge(self):
+        return self._H_edge
 
     @property
     def nu(self):
@@ -71,19 +78,20 @@ class LocallyIsothermalEOS(EOS_Table):
     """Simple locally isothermal power law equation of state:
 
     args:
-        cs0     : sound-speed at 1AU
+        h0      : aspect ratio at 1AU
         q       : power-law index of sound-speed
         alpha_t : turbulent alpha parameter
         star    : stellar properties
         mu      : mean molecular weight, default=2.4
     """
-    def __init__(self, star, cs0, q, alpha_t, mu=2.4):
+    def __init__(self, star, h0, q, alpha_t, mu=2.4):
         super(LocallyIsothermalEOS, self).__init__()
         
-        self._cs0 = cs0
+        self._h0 = h0
+        self._cs0 = h0 * star.M**0.5
         self._q = q
         self._alpha_t = alpha_t
-        self._H0 = cs0 * star.M**-0.5
+        self._H0 = h0
         self._T0 = (AU*Omega0)**2 * mu / GasConst
         self._mu = mu
         
@@ -110,13 +118,13 @@ class LocallyIsothermalEOS(EOS_Table):
     def ASCII_header(self):
         """LocallyIsothermalEOS header string"""
         head = super(LocallyIsothermalEOS, self).ASCII_header()
-        head += ', cs0: {}, q: {}, alpha: {}'
-        return head.format(self._cs0, self._q, self._alpha_t)
+        head += ', h0: {}, q: {}, alpha: {}'
+        return head.format(self._h0, self._q, self._alpha_t)
 
     def HDF5_attributes(self):
         """Class information for HDF5 headers"""
         name, head = super(LocallyIsothermalEOS, self).HDF5_attributes()
-        head["cs0"]   = "{}".format(self._cs0)
+        head["h0"]   = "{}".format(self._h0)
         head["q"]     = "{}".format(self._q)
         head["alpha"] = "{}".format(self._alpha_t)
         return name, head

@@ -49,7 +49,7 @@ class TracerDiffusion(object):
 
         # Use geometric average to avoid problems at the edge of evaporating
         # regions., where Sigma_G = 0 (and eps_i is ill-defined)
-        DSig = D*disc.Sigma_G
+        DSig = D*Sigma_G
         DSig = np.sqrt(np.maximum(DSig[1:]*DSig[:-1], 0))
 
         return - DSig * np.diff(eps_i) / disc.grid.dRc
@@ -67,7 +67,7 @@ class TracerDiffusion(object):
         grid = disc.grid
         D = disc.nu / self._get_Schmidt(disc, Sc)
 
-        return (0.25 * np.diff(grid.Re)**2 / D).max()
+        return (0.25 * np.diff(grid.Re)**2 / D).min()
 
     def __call__(self, disc, eps_i, Sc=None):
         """Compute the rate of change of the surface density due to diffusion.
@@ -83,7 +83,7 @@ class TracerDiffusion(object):
         Sc = self._get_Schmidt(disc, Sc)
 
         grid = disc.grid
-        Sigma_G = disc.Sigma_G
+        Sigma = disc.Sigma
         F = self._diffusive_flux(disc, eps_i, Sc)
 
         if self._limit:
@@ -96,7 +96,7 @@ class TracerDiffusion(object):
         depsdt[...,1:]  += F / grid.dRe2[1:]
         depsdt[...,:-1] -= F / grid.dRe2[:-1]
 
-        depsdt /= Sigma_G + 1e-300
+        depsdt /= Sigma + 1e-300
         return depsdt
 
     @property

@@ -19,9 +19,10 @@ class DustyDisc(AccretionDisc):
         grid     : Disc gridding object
         star     : Stellar object
         eos      : Equation of state
+        Sigma    : Initial surface density distribution
         rho_s    : solid density, default=1
         Sc       : Schmidt number, default=1
-        feedback : When False, the dust mass is considered to be a negligable
+        feedback : When False, the dust mass is considered to be a negligible
                    fraction of the total mass.
     """
     def __init__(self, grid, star, eos, Sigma=None, rho_s=1., Sc=1.,
@@ -35,7 +36,6 @@ class DustyDisc(AccretionDisc):
         self._Sc = Sc
         self._feedback = feedback
 
-
     def Stokes(self, Sigma=None, size=None):
         """Stokes number of the particle"""
         if size is None:
@@ -47,7 +47,7 @@ class DustyDisc(AccretionDisc):
 
     def mass(self):
         """Grain mass"""
-        return (4*np.pi/3) * self._rho_s * self.grain_size**3 
+        return (4*np.pi/3) * self._rho_s * self.grain_size**3
 
     @property
     def integ_dust_frac(self):
@@ -108,6 +108,28 @@ class DustyDisc(AccretionDisc):
         eta = 1 - 1. / (2 + 1./St)
 
         return self.H * np.sqrt(eta * a / (a + St))
+
+    """Methods to determine global properties of a dust disc"""
+    def Rdust(self, thresholds=[0.68]):
+        """Determine the dust radius by mass"""
+        Re = self.R_edge * AU
+        dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
+        dM_dust = self.Sigma_D.sum(0) * dA
+        M_cum = np.cumsum(dM_dust)
+        radii = {}
+        for thresh in thresholds:
+            outside = M_cum > (M_cum[-1] * thresh)
+            R_outer = self.R[outside][0]
+            radii[thresh] = R_outer
+        return radii
+
+    def Mdust(self):
+        """Determine the dust mass"""
+        Re = self.R_edge * AU
+        dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
+        dM_dust = self.Sigma_D.sum(0) * dA
+        M_dust = np.sum(dM_dust)
+        return M_dust
     
     def update(self, dt):
         """Update the disc properites and age"""
@@ -150,13 +172,13 @@ class FixedSizeDust(DustyDisc):
         eos      : Equation of state
         eps      : Initial dust fraction (must broadcast to [size.shape, Ncell])
         size     : size, cm (float or 1-d array of sizes)
+        Sigma    : Initial surface density distribution
         rhos     : solid density, default=1 g / cm^3
         feedback : default=True
     """
     def __init__(self, grid, star, eos, eps, size, Sigma=None, rhos=1, feedback=True):
 
-        super(FixedSizeDust, self).__init__(grid, star, eos,
-                                            Sigma, rhos, feedback)
+        super(FixedSizeDust, self).__init__(grid, star, eos, Sigma, rhos, feedback)
 
         shape = np.atleast_1d(size).shape + (self.Ncells,)
         self._eps  = np.empty(shape, dtype='f8')
@@ -198,14 +220,14 @@ class DustGrowthTwoPop(DustyDisc):
                     role of bouncing (default=0.55).
         f_frag    : Fragmentation boundary fitting factor (default=0.37).
         feedback  : Whether to include feedback from dust on gas
+        start_small:Whether to start at monomer size (True, default) or equilibrium (False)
+        distribution_slope:
+                    The slope d ln n(a) / d ln a of the number distribution with size (3.5 for MRN)
     """
     def __init__(self, grid, star, eos, eps, Sigma=None,
                  rho_s=1., Sc=1., uf_0=100., uf_ice=1e3, f_ice=1, thresh=0.1,
-                 f_grow=1.0, a0=1e-5, amin=0., f_drift=0.55, f_frag=0.37, 
-                 feedback=True):
-        super(DustGrowthTwoPop, self).__init__(grid, star, eos,
-                                               Sigma, rho_s, Sc, feedback)
-
+                 f_grow=1.0, a0=1e-5, amin=1e-5, f_drift=0.55, f_frag=0.37, feedback=True, start_small=True, distribution_slope=3.5):
+        super(DustGrowthTwoPop, self).__init__(grid, star, eos, Sigma, rho_s, Sc, feedback)
         
         self._uf_0   = uf_0 / (AU * Omega0)
         self._uf_ice = uf_ice / (AU * Omega0)
@@ -226,17 +248,18 @@ class DustGrowthTwoPop(DustyDisc):
         self._eps[1] = 0
         self._a[0]   = amin
         self._a[1]   = a0
-
+        
         self._amin = amin 
         
         self._ice_threshold = thresh
         self._uf = self._frag_velocity(f_ice)
         self._area = np.pi * a0*a0
+        self._start_small = start_small         # Whether to start at monomer size (True, default) or equilibrium (False)
+        self._p = distribution_slope            # The slope d ln n(a) / d ln a of the number distribution with size (3.5 for MRN)
 
         self._head = (', uf_0: {}cm s^-1, uf_ice: {}cm s^-1, thresh: {}'
                       ', f_grow: {}, a0: {}cm'.format(uf_0, uf_ice, thresh,
                                                       f_grow, a0))
-
 
         self.update(0)
 
@@ -319,31 +342,33 @@ class DustGrowthTwoPop(DustyDisc):
         # Size and total gas fraction
         a = self._a[1]        
         eps_tot = self.dust_frac.sum(0)
-        
+                
         afrag_t = self._frag_limit()
         adrift, afrag_d =  self._drift_limit(eps_tot)
         t_grow = self._t_grow(eps_tot)
         
         afrag = np.minimum(afrag_t, afrag_d)
-        a0    = np.minimum(afrag, adrift)
+        a0    = np.minimum(afrag, adrift)       # a0 is the lower of the maximum sizes
 
         # Update the particle distribution
         #   Maximum size due to growth:
-        amax = np.minimum(a0, a*np.exp(dt/t_grow))
+        if self._start_small:
+            amax = np.minimum(a0, a*np.exp(dt/t_grow))  # If dust grains start small (default) first have to grow)
+        else:
+            amax = a0                                   # Ignore possibility of being in growth phase
         #   Reduce size due to erosion / fragmentation if grains have grown
         #   above this due to ice condensation
         # amin = a + np.minimum(0, afrag-a)*np.expm1(-dt/t_grow)
         # ignore empty cells:
         ids = eps_tot > 0
         self._a[1, ids] = np.maximum(amax[ids], self._amin)
-
+        
         # Update the mass-fractions in each population
         fm   = self._fmass[1*(afrag < adrift)]
         self._fm[ids] = fm[ids]
         
         self._eps[0][ids] = ((1-fm)*eps_tot)[ids]
         self._eps[1][ids] = (   fm *eps_tot)[ids]
-
 
         # Set the average area:
         #self._area = np.pi * self.a_BT(eps_tot)**2
@@ -430,11 +455,17 @@ class SingleFluidDrift(object):
             head.update(dict([self._diffuse.HDF5_attributes()]))
         return self.__class__.__name__ , head
 
-    def max_timestep(self, disc):
+    def max_timestep(self, disc, v_visc=None):
         step = np.inf
+        Cou = 0.5       # Courant number
         
-        dV = abs(self._compute_deltaV(disc))
-        return 0.5 * (disc.grid.dRc / dV).min()
+        dV = self._compute_deltaV(disc, v_visc)
+        dVout = np.empty((dV.shape[0],dV.shape[-1]+2))
+        dVout[:,1:-1] = dV
+        dVout[:, 0] = dVout[:, 1]
+        dVout[:,-1] = dVout[:,-2]
+        dVtot = np.abs(dVout[:,1:]) + np.abs(dVout[:,:-1])  # Potentially a cell can lose dust in both directions, both should be included to ensure stability
+        return Cou * (disc.grid.dRe / dVtot).min()
     
     def _donor_flux(self, Ree, deltaV_i, Sigma, eps_i):
         """Compute flux using Donor-Cell method"""
@@ -496,6 +527,7 @@ class SingleFluidDrift(object):
             
         # Do the update
         deps = - np.diff(flux*grid.Re) / ((Sigma+1e-300) * 0.5*grid.dRe2)
+
         if self._diffuse:
             St2 = St_i**2
             try:
@@ -503,24 +535,26 @@ class SingleFluidDrift(object):
             except ValueError:
                 Sc = self._diffuse.Sc
             Sc = Sc * (0.5625/(1 + 4*St2) + 0.4375 + 0.25*St2)
-
-            deps += self._diffuse(disc, eps_i, Sc)
+            depsdiff = self._diffuse(disc, eps_i, Sc)
+            deps += depsdiff
 
         return deps
 
-    def _compute_deltaV(self, disc):
+    def _compute_deltaV(self, disc, v_visc=None):
         """Compute the total dust-gas background velocity"""
 
         Sigma  = disc.Sigma
         SigmaD = disc.Sigma_D
         Om_k   = disc.Omega_k
         a      = disc.grain_size
+        R      = disc.R
 
         # Average to cell edges:        
         Om_kav  = 0.5*(Om_k      [1:] + Om_k      [:-1])
         Sig_av  = 0.5*(Sigma     [1:] + Sigma     [:-1]) + 1e-300
         SigD_av = 0.5*(SigmaD[...,1:] + SigmaD[...,:-1])
         a_av    = 0.5*(a    [..., 1:] + a     [...,:-1])
+        R_av    = 0.5*(R         [1:] + R         [:-1])
 
         # Compute the density factors needed for the effect of feedback on
         # the radial drift velocity.
@@ -548,21 +582,26 @@ class SingleFluidDrift(object):
         St_av = disc.Stokes(SigG_av, a_av+1e-300)
 
         # Compute the lambda factors
-        #   Use lambda * eps_g instead of lambda to avoid 0/0 when eps_g -> 0.
+        # DON'T Use lambda * eps_g instead of lambda to avoid 0/0 in D_1 when eps_g -> 0.
         la0, la1 = 0, 0 
         St_1 = 1 / (1 + St_av**2)
         if disc.feedback:
-            la0 = (eps_av / (1     + St_av** 2)).sum(0)
-            la1 = (eps_av / (St_av + St_av**-1)).sum(0)
+            la0 = (eps_av/eps_g / (1     + St_av** 2)).sum(0)
+            la1 = (eps_av/eps_g / (St_av + St_av**-1)).sum(0)
 
-        # Compute the gas velocities:
+        # Compute the gas velocities due to pressure (with feedback):
         rho = disc.midplane_gas_density
         dPdr = np.diff(disc.P) / disc.grid.dRc
         eta = - dPdr / (0.5*(rho[1:] + rho[:-1] + 1e-300)*Om_kav)
 
-        D_1 = eps_g / ((eps_g + la0)**2 + la1**2)
-        u_gas =                la1  * eta * D_1
-        v_gas = - 0.5*(eps_g + la0) * eta * D_1
+        D_1 = 1 / ((1 + la0)**2 + la1**2)
+        u_gas =            la1  * eta * D_1
+        v_gas = - 0.5*(1 + la0) * eta * D_1
+
+        # Compute the gas velocities due to viscosity per Dipierro+18 (with feedback):
+        if v_visc is not None:
+            u_gas += (1 + la0) * v_visc * D_1
+            v_gas += 0.5 * la1 * v_visc * D_1
 
         # Dust-gas relative velocities:
         DeltaV = (2*v_gas / (St_av + St_av**-1) 
@@ -576,36 +615,36 @@ class SingleFluidDrift(object):
 
         return DeltaV
 
-    def __call__(self, dt, disc, gas_tracers=None, dust_tracers=None):
+    def __call__(self, dt, disc, gas_tracers=None, dust_tracers=None, v_visc=None):
         """Apply the update for radial drift over time-step dt"""
         eps = disc.dust_frac
-        a   = disc.grain_size   
+        a   = disc.grain_size
         eps_inv = 1. / (eps.sum(0) + np.finfo(eps.dtype).tiny)
 
         # Compute the dust-gas relative velocity
-        DeltaV = self._compute_deltaV(disc)
+        DeltaV = self._compute_deltaV(disc, v_visc)
         
         # Compute and apply the fluxes
         if gas_tracers is not None:
             gas_tracers[:] += dt * self._fluxes(disc, gas_tracers, 0, 0, dt)
 
-
         # Update the dust fraction, size and tracers
         d_tr = 0
         for eps_k, dV_k, a_k, St_k in zip(disc.dust_frac, DeltaV,
                                           disc.grain_size, disc.Stokes()):
+
             if dust_tracers is not None:
                 t_k = dust_tracers * eps_k * eps_inv
                 d_tr  += dt*self._fluxes(disc, t_k, dV_k, St_k, dt)
                 
             # multiply a_k by the dust-to-gas ratio, so that constant functions
             # are advected perfectly
-            eps_a = a_k * eps_k
-            eps_a +=  dt*self._fluxes(disc, eps_a, dV_k, St_k, dt)
+            #eps_a = a_k * eps_k
+            #eps_a +=  dt*self._fluxes(disc, eps_a, dV_k, St_k, dt)
             
             eps_k[:] += dt*self._fluxes(disc, eps_k, dV_k, St_k, dt)
 
-            a_k[:] = eps_a / (eps_k + 1e-300)
+            #a_k[:] = eps_a / (eps_k + 1e-300)
 
         if dust_tracers is not None:
             dust_tracers[:] += d_tr
@@ -614,8 +653,6 @@ class SingleFluidDrift(object):
         """Compute the radial drift velocity for the disc"""
         DeltaV = self._compute_deltaV(disc)
         return DeltaV - self._epsDeltaV
-
-
     
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
