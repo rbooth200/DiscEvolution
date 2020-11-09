@@ -8,7 +8,6 @@
 from __future__ import print_function
 import numpy as np
 import os
-import FRIED.photorate as photorate
 from .photoevaporation import FixedExternalEvaporation
 from .constants import yr
 from . import io
@@ -69,7 +68,7 @@ class DiscEvolutionDriver(object):
         if self._gas:
             dt = min(dt, self._gas.max_timestep(self._disc))
         if self._dust:
-            v_visc = self._gas.viscous_velocity(disc, Sigma = disc.Sigma_G)
+            v_visc = self._gas.viscous_velocity(disc)
             dt = min(dt, self._dust.max_timestep(self._disc, v_visc))
             if self._dust._diffuse:
                 dt = min(dt, self._dust._diffuse.max_timestep(self._disc))

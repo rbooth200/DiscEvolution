@@ -15,7 +15,7 @@ setup(
     install_requires=[line.rstrip() for line in open("requirements.txt", "r").readlines()],
     license="GPLv3",
     url="hhttps://github.com/rbooth200/DiscEvolution/",
-    package_data={'':['data/*/*.npy', 'data/*/*.txt']},
+    package_data={'':['data/*/*.npy', 'data/*/*.txt', 'FRIED/friedgrid.dat']},
     include_package_data=True,
     classifiers=[
          "Development Status :: 1 - Production/Stable",

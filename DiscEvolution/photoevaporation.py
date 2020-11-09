@@ -8,7 +8,7 @@
 import numpy as np
 from .constants import AU, Msun, yr, Mjup
 from .dust import DustyDisc
-import FRIED.photorate as photorate
+from .FRIED import photorate
 
 class ExternalPhotoevaporationBase(object):
     """Base class for handling the external photo-evaporation of discs
@@ -233,7 +233,7 @@ class FixedExternalEvaporation(ExternalPhotoevaporationBase):
         header['amax'] = '{}'.format(self._amax)
         return self.__class__.__name__, header
     
-class TimeExternalEvaportation(ExternalPhotoevaporationBase):
+class TimeExternalEvaporation(ExternalPhotoevaporationBase):
     """Mass loss via external evaporation at a constant mass-loss timescale,
     Almost certainly deprecated in this branch
         Mdot = pi R^2 Sigma / t_loss.

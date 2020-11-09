@@ -249,12 +249,13 @@ class ViscousEvolutionFV(object):
         # Compute the viscous update
         return np.diff(self._dA * ds) / self._dV
 
-    def viscous_velocity(self, disc):
+    def viscous_velocity(self, disc, S = None):
         """Compute the radial velocity due to viscosity"""
         self._setup_grid(disc.grid)
         self._init_fluxes(disc)
 
-        S = disc.Sigma 
+        if S is None:
+            S = disc.Sigma 
         return 0.5 * self._dS[1:-1] / (S[1:] + S[:-1])
 
     def max_timestep(self, disc):

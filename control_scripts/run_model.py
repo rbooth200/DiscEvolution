@@ -32,7 +32,7 @@ from DiscEvolution.disc_utils import mkdir_p
 from DiscEvolution.internal_photo import EUVDiscAlexander, XrayDiscOwen, XrayDiscPicogna
 from DiscEvolution.history import History
 import DiscEvolution.photoevaporation as photoevaporation
-import FRIED.photorate as photorate
+import DiscEvolution.FRIED.photorate as photorate
 
 ###############################################################################
 # Global Constants
@@ -262,7 +262,7 @@ def setup_output(model):
             perdec = out['interval']
         first_log = np.floor( np.log10(out['first']) * perdec ) / perdec
         last_log  = np.floor( np.log10(out['last'])  * perdec ) / perdec
-        no_saves = (last_log-first_log)*perdec+1
+        no_saves = int((last_log-first_log)*perdec+1)
         output_times = np.logspace(first_log,last_log,no_saves,endpoint=True,base=10,dtype=int) * yr
         output_times = np.insert(output_times,0,0) # Prepend 0
         if not np.allclose(out['last'], output_times[-1], 1e-12):

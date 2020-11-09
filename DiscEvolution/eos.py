@@ -18,15 +18,12 @@ class EOS_Table(object):
     
     def set_grid(self, grid):
         self._R      = grid.Rc
-        self._R_edge = grid.Re
         self._set_arrays()
 
     def _set_arrays(self):
         R  = self._R
-        Re = self._R_edge
         self._cs     = self._f_cs(R)
         self._H      = self._f_H(R)
-        self._H_edge = self._f_H(Re)
         self._nu     = self._f_nu(R)
         self._alpha  = self._f_alpha(R)
 
@@ -37,10 +34,6 @@ class EOS_Table(object):
     @property
     def H(self):
         return self._H
-
-    @property
-    def H_edge(self):
-        return self._H_edge
 
     @property
     def nu(self):

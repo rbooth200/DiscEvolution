@@ -18,9 +18,12 @@ class Formatter(object):
 ## Values given in linear space apart from M_dot which is given as its base 10 logarithm
 
 # Take M_star, UV, M_disc, Sigma_disc, R_disc to build parameter space
-grid_parameters = np.loadtxt(os.environ['DISC_CODE_ROOT']+'/FRIED/friedgrid.dat',skiprows=1,usecols=(0,1,2,3,4))
+
+data_dir = os.path.join(os.path.dirname(__file__))
+grid_parameters = np.loadtxt(os.path.join(data_dir, "friedgrid.dat"),
+                             skiprows=1,usecols=(0,1,2,3,4))
 # Import M_dot
-grid_rate = np.loadtxt(os.environ['DISC_CODE_ROOT']+'/FRIED/friedgrid.dat',skiprows=1,usecols=5)
+grid_rate = np.loadtxt(os.path.join(data_dir, "friedgrid.dat"),skiprows=1,usecols=5)
 
 # Calculate mass within 400 AU and add to grid as column 6
 M_400 = 2*np.pi*grid_parameters[:,3]*grid_parameters[:,4]*400*cst.AU**2/cst.Mjup

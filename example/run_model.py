@@ -45,8 +45,9 @@ except ImportError:
     # but this will never be used if krome_chem is not used
     UserDust2GasCallBack = object
 
+
 from DiscEvolution.photoevaporation import (
-    FixedExternalEvaportation, TimeExternalEvaportation)
+    FixedExternalEvaporation, TimeExternalEvaporation)
 
 ###############################################################################
 # Global Constants
@@ -289,10 +290,10 @@ def setup_model(model, disc, start_time):
     if model['photoevaporation']['on']:
         if model['photoevaporation']['method'] == 'const':
             photoevap = \
-                FixedExternalEvaportation(model['photoevaporation']['coeff'])
+                FixedExternalEvaporation(model['photoevaporation']['coeff'])
         else:
             photoevap = \
-                TimeExternalEvaportation(model['photoevaporation']['coeff'])
+                TimeExternalEvaporation(model['photoevaporation']['coeff'])
 
     if model['chemistry']['on']:
         if  model['chemistry']['type'] == 'krome':
@@ -304,7 +305,7 @@ def setup_model(model, disc, start_time):
     return DiscEvolutionDriver(disc, 
                                gas=gas, dust=dust, diffusion=diffuse,
                                chemistry=chemistry,
-                               photoevaporation=photoevap,
+                               ext_photoevaporation=photoevap,
                                t0=start_time)
 
 def restart_model(model, disc, snap_number):
