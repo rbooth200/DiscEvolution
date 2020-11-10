@@ -600,8 +600,8 @@ class SingleFluidDrift(object):
 
         # Compute the gas velocities due to viscosity per Dipierro+18 (with feedback):
         if v_visc is not None:
-            u_gas += (1 + la0) * v_visc * D_1 * (1 + eps_av.sum(0))
-            v_gas += 0.5 * la1 * v_visc * D_1 * (1 + eps_av.sum(0))
+            u_gas += (1 + la0) * v_visc * D_1 / eps_g
+            v_gas += 0.5 * la1 * v_visc * D_1 / eps_g
 
         # Dust-gas relative velocities:
         DeltaV = (2*v_gas / (St_av + St_av**-1) 
