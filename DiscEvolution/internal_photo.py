@@ -499,6 +499,8 @@ class XrayDiscPicogna(PhotoBase):
 
         # Mopping up in the gap - assume usual primordial rates there.
         Sigmadot[(y<=0.0) * (x<=137)] = self.Sigma_dot_Primordial(R, star, ret=True)[(y<=0.0)*(x<=137)]/1.12 # divide by 1.12 so that normalise to correct mass loss rate
+        mop_up = (x > 137) * (y < 0.0)
+        Sigmadot[mop_up] = np.inf   # Avoid having discontinuous mass-loss by filling in the rest
 
         if ret:
             # Return unaveraged values at cell edges
