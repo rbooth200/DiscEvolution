@@ -545,6 +545,7 @@ class SingleFluidDrift(object):
 
         Sigma  = disc.Sigma
         SigmaD = disc.Sigma_D
+        SigmaG = disc.Sigma_G
         Om_k   = disc.Omega_k
         a      = disc.grain_size
         R      = disc.R
@@ -553,20 +554,25 @@ class SingleFluidDrift(object):
         Om_kav  = 0.5*(Om_k      [1:] + Om_k      [:-1])
         Sig_av  = 0.5*(Sigma     [1:] + Sigma     [:-1]) + 1e-300
         SigD_av = 0.5*(SigmaD[...,1:] + SigmaD[...,:-1])
+        SigG_av = 0.5*(SigmaG[...,1:] + SigmaG[...,:-1])
         a_av    = 0.5*(a    [..., 1:] + a     [...,:-1])
         R_av    = 0.5*(R         [1:] + R         [:-1])
+
+        #eps_geff = ((R*SigmaG)[...,1:] + (R*SigmaG)[...,:-1]) / ((R*Sigma)     [1:] + (R*Sigma)     [:-1] + 1e-300)
 
         # Compute the density factors needed for the effect of feedback on
         # the radial drift velocity.
         eps_av = 0.
         eps_g = 1.
-        SigG_av = Sig_av
+        #   SigG_av = Sig_av
         if disc.feedback:
             # By default, use the surface density
             eps_av = SigD_av / Sig_av
-            eps_g = np.maximum(1 - eps_av.sum(0), 1e-300)
-                
-            SigG_av = Sig_av * eps_g
+            #eps_g = np.maximum(1 - eps_av.sum(0), 1e-300)
+            eps_g = np.maximum(SigG_av / Sig_av, 1e-300)
+            #eps_geff = np.maximum(eps_geff, 1e-300)
+            #SigG_av = Sig_av * eps_g
+
             # Use the midplane density instead
             if self._settling:
                 rhoD = disc.midplane_dust_density
@@ -622,7 +628,7 @@ class SingleFluidDrift(object):
         eps_inv = 1. / (eps.sum(0) + np.finfo(eps.dtype).tiny)
 
         # Compute the dust-gas relative velocity
-        DeltaV = self._compute_deltaV(disc, v_visc)
+        DeltaV = self._compute_deltaV(disc, v_visc=v_visc)
         
         # Compute and apply the fluxes
         if gas_tracers is not None:
