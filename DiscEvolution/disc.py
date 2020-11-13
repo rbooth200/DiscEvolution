@@ -33,9 +33,6 @@ class AccretionDisc(object):
         self.tot_mass_lost = 0.0
         self.i_edge = -1
 
-        #""" Global, time dependent properties stored as history """
-        #self.history = history()
-
     def ASCII_header(self):
         """Write header information about the disc"""
         head  = ''
