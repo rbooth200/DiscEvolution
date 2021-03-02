@@ -256,7 +256,7 @@ class ViscousEvolutionFV(object):
 
         if S is None:
             S = disc.Sigma 
-        return 0.5 * self._dS[1:-1] / (S[1:] + S[:-1])
+        return - 0.5 * self._dS[1:-1] / (S[1:] + S[:-1])
 
     def max_timestep(self, disc):
         """Courant limited time-step"""
