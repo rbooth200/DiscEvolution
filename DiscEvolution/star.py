@@ -6,6 +6,7 @@
 # Contains stellar properties classes
 ################################################################################
 import numpy as np
+from scipy.interpolate import InterpolatedUnivariateSpline
 from .constants import Msun, Rsun, AU
 
 # Base class for all stars, implements general properties that should be
@@ -160,6 +161,85 @@ class PhotoStar(SimpleStar):
         return self._Phi
 
 
+class MesaStar(PhotoStar):
+    """Star with data read from MESA output"""
+    def __init__(self, data_file, M, age, **kwargs):
+        super(MesaStar, self).__init__(M=M, age=age, **kwargs)
+        self._file = data_file 
+
+        self._load_data(self._file)
+
+    def _load_data(self, data_file):
+        # Get the column names:
+
+        cols = {}
+        with open(data_file, 'r') as f:
+            line = f.readline()
+            if not line.startswith('#'):
+                raise ValueError("Expected header line in MESA output file")
+            names = line[1:-1].split(',')
+            for col, name in enumerate(names):
+                cols[name.strip()] = col
+
+        data = np.genfromtxt(data_file).T
+        age = data[cols['Age']]
+        Teff = 10**data[cols['log Teff']]
+        R = 10**data[cols['log R']]
+
+
+        self._tab_Teff = InterpolatedUnivariateSpline(age, Teff, ext='const')
+        self._tab_R = InterpolatedUnivariateSpline(age, R, ext='const')
+
+        self.evolve(self.age)
+
+    def evolve(self, age):
+        self._age = age
+
+        self._Teff = self._tab_Teff(self.age)
+        self._Rs = self._tab_R(self.age)
+        self._Rau = self._Rs*Rsun/AU 
+
+    def ASCII_header(self):
+        """Print stellar type header"""
+        head = '# {} M: {}Msun, R: {}Rsun, T: {}K, age: {}yr, '
+        head += 'L_X: {}erg/s, Phi: {}, MESA_file: {}'
+        return head.format(self.__class__.__name__,
+                           self.M, self.Rs, self.T_eff, self.age,
+                           self.L_X, self.Phi, self._file)
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        return self.__class__.__name__, { "M"   : "{} Msun".format(self.M),
+                                          "R"   : "{} Rsun".format(self._Rs),
+                                           "T"   : "{} K".format(self.T_eff),
+                                           "age" : "{} yr".format(self.age),
+                                           "L_X" : "{} erg/s".format(self.L_X),
+                                           "Phi" : "{}".format(self.Phi),
+                                           "MESA_file" : self._file,
+                                        }
+
+    @staticmethod
+    def from_string(string):
+        """Read a simple star from a string"""
+        string = string.replace('# MesaStar', '').strip()
+        
+        kwargs = {}
+        for item in string.split(','):
+            key, val = [ x.strip() for x in item.split(':')]
+
+            if   key == 'M':
+                M = float(val.replace('Msun','').strip())
+            elif key == 'age':
+                age = float(val.replace('yr', '').strip())
+            elif key == 'MESA_file':
+                filname = val.strip()
+            elif key == "L_X":
+                kwargs[key] = float(val.replace('erg/s', '').strip())
+            elif key == "Phi":
+                kwargs[key] = float(val)
+
+        return MesaStar(filname, M, age, **kwargs)
+
 def from_file(filename):
     with open(filename) as f:
         for line in f:
@@ -167,6 +247,8 @@ def from_file(filename):
                 raise AttributeError("Error: Star type not found in header")
             elif "SimpleStar" in line:
                 return SimpleStar.from_string(line)
+            elif "MesaStar" in line:
+                return MesaStar.from_string(line)
             else:
                 continue
             

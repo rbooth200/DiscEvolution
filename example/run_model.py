@@ -17,8 +17,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from DiscEvolution.constants import Msun, AU, yr
 from DiscEvolution.grid import Grid
-from DiscEvolution.star import SimpleStar
-from DiscEvolution.eos  import IrradiatedEOS, LocallyIsothermalEOS
+from DiscEvolution.star import SimpleStar, MesaStar
+from DiscEvolution.eos  import IrradiatedEOS, LocallyIsothermalEOS, SimpleDiscEOS
 from DiscEvolution.disc import AccretionDisc
 from DiscEvolution.dust import DustGrowthTwoPop
 from DiscEvolution.opacity import Tazzari2016, Zhu2012
@@ -48,6 +48,7 @@ except ImportError:
 
 from DiscEvolution.photoevaporation import (
     FixedExternalEvaporation, TimeExternalEvaporation)
+from DiscEvolution.internal_photo import ConstantInternalPhotoevap
 
 ###############################################################################
 # Global Constants
@@ -175,7 +176,11 @@ def setup_disc(model):
     grid = Grid(p['R0'], p['R1'], p['N'], spacing=p['spacing'])
 
     p = model['star']
-    star = SimpleStar(M=p['mass'], R=p['radius'], T_eff=p['T_eff'])
+    if 'MESA_file' in p:
+        age = p.get('age', 0)
+        star = MesaStar(p['MESA_file'], p['mass'], age)
+    else:
+        star = SimpleStar(M=p['mass'], R=p['radius'], T_eff=p['T_eff'])
     
     p = model['eos']
     if p['type'] == 'irradiated':
@@ -190,6 +195,9 @@ def setup_disc(model):
     elif p['type'] == 'iso':
         eos = LocallyIsothermalEOS(star, p['h0'], p['q'], 
                                    model['disc']['alpha'])
+    elif p['type'] == 'simple':
+        K0 = p.get('kappa0',0.01)
+        eos = SimpleDiscEOS(star, model['disc']['alpha'], K0=K0)
     else:
         raise ValueError("Error: eos::type not recognised")
     eos.set_grid(grid)
@@ -264,11 +272,12 @@ def setup_simple_chem(model):
 def setup_model(model, disc, start_time):
     '''Setup the physics of the model'''
     
-    gas       = None
-    dust      = None
-    diffuse   = None
-    chemistry = None
-    photoevap = None
+    gas           = None
+    dust          = None
+    diffuse       = None
+    chemistry     = None
+    ext_photoevap = None
+    int_photoevap = None
 
     if model['transport']['gas']:
         gas = ViscousEvolutionFV()
@@ -289,11 +298,13 @@ def setup_model(model, disc, start_time):
                                 van_leer=van_leer)
     if model['photoevaporation']['on']:
         if model['photoevaporation']['method'] == 'const':
-            photoevap = \
+            ext_photoevap = \
                 FixedExternalEvaporation(model['photoevaporation']['coeff'])
+        elif model['photoevaporation']['method'] == 'internal_const':
+            int_photoevap = \
+                ConstantInternalPhotoevap(model['photoevaporation']['coeff'])
         else:
-            photoevap = \
-                TimeExternalEvaporation(model['photoevaporation']['coeff'])
+            raise ValueError("Photoevaporation method not present in run_model")
 
     if model['chemistry']['on']:
         if  model['chemistry']['type'] == 'krome':
@@ -305,7 +316,8 @@ def setup_model(model, disc, start_time):
     return DiscEvolutionDriver(disc, 
                                gas=gas, dust=dust, diffusion=diffuse,
                                chemistry=chemistry,
-                               ext_photoevaporation=photoevap,
+                               ext_photoevaporation=ext_photoevap,
+                               int_photoevaporation=int_photoevap,
                                t0=start_time)
 
 def restart_model(model, disc, snap_number):

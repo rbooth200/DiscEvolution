@@ -13,13 +13,13 @@
     "d2g"     : 0.01,
     "Schmidt" : 1.0,
     "f_grow"  : 1.0,
-    "amin"    : 1e-5
+    "amin"    : 0e-5
     },
   
   "chemistry" : {
-    "on"   : false, 
-    "type" : "Madhu", 
-    "fix_mu" : false,
+    "on"   : true, 
+    "type" : "NoReact", 
+    "fix_mu" : true,
     "mu"     : 2.4,
     "crate" : 1e-17,
     "abundances" : "Eistrup2016.dat",
@@ -28,14 +28,14 @@
   },
 
   "eos" : {
-     "type" : "irradiated", 
+     "type" : "simple", 
      "opacity" : "Tazzari2016"
   },
 
   "star" : {
-    "mass"   : 1.0,
-    "radius" : 2.5,
-    "T_eff"  : 4000.0
+    "mass" : 1.0,
+    "age"  : 1e4,
+    "MESA_file" : "MesaStar/1.0M_starevo.out"
   },
 
   "transport" : {
@@ -45,15 +45,15 @@
   },
 
   "dust_transport" : {
-    "van leer" : true,
+    "van leer" : false,
     "settling" : false,
     "diffusion" : true
     },
 
   "photoevaporation" : {
-    "on" : false,
-    "method" : "const",
-    "coeff"  : 1e-8
+    "on" : true,
+    "method" : "internal_const",
+    "coeff"  : 1e-9
   },   
 
 
@@ -62,9 +62,9 @@
     "base"	: "disc",
     "format"    : "hdf5",
     "first"     : 0.0,
-    "last"      : 1e6,
+    "last"      : 3e6,
     "interval"  : 1e4,
     "plot"      : true,
-    "plot_times" : [0, 1e5, 5e5, 1e6]
+    "plot_times" : [0, 1e5, 5e5, 1e6, 3e6]
   }
 }

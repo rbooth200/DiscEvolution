@@ -13,6 +13,68 @@ from DiscEvolution.constants import *
 from DiscEvolution.star import PhotoStar
 from scipy.signal import argrelmin
 
+#################################################################################
+"""""""""
+Simplified photo-evaporation routines
+"""""""""
+#################################################################################
+class ConstantInternalPhotoevap:
+    """Simple photoevaporation model with constant rate and 
+    \dot{\Sigma} ~ \Sigma
+    
+    Parameters
+    ----------
+    Mdot : float, unit: solar masses per year
+        Mass loss-rate.
+    
+    """
+    def __init__(self, Mdot):
+        self._Mdot = Mdot 
+
+    def __call__(self, disc, dt_year, *args):
+        # Compute fraction of gas mass removed per cell
+        Mgas = np.sum(disc.Sigma_G * np.pi * np.diff(disc.R_edge**2))
+        Mgas *= AU**2 / Msun
+
+        mass_loss = self._Mdot * dt_year
+        if mass_loss > Mgas:
+            raise RuntimeError("Photoevaporation clears the whole disc")
+
+        gas_fac = 1 - mass_loss / Mgas
+
+        if hasattr(disc, "Sigma_D"):
+            # Work out final surface density, fraction of total mass
+            # removed, and new dustfraction
+            Sigma_new = disc.Sigma_G * gas_fac + disc.Sigma_D.sum(0)
+            tot_fac = Sigma_new / disc.Sigma
+            eps_new = np.minimum(disc.Sigma_D / Sigma_new, 1)
+
+            if hasattr(disc, 'chem'):
+                disc.chem.gas.data[:] = np.maximum(disc.chem.gas.data[:]*gas_fac/tot_fac, 0.0)
+                disc.chem.ice.data[:] = np.minimum(disc.chem.ice.data[:]/tot_fac, 1.0)
+
+            disc.Sigma[:] = Sigma_new
+            disc.dust_frac[:] = eps_new
+        else:
+            disc.Sigma[:] *= gas_fac
+
+    
+    def ASCII_header(self):
+        return ("# ConstantInternalPhotoevap, Mdot: {}"
+                "".format(self.__class__.__name__,self._Mdot))
+
+    def HDF5_attributes(self):
+        header = {}
+        header['Mdot'] = '{}'.format(self._Mdot)
+        return self.__class__.__name__, header
+
+
+
+#################################################################################
+"""""""""
+Functions / classes for detailed photoevaporation models.
+"""""""""
+#################################################################################
 class NotHoleError(Exception):
     """Raised if finds an outer edge, not a hole"""
     pass

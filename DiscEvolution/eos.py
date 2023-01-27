@@ -130,6 +130,153 @@ class LocallyIsothermalEOS(EOS_Table):
     def star(self):
         return self._star
 
+
+class SimpleDiscEOS(EOS_Table):
+    """Simple approximate irradiated/viscous equation of state from Liu et al.
+    (2019).
+
+    args:
+        alpha_t : turbulent alpha parameter
+        star    : stellar properties
+        mu      : mean molecular weight, default=2.33
+        K0      : Opacity constant (K = K0 T), default = 0.01
+    """
+    def __init__(self, star, alpha_t, mu=2.33, K0=0.01):
+        super(SimpleDiscEOS, self).__init__()
+        
+
+        self._alpha_t = alpha_t
+        self._mu = mu
+        self._K0 = K0
+        self._star = star
+        
+        self._Tnu = np.sqrt(27/64*alpha_t*Omega0*GasConst*K0/(mu*sig_SB))
+
+        self._set_constants()
+        
+    def _f_cs(self, R):
+        return self._cs0 * R**self._q
+
+    def _f_H(self, R):
+        return self._H0 * R**(1.5+self._q)
+    
+    def _f_nu(self, R):
+        return self._alpha_t * self._f_cs(R) * self._f_H(R)
+
+    def _f_alpha(self, R):
+        return self._alpha_t
+
+    def _set_constants(self):
+        star = self._star
+
+        Ls = star.Rs**2 * (star.T_eff / 5770)**4
+        self._Tirr0 = 150 * Ls**(2/7.) * star.M**(-4/7)
+        self._Tnu0 = self._Tnu * star.M**0.25
+
+        self._cs0 = (Omega0**-1/AU) * (GasConst / self._mu)**0.5
+        self._H0  = (Omega0**-1/AU) * (GasConst / (self._mu*self._star.M))**0.5
+
+    def update(self, dt, Sigma, amax=1e-5, star=None):
+        if star:
+            self._star = star
+
+        self._set_constants()
+
+        Tirr = self._Tirr0 * self._R**(-3/7.)
+        Tvis = self._Tnu * Sigma * self._R**-0.75
+
+        self._T = (Tirr**4 + Tvis**4)**0.25
+        self._Sigma = Sigma
+        
+        self._set_arrays()
+
+    def set_grid(self, grid):
+        self._R = grid.Rc
+        self._T = None
+
+    def _set_arrays(self):
+        super(SimpleDiscEOS,self)._set_arrays()
+        self._Pr = self._f_Pr()
+    
+    def __H(self, R, T):
+        return self._H0 * np.sqrt(T * R*R*R)
+
+    def _f_cs(self, R):
+        return self._cs0 * self._T**0.5
+
+    def _f_H(self, R):
+        return self.__H(R, self._T)
+    
+    def _f_nu(self, R):
+        return self._alpha_t * self._f_cs(R) * self._f_H(R)
+
+    def _f_alpha(self, R):
+        return self._alpha_t
+
+    def _f_Pr(self):
+        kappa = self._K0 * self._T
+        tau = 0.5 * self._Sigma * kappa
+        f_esc = 1 + 2/(3*tau*tau)
+        Pr_1 =  2.25 * self._gamma * (self._gamma - 1) * f_esc
+        return 1. / Pr_1
+
+    @property
+    def T(self):
+        return self._T
+
+    @property
+    def Pr(self):
+        return self._Pr
+
+    def ASCII_header(self):
+        """LocallyIsothermalEOS header string"""
+        head = super(SimpleDiscEOS, self).ASCII_header()
+        head += ', alpha: {}, mu: {}, K0= {}'
+        return head.format(self._alpha_t, self._mu, self._K0)
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        name, head = super(SimpleDiscEOS, self).HDF5_attributes()
+        head["alpha"] = "{}".format(self._alpha_t)
+        head['mu'] = "{}".format(self._mu)
+        head['K0'] = "{}".format(self._K0)
+        return name, head
+
+    @staticmethod
+    def from_file(filename):
+        import star
+
+        star = star.from_file(filename)
+        alpha = None
+
+        with open(filename) as f:
+            for line in f:
+                if not line.startswith('#'):
+                    raise AttributeError("Error: EOS type not found in header")
+                elif "SimpleDiscEOS" in line:
+                    string = line 
+                    break 
+                else:
+                    continue
+
+        kwargs = {}
+        for item in string.split(','):    
+            key, val = [ x.strip() for x in item.split(':')]
+
+            if key == 'mu' or key == 'K0':
+                kwargs[key] = float(val.strip())
+            elif key == 'alpha':
+                alpha = float(val.strip())
+
+
+        return SimpleDiscEOS(star, alpha, **kwargs)
+
+
+    @property
+    def star(self):
+        return self._star
+
+
 _sqrt2pi = np.sqrt(2*np.pi)
 class IrradiatedEOS(EOS_Table):
     """Model for an active irradiated disc.
@@ -356,6 +503,8 @@ def from_file(filename):
                 raise AttributeError("Error: EOS type not found in header")
             elif "IrradiatedEOS" in line:
                 return IrradiatedEOS.from_file(filename)      
+            elif "SimpleDiscEOS" in line:
+                return SimpleDiscEOS.from_file(filename)
             elif "LocallyIsothermalEOS" in line:
                 return LocallyIsothermalEOS.from_file(filename)
             else:
