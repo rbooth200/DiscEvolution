@@ -93,8 +93,30 @@ class VariableAmax_KromeCallBack(KromeCallBack):
         # Set other parameters
         super(VariableAmax_KromeCallBack, self).__call__(krome, T, rho, 
                                                          dust_frac, **kwargs)
-    
-def setup_init_abund_krome(model):
+
+def init_abundances_from_file(model, abund, disc):
+
+    gas = abund.gas
+    ice = abund.ice
+
+    init_abund = np.genfromtxt(model['chemistry']['abundances'],
+                               names=True, dtype=('|S5', 'f8', 'f8'),
+                               skip_header=1)
+
+    for name, value in zip(init_abund['Species'], init_abund['Abundance']):
+        name = name.decode()
+        if name in ice.species:
+            value += abund.ice.number_abund(name)
+            abund.ice.set_number_abund(name,value)
+        elif name in gas.species:
+            value += abund.gas.number_abund(name)
+            abund.gas.set_number_abund(name, value)
+        else:
+            pass
+
+    return abund
+
+def setup_init_abund_krome(model, disc):
     Ncell = model['grid']['N']
 
     gas = KromeGasAbund(Ncell)
@@ -105,31 +127,20 @@ def setup_init_abund_krome(model):
     abund.gas.data[:] = 0
     abund.ice.data[:] = 0
 
-    init_abund = np.genfromtxt(model['chemistry']['abundances'],
-                               names=True, dtype=('|S5', 'f8', 'f8'),
-                               skip_header=1)
-
-    for name, value in zip(init_abund['Species'], init_abund['Abundance']):
-        if name in ice.species:
-            value += abund.ice.number_abund(name)
-            abund.ice.set_number_abund(name,value)
-        elif name in gas.species:
-            value += abund.gas.number_abund(name)
-            abund.gas.set_number_abund(name, value)
-        else:
-            pass
+    abund = init_abundances_from_file(model, abund, disc)
 
     if model['chemistry']['normalize']:
         norm = 1 / (abund.gas.total_abund + abund.ice.total_abund)
         abund.gas.data[:] *= norm
         abund.ice.data[:] *= norm
-        
+
     # Add dust
     abund.gas.data[:] *= (1-disc.dust_frac.sum(0))
     abund.ice.data[:] *= (1-disc.dust_frac.sum(0))
     abund.ice["grain"] = disc.dust_frac.sum(0)
 
     return abund
+
 
 
 def get_simple_chemistry_model(model):
@@ -167,6 +178,18 @@ def setup_init_abund_simple(model, disc):
                                           disc.dust_frac.sum(0),
                                           X_solar)
         disc.initialize_dust_density(chem.ice.total_abund)
+
+    # If we have abundances from file, overwrite the previous calculation:
+    if model['chemistry'].get('use_abundance_file', False):
+        for s in chem.gas.names:
+            if 'grain' not in s:
+                chem.gas.set_number_abund(s, 0.)
+                chem.ice.set_number_abund(s, 0.)
+        
+        chem = init_abundances_from_file(model, chem, disc)
+        disc.initialize_dust_density(chem.ice.total_abund)
+
+
     return chem
 
 def setup_disc(model):

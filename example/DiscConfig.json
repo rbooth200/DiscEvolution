@@ -22,6 +22,7 @@
     "fix_mu" : true,
     "mu"     : 2.4,
     "crate" : 1e-17,
+    "use_abundance_file" : true,
     "abundances" : "Eistrup2016.dat",
     "normalize" : true,
     "variable_grain_size" : true
