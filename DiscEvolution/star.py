@@ -213,7 +213,7 @@ class MesaStar(PhotoStar):
                                           "R"   : "{} Rsun".format(self._Rs),
                                            "T"   : "{} K".format(self.T_eff),
                                            "age" : "{} yr".format(self.age),
-                                           "L_X" : "{} erg/s".format(self.L_X),
+                                           "LX" : "{} erg/s".format(self.L_X),
                                            "Phi" : "{}".format(self.Phi),
                                            "MESA_file" : self._file,
                                         }
