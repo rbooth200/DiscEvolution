@@ -36,7 +36,8 @@ class DiscEvolutionDriver(object):
         t_out:Previous output times, default = None, years
     """
 
-    def __init__(self, disc, gas=None, dust=None, diffusion=None, chemistry=None, ext_photoevaporation=None, int_photoevaporation=None, history=None, t0=0.):
+    def __init__(self, disc, gas=None, dust=None, diffusion=None, chemistry=None, planets=None,
+                ext_photoevaporation=None, int_photoevaporation=None, history=None, t0=0.):
 
         self._disc = disc
 
@@ -46,6 +47,8 @@ class DiscEvolutionDriver(object):
         self._chemistry = chemistry
         self._external_photo = ext_photoevaporation
         self._internal_photo = int_photoevaporation
+
+        self._planets = planets
 
         self._history = history
 
@@ -153,6 +156,14 @@ class DiscEvolutionDriver(object):
             # changed
             disc.update_ices(disc.chem.ice)
 
+        # Update any planet properties
+        if self._planets is not None:
+            gap = np.ones_like(disc.Sigma)
+            for p in self._planets:
+                p.update(dt, disc)
+                gap *= p.gap_profile(disc)
+            disc.set_gap_profile(gap)
+
         # Now we should update the auxillary properties, do grain growth etc
         disc.update(dt)
 
@@ -212,6 +223,9 @@ class DiscEvolutionDriver(object):
             head += self._external_photo.ASCII_header() + '\n'
         if self._internal_photo:
             head += self._internal_photo.ASCII_header() + '\n'
+        if self._planets:
+            for p in self._planets:
+                head += p.ASCII_header()
 
         # Write it all to disc
         io.dump_ASCII(filename, self._disc, self.t, head)
@@ -225,6 +239,11 @@ class DiscEvolutionDriver(object):
         if self._chemistry:      headers.append(self._chemistry.HDF5_attributes())
         if self._external_photo: headers.append(self._external_photo.HDF5_attributes())
         if self._internal_photo: headers.append(self._internal_photo.HDF5_attributes())
+        if self._planets:
+            for i, p in enumerate(self._planets):
+                name, data = p.HDF5_attributes()
+                name += '[{}]'.format(i)
+                headers.append([name, data])
 
         io.dump_hdf5(filename, self._disc, self.t, headers)
 

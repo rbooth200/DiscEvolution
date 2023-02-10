@@ -28,6 +28,7 @@ from DiscEvolution.diffusion import TracerDiffusion
 from DiscEvolution.driver import DiscEvolutionDriver
 from DiscEvolution.io import Event_Controller, DiscReader
 from DiscEvolution.disc_utils import mkdir_p
+from DiscEvolution.planet import Planet, PlanetList
 
 from DiscEvolution.chemistry import (
     ChemicalAbund, MolecularIceAbund, SimpleCNOAtomAbund, SimpleCNOMolAbund,
@@ -292,6 +293,17 @@ def setup_krome_chem(model):
 def setup_simple_chem(model):
     return get_simple_chemistry_model(model)
 
+def setup_planets(model):
+    if 'planets' not in model:
+        return None
+
+    planets = PlanetList()
+    for p in model['planets']:
+        planets.append(Planet(**p))
+
+    return planets
+    
+
 def setup_model(model, disc, start_time):
     '''Setup the physics of the model'''
     
@@ -335,10 +347,12 @@ def setup_model(model, disc, start_time):
         else:
             chemistry = setup_simple_chem(model)
 
+    planets = setup_planets(model)
 
     return DiscEvolutionDriver(disc, 
                                gas=gas, dust=dust, diffusion=diffuse,
-                               chemistry=chemistry,
+                               chemistry=chemistry, 
+                               planets=planets,
                                ext_photoevaporation=ext_photoevap,
                                int_photoevaporation=int_photoevap,
                                t0=start_time)

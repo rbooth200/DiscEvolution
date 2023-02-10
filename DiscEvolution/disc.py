@@ -33,6 +33,8 @@ class AccretionDisc(object):
         self.tot_mass_lost = 0.0
         self.i_edge = -1
 
+        self._gap_profile = np.ones_like(Sigma)
+
     def ASCII_header(self):
         """Write header information about the disc"""
         head  = ''
@@ -138,7 +140,7 @@ class AccretionDisc(object):
 
     @property
     def nu(self):
-        return self._eos.nu
+        return self._eos.nu / self._gap_profile
     
     @property
     def Re(self):
@@ -193,6 +195,10 @@ class AccretionDisc(object):
     """Other methods"""
     def set_surface_density(self, Sigma):
         self._Sigma[:] = Sigma
+
+    def set_gap_profile(self, gap):
+        """Set a profile to be used to generate a gap."""
+        self._gap_profile[:] = gap
 
     def update(self, dt):
         """Update the disc properties and age"""
