@@ -174,11 +174,14 @@ class FixedSizeDust(DustyDisc):
         size     : size, cm (float or 1-d array of sizes)
         Sigma    : Initial surface density distribution
         rhos     : solid density, default=1 g / cm^3
+        Schmidt  : Schmidt number, default=1
         feedback : default=True
     """
-    def __init__(self, grid, star, eos, eps, size, Sigma=None, rhos=1, feedback=True):
+    def __init__(self, grid, star, eos, eps, size, Sigma=None, rhos=1,
+                 Schmidt=1.0, feedback=True):
 
-        super(FixedSizeDust, self).__init__(grid, star, eos, Sigma, rhos, feedback)
+        super(FixedSizeDust, self).__init__(
+            grid, star, eos, Sigma, rhos, Schmidt, feedback)
 
         shape = np.atleast_1d(size).shape + (self.Ncells,)
         self._eps  = np.empty(shape, dtype='f8')
@@ -465,18 +468,21 @@ class SingleFluidDrift(object):
         dVout[:, 0] = dVout[:, 1]
         dVout[:,-1] = dVout[:,-2]
         dVtot = np.abs(dVout[:,1:]) + np.abs(dVout[:,:-1])  # Potentially a cell can lose dust in both directions, both should be included to ensure stability
+        
+        # Prevent empty cells limiting the time-step
+        dVtot[disc.dust_frac < 1e-20] *= 1e-3
         return Cou * (disc.grid.dRe / dVtot).min()
     
     def _donor_flux(self, Ree, deltaV_i, Sigma, eps_i):
         """Compute flux using Donor-Cell method"""
         # Add boundary cells        
-        shape_v   = (eps_i.shape[-1]+1,)
+        shape_v   = deltaV_i.shape[:-1] + (deltaV_i.shape[-1]+2,)
         shape_rho = eps_i.shape[:-1] + (eps_i.shape[-1]+2,)
         
         dV_i = np.empty(shape_v, dtype='f8')
-        dV_i[1:-1] = deltaV_i - self._epsDeltaV
-        dV_i[ 0] = dV_i[ 1] 
-        dV_i[-1] = dV_i[-2] 
+        dV_i[...,1:-1] = deltaV_i - self._epsDeltaV
+        dV_i[..., 0] = dV_i[..., 1] 
+        dV_i[...,-1] = dV_i[...,-2] 
             
         Sig_eps = np.zeros(shape_rho, dtype='f8')
         Sig_eps[...,1:-1] = Sigma*eps_i
@@ -492,26 +498,26 @@ class SingleFluidDrift(object):
     def _van_leer_flux(self, Ree, deltaV_i, Sigma, eps_i, dt):
         """Compute flux using Van-Leer reconstruction"""
         # Add boundary cells
-        shape_v   = (eps_i.shape[-1]+3,)
+        shape_v   = deltaV_i.shape[:-1] + (deltaV_i.shape[-1]+4,)
         shape_rho = eps_i.shape[:-1] + (eps_i.shape[-1]+4,)
         
         dV_i = np.empty(shape_v, dtype='f8')
-        dV_i[2:-2] = deltaV_i - self._epsDeltaV
-        dV_i[  :2] = dV_i[2]
-        dV_i[-2: ] = dV_i[-3] 
+        dV_i[...,2:-2] = deltaV_i - self._epsDeltaV
+        dV_i[...,  :2] = dV_i[...,2]
+        dV_i[...,-2: ] = dV_i[...,-3] 
             
         Sig_eps = np.zeros(shape_rho, dtype='f8')
         Sig_eps[...,2:-2] = Sigma*eps_i
 
-        Sig_eps[..., 1] = np.where(dV_i[ 1] < 0, Sig_eps[..., 2], 0)
-        Sig_eps[...,-2] = np.where(dV_i[-2] > 0, Sig_eps[...,-3], 0)
+        Sig_eps[..., 1] = np.where(dV_i[..., 1] < 0, Sig_eps[..., 2], 0)
+        Sig_eps[...,-2] = np.where(dV_i[...,-2] > 0, Sig_eps[...,-3], 0)
         
         # Upwind the density
         vl = VanLeer(Ree, 1)
         Sig_eps = vl(dV_i, Sig_eps, dt)
 
         # Compute the fluxes
-        flux = Sig_eps * dV_i[1:-1]
+        flux = Sig_eps * dV_i[...,1:-1]
         return flux
         
     def _fluxes(self, disc, eps_i, deltaV_i, St_i, dt=0):
@@ -619,6 +625,10 @@ class SingleFluidDrift(object):
         else:
             self._epsDeltaV = 0
 
+        # Store the azimuthal velocity.
+        self._DeltaVphi =  (-0.5*u_gas / (St_av + St_av**-1) 
+                               + v_gas / (1     + St_av** 2))
+
         return DeltaV
 
     def __call__(self, dt, disc, gas_tracers=None, dust_tracers=None, v_visc=None):
@@ -632,33 +642,24 @@ class SingleFluidDrift(object):
         
         # Compute and apply the fluxes
         if gas_tracers is not None:
-            gas_tracers[:] += dt * self._fluxes(disc, gas_tracers, 0, 0, dt)
-
-        # Update the dust fraction, size and tracers
-        d_tr = 0
-        for eps_k, dV_k, a_k, St_k in zip(disc.dust_frac, DeltaV,
-                                          disc.grain_size, disc.Stokes()):
-
-            if dust_tracers is not None:
-                t_k = dust_tracers * eps_k * eps_inv
-                d_tr  += dt*self._fluxes(disc, t_k, dV_k, St_k, dt)
-                
-            # multiply a_k by the dust-to-gas ratio, so that constant functions
-            # are advected perfectly
-            #eps_a = a_k * eps_k
-            #eps_a +=  dt*self._fluxes(disc, eps_a, dV_k, St_k, dt)
-            
-            eps_k[:] += dt*self._fluxes(disc, eps_k, dV_k, St_k, dt)
-
-            #a_k[:] = eps_a / (eps_k + 1e-300)
+            gas_tracers[:] += dt * self._fluxes(disc, gas_tracers, np.zeros(disc.Ncells-1), 0, dt)
 
         if dust_tracers is not None:
+            t_k = dust_tracers[...,None,:] * eps/(eps.sum(0) + np.finfo(eps.dtype).tiny)
+            d_tr = dt*self._fluxes(disc, t_k, DeltaV, disc.Stokes(), dt).sum(1)
             dust_tracers[:] += d_tr
-            
-    def radial_drift_velocity(self, disc):
-        """Compute the radial drift velocity for the disc"""
-        DeltaV = self._compute_deltaV(disc)
-        return DeltaV - self._epsDeltaV
+
+        disc.dust_frac[:] += dt*self._fluxes(disc, disc.dust_frac, DeltaV, disc.Stokes(), dt)
+
+    def radial_drift_velocity(self, disc, v_visc=None, ret_vphi=False):
+        """Compute the radial drift velocity for the disc and optionally the
+        azimuthal velocity"""
+        DeltaV = self._compute_deltaV(disc, v_visc)
+        
+        if ret_vphi:
+            return DeltaV - self._epsDeltaV, self._DeltaVphi
+        else:
+            return DeltaV - self._epsDeltaV
     
 if __name__ == "__main__":
     import matplotlib.pyplot as plt

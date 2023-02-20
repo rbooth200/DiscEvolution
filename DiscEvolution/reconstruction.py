@@ -64,10 +64,10 @@ class VanLeer(object):
         dQ_lim = np.where(QB*QF > 0, num/den, 0) / self._dxe[1:-1]
 
         # Reconstruct the face states
-        Qp = Q[...,1:-1] + dQ_lim * (self._dxp[1:-1] - v_edge[1:  ]*dt/2.)
-        Qm = Q[...,1:-1] + dQ_lim * (self._dxm[1:-1] - v_edge[ :-1]*dt/2.)
+        Qp = Q[...,1:-1] + dQ_lim * (self._dxp[1:-1] - v_edge[...,1:  ]*dt/2.)
+        Qm = Q[...,1:-1] + dQ_lim * (self._dxm[1:-1] - v_edge[..., :-1]*dt/2.)
 
-        return np.where(v_edge[1:-1] > 0, Qp[...,:-1], Qm[...,1:])
+        return np.where(v_edge[...,1:-1] > 0, Qp[...,:-1], Qm[...,1:])
 
 
 class Weno3(object):

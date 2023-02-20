@@ -44,13 +44,14 @@ class TracerDiffusion(object):
         returns:
             flux_diffuse : diffusive flux at edges (between cells only)
         """
-        D = disc.nu / Sc
+        # Use alpha c_s H because nu has gap structure encoded in it.
+        D = disc.alpha * disc.cs * disc.H / Sc
         Sigma_G = disc.Sigma_G
 
         # Use geometric average to avoid problems at the edge of evaporating
         # regions., where Sigma_G = 0 (and eps_i is ill-defined)
         DSig = D*Sigma_G
-        DSig = np.sqrt(np.maximum(DSig[1:]*DSig[:-1], 0))
+        DSig = np.sqrt(np.maximum(DSig[...,1:]*DSig[...,:-1], 0))
 
         return - DSig * np.diff(eps_i) / disc.grid.dRc
 
@@ -65,7 +66,8 @@ class TracerDiffusion(object):
     def max_timestep(self, disc, Sc=None):
         """Courant limited time-step"""
         grid = disc.grid
-        D = disc.nu / self._get_Schmidt(disc, Sc)
+        # Use alpha c_s H because nu has gap structure encoded in it.
+        D = disc.alpha * disc.cs * disc.H / self._get_Schmidt(disc, Sc)
 
         return (0.25 * np.diff(grid.Re)**2 / D).min()
 
@@ -87,7 +89,7 @@ class TracerDiffusion(object):
         F = self._diffusive_flux(disc, eps_i, Sc)
 
         if self._limit:
-            max_f = Sigma_G*eps_i*self._eos.cs+1e-300
+            max_f = Sigma*eps_i*self._eos.cs+1e-300
             F /= 1 + abs(F)/(0.5*(max_f[1:] + max_f[:-1]))
 
         F *= grid.Re[1:-1]
