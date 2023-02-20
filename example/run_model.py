@@ -46,6 +46,16 @@ except ImportError:
     # but this will never be used if krome_chem is not used
     UserDust2GasCallBack = object
 
+try:
+    from DiscEvolution.coagulation import SmoluchowskiDust
+except ImportError:
+    def SmoluchowskiDust(*args, **kwargs):
+        raise RuntimeError(
+            "Trying to using the SmoluchowskiDust class, which requires the "
+            "coag_toolkit, but we can't find it. Please set the environment "
+            "variable COAG_TOOLKIT to point to the folder containg the "
+            "library.")
+
 
 from DiscEvolution.photoevaporation import (
     FixedExternalEvaporation, TimeExternalEvaporation)
@@ -239,15 +249,38 @@ def setup_disc(model):
     except KeyError:
         feedback = True
 
-    if model['disc']['d2g'] > 0:
-        amin = model['disc']['amin']
-
-        disc = DustGrowthTwoPop(grid, star, eos, p['d2g'], Sigma=Sigma, 
-                                amin=amin, Sc=model['disc']['Schmidt'], 
-                                f_grow=model['disc'].get('f_grow',1.0),
-                                feedback=feedback)
-    else:
+    if p['d2g'] <= 0:
         disc = AccretionDisc(grid, star, eos, Sigma)
+    else:
+        coag = model['coagulation']
+        if coag['use_smoluchowski']:
+            amin, amax, Nbins = coag['amin'], coag['amax'], coag['Nbins']
+            rho_s = coag['rho_s']
+            m_min, m_max = [4*np.pi*rho_s*a**3/3 for a in [amin, amax]]
+
+            u_f, u_b = coag['u_frag'], coag['u_bounce']
+            kernel = coag['kernel_type']
+            gsd, gsd_params = coag['gsd'], coag['gsd_params']
+
+            settle =  model['dust_transport'].get('settling', False)
+
+            disc = SmoluchowskiDust(grid, star, eos, 
+                    m_min, m_max, Nbins, p['d2g'],
+                    gsd=gsd, gsd_params=gsd_params, Sigma=Sigma,
+                    Schmidt=model['disc']['Schmidt'], 
+                    feedback=feedback, settling=settle,
+                    rho_s=rho_s,
+                    kernel_type=kernel, u_frag=u_f, u_bounce=u_b)
+
+        else:
+            amin = coag['amin']
+            f_grow = coag.get('f_grow',1.0)
+            rho_s = coag['rho_s']
+
+            disc = DustGrowthTwoPop(grid, star, eos, p['d2g'], Sigma=Sigma, 
+                                    rho_s=rho_s, amin=amin, 
+                                    Sc=model['disc']['Schmidt'], 
+                                    f_grow=f_grow, feedback=feedback)
 
     # Setup the chemical part of the disc
     if model['chemistry']["on"]:
