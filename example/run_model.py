@@ -16,7 +16,7 @@ import json
 import numpy as np
 import matplotlib.pyplot as plt
 from DiscEvolution.constants import Msun, AU, yr
-from DiscEvolution.grid import Grid
+from DiscEvolution.grid import Grid, MultiResolutionGrid
 from DiscEvolution.star import SimpleStar, MesaStar
 from DiscEvolution.eos  import IrradiatedEOS, LocallyIsothermalEOS, SimpleDiscEOS
 from DiscEvolution.disc import AccretionDisc
@@ -128,7 +128,7 @@ def init_abundances_from_file(model, abund, disc):
     return abund
 
 def setup_init_abund_krome(model, disc):
-    Ncell = model['grid']['N']
+    Ncell = disc.Ncells
 
     gas = KromeGasAbund(Ncell)
     ice = KromeIceAbund(Ncell)
@@ -179,7 +179,7 @@ def get_simple_chemistry_model(model):
 def setup_init_abund_simple(model, disc):
     chemistry = get_simple_chemistry_model(model)
 
-    X_solar = SimpleCNOAtomAbund(model['grid']['N'])
+    X_solar = SimpleCNOAtomAbund(disc.Ncells)
     X_solar.set_solar_abundances()
 
     # Iterate as the ice fraction changes the dust-to-gas ratio
@@ -203,11 +203,32 @@ def setup_init_abund_simple(model, disc):
 
     return chem
 
+def setup_grid(model):
+    p = model['grid']
+    R0, R1, N = p['R0'], p['R1'], p['N'],
+    
+    try:
+        if len(R0) > 1:
+            multi_grid = True
+    except:
+        multi_grid = False
+
+    if multi_grid:
+        if len(R0) != len(R1) and len(R0) != len(N):
+            raise ValueError("for MultiResolutionGrid R0, N, and R1 must be "
+                             "lists of the same length")        
+
+        print("Settup up a MultiResolutionGrid")
+        Radii = [(s, e) for s,e in zip(R0, R1)]
+        return MultiResolutionGrid(Radii, N, spacing=p['spacing'])
+
+    else:
+        return  Grid(R0, R1, N, spacing=p['spacing'])
+
 def setup_disc(model):
     '''Create disc object from initial conditions'''
     # Setup the grid, star and equation of state
-    p = model['grid']
-    grid = Grid(p['R0'], p['R1'], p['N'], spacing=p['spacing'])
+    grid = setup_grid(model)
 
     p = model['star']
     if 'MESA_file' in p:

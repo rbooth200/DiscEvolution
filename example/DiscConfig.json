@@ -35,7 +35,7 @@
   ],
   
   "chemistry" : {
-    "on"   : true, 
+    "on"   : false, 
     "type" : "NoReact", 
     "fix_mu" : true,
     "mu"     : 2.4,
@@ -52,9 +52,9 @@
   },
 
   "star" : {
-    "mass" : 1.0,
-    "age"  : 1e4,
-    "MESA_file" : "MesaStar/1.0M_starevo.out"
+  "mass" : 1.0,
+  "radius" : 2.5,
+  "T_eff" : 4000.0
   },
 
   "transport" : {
