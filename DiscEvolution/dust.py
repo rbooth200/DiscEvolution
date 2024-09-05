@@ -79,8 +79,8 @@ class DustyDisc(AccretionDisc):
 
     @property
     def Sc(self):
-        """Schmidt number, Sc = nu/D"""
-        return self._Sc
+        """Schmidt number, Sc = alpha cs H / D"""
+        return self._Sc / self.gap_profile
 
     # Overload Accretion disc densities to make it dusty
     @property
@@ -104,7 +104,7 @@ class DustyDisc(AccretionDisc):
         """Dust scale height"""
 
         St = self.Stokes()
-        a  = self.alpha/self.Sc
+        a  = self.alpha/self._Sc
         eta = 1 - 1. / (2 + 1./St)
 
         return self.H * np.sqrt(eta * a / (a + St))

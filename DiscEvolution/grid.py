@@ -7,6 +7,7 @@
 #
 ################################################################################
 from __future__ import print_function
+import json
 import numpy as np
 
 class Grid(object):
@@ -25,13 +26,16 @@ class Grid(object):
             except ValueError:
                 raise AttributeError("Spacing must be a power law index, or "
                                      "one of 'log', 'linear' and 'natural'")
-        self._setup_aux()
         self._N = N
 
         self._R0 = R0
         self._R1 = R1
         self._spacing = spacing
-            
+
+        self._setup_centers()
+        self._setup_aux()
+
+
     def _setup_log(self, R0, R1, N):
         """Setup a grid in log-spacing"""
         lgR0 = np.log10(R0)
@@ -42,9 +46,6 @@ class Grid(object):
         Ree = np.power(10, lgR0 + np.arange(-2, N+3, dtype='f8') * dlogR)
         
         self._Re  = Ree[2:-2]
-        self._Rce = np.sqrt(Ree[2:-1] * Ree[1:-2])
-        self._Rc  = self._Rce[1:-1]
-
         self._Ree = Ree
 
     def _setup_powerlaw(self, R0, R1, N, alpha):
@@ -58,17 +59,25 @@ class Grid(object):
         dRa = (R1a - R0a) / N
 
         Ree_a = R0a + np.arange(-2, N+3, dtype='f8') * dRa
-        Rce_a = 0.5*(Ree_a[2:-1] + Ree_a[1:-2])
-
         Ree = Ree_a**alpha1
-        Rce = Rce_a**alpha1
 
         self._Re  = Ree[2:-2]
-        self._Rce = Rce
-        self._Rc  = Rce[1:-1]
-
         self._Ree = Ree
         
+    def _setup_centers(self):
+        if self._spacing == 'log':
+            self._Rce = np.sqrt(self._Ree[2:-1]*self._Ree[1:-2])
+            self._Rc = self._Rce[1:-1]
+        elif self._spacing == 'linear':
+            self._Rce = 0.5*(self._Ree[2:-1] + self._Ree[1:-2])
+            self._Rc = self._Rce[1:-1]
+        elif self._spacing == 'natural':
+            self._Rce = (0.5*(self._Ree[2:-1]**0.5 + self._Ree[1:-2]**0.5))**2
+            self._Rc = self._Rce[1:-1]
+        else:
+            raise ValueError("Should not occur")
+
+
     def _setup_aux(self):
         self._dRe  = np.diff(self._Re)
         self._dRc  = np.diff(self._Rc)
@@ -172,11 +181,110 @@ class Grid(object):
                                      "known".format(key))
         return Grid(*args, **kwargs)
 
+
+class MultiResolutionGrid(Grid):
+    """Grid-structure for multiple resolution grid.
+
+    Parameters
+    ----------
+    Radii : list of 2-tuples of floats. Unit=AU
+        List of end points for each grid.
+    cells : list of int
+        Number of cells in each grid.
+    spacing : string
+        Spacing type used for the grid ('log', 'linear', or 'natural')
+    """
+    def __init__(self, Radii, cells, spacing='log'):
+        if len(Radii) != len(cells):
+            raise ValueError(f"Number of radii ({len(Radii)}) and cells per "
+                             f"domain ({len(cells)}) must match")
+
+        # Create a grid object for each domain:
+        grids = [Grid(R[0], R[1], N, spacing) for R, N in zip(Radii, cells)]
+
+        # Loop over the domains, replacing any area of overlap with the current
+        # grid.
+        Ree = grids[0]._Ree
+        R0, R1, N = grids[0]._R0, grids[0]._R1, grids[0]._N
+        for g in grids[1:]:
+            # Complete overlap, replace the entire grid.
+            if g._R0 < R0 and g._R1 > R1:
+                print("Warning: Complete overlap of two grids in "
+                      "MultiResolutionGrid, old grid will be discarded.")
+                R0, R1, N = g._R1, g._R1, g._N
+                Ree = g._Ree
+            elif g._R0 < R0:
+                R0 = g._R0 
+                end = np.searchsorted(Ree, g._R1)
+                Ree = np.concatenate([g._Ree[:-3], Ree[end:]])
+            elif g._R1 > R1:
+                R1 = g._R1 
+                start = np.searchsorted(Ree, g._R0)
+                Ree = np.concatenate([Ree[:start], g._Ree[3:]])
+            else:
+                start = np.searchsorted(Ree, g._R0)
+                end = np.searchsorted(Ree, g._R1)
+                Ree = np.concatenate([Ree[:start], g._Re[1:-1], Ree[end:]])
+            N = len(Ree) - 5
+
+        self._Radii = Radii
+        self._cells = cells
+        self._spacing = spacing
+
+        self._R0 = R0
+        self._R1 = R1 
+        self._N = N 
+
+        self._Ree = Ree
+        self._Re = Ree[2:-2]
+
+        self._setup_centers()
+        self._setup_aux()
+
+    def ASCII_header(self):
+        """Write grid info header"""
+
+        def fmt(arr): return json.dumps(np.array(arr).tolist())
+
+        head = '# {} Radii: {}, cells: {}, spacing: {}'
+        return head.format(self.__class__.__name__,
+                           fmt(self._Radii), fmt(self._cells), self._spacing)
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        def fmt(arr): return json.dumps(np.array(arr).tolist())
+        return self.__class__.__name__, { "Radii" : fmt(self._Radii),
+                                          "cells" : fmt(self._cells),
+                                          "spacing" : self._spacing,
+                                          }
+        
+    @staticmethod
+    def from_string(string):
+        """Read a MultiResolutionGrid from a string"""
+        string = string.replace('# MultiResolutionGrid', '').strip()
+        kwargs = {}
+        args = [None, None]
+        for item in string.split(','):
+            key, val = [ x.strip() for x in item.split(':')]
+
+            if   key == 'Radii':
+                args[0] = np.array(json.loads(val))
+            elif key == 'cells':
+                args[1] = np.array(json.loads(val))
+            elif key == 'spacing':
+                kwargs[key] = val
+            else:
+                raise AttributeError("Error: Attribute {} for MultiResolutionGrid not "
+                                     "known".format(key))
+        return Grid(*args, **kwargs)
+
 def from_file(filename):
     with open(filename) as f:
         for line in f:
             if not line.startswith('#'):
                 raise AttributeError("Error: Grid type not found in header")
+            elif "MultiResolutionGrid" in line:
+                return Grid.from_string(line)
             elif "Grid" in line:
                 return Grid.from_string(line)
             else:
