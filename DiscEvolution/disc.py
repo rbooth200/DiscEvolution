@@ -159,6 +159,10 @@ class AccretionDisc(object):
     @property
     def FUV(self):
         return self._FUV
+    
+    @property
+    def gap_profile(self):
+        return self._gap_profile
 
     """Methods to determine global properties of a viscous accretion disc"""
     def Rout(self, thresh=1e-5):

@@ -16,7 +16,7 @@ import json
 import numpy as np
 import matplotlib.pyplot as plt
 from DiscEvolution.constants import Msun, AU, yr
-from DiscEvolution.grid import Grid
+from DiscEvolution.grid import Grid, MultiResolutionGrid
 from DiscEvolution.star import SimpleStar, MesaStar
 from DiscEvolution.eos  import IrradiatedEOS, LocallyIsothermalEOS, SimpleDiscEOS
 from DiscEvolution.disc import AccretionDisc
@@ -45,6 +45,16 @@ except ImportError:
     # UserDust2GasCallBack must have a definition for this file to compile,
     # but this will never be used if krome_chem is not used
     UserDust2GasCallBack = object
+
+try:
+    from DiscEvolution.coagulation import SmoluchowskiDust
+except ImportError:
+    def SmoluchowskiDust(*args, **kwargs):
+        raise RuntimeError(
+            "Trying to using the SmoluchowskiDust class, which requires the "
+            "coag_toolkit, but we can't find it. Please set the environment "
+            "variable COAG_TOOLKIT to point to the folder containg the "
+            "library.")
 
 
 from DiscEvolution.photoevaporation import (
@@ -118,7 +128,7 @@ def init_abundances_from_file(model, abund, disc):
     return abund
 
 def setup_init_abund_krome(model, disc):
-    Ncell = model['grid']['N']
+    Ncell = disc.Ncells
 
     gas = KromeGasAbund(Ncell)
     ice = KromeIceAbund(Ncell)
@@ -169,7 +179,7 @@ def get_simple_chemistry_model(model):
 def setup_init_abund_simple(model, disc):
     chemistry = get_simple_chemistry_model(model)
 
-    X_solar = SimpleCNOAtomAbund(model['grid']['N'])
+    X_solar = SimpleCNOAtomAbund(disc.Ncells)
     X_solar.set_solar_abundances()
 
     # Iterate as the ice fraction changes the dust-to-gas ratio
@@ -193,11 +203,32 @@ def setup_init_abund_simple(model, disc):
 
     return chem
 
+def setup_grid(model):
+    p = model['grid']
+    R0, R1, N = p['R0'], p['R1'], p['N'],
+    
+    try:
+        if len(R0) > 1:
+            multi_grid = True
+    except:
+        multi_grid = False
+
+    if multi_grid:
+        if len(R0) != len(R1) and len(R0) != len(N):
+            raise ValueError("for MultiResolutionGrid R0, N, and R1 must be "
+                             "lists of the same length")        
+
+        print("Settup up a MultiResolutionGrid")
+        Radii = [(s, e) for s,e in zip(R0, R1)]
+        return MultiResolutionGrid(Radii, N, spacing=p['spacing'])
+
+    else:
+        return  Grid(R0, R1, N, spacing=p['spacing'])
+
 def setup_disc(model):
     '''Create disc object from initial conditions'''
     # Setup the grid, star and equation of state
-    p = model['grid']
-    grid = Grid(p['R0'], p['R1'], p['N'], spacing=p['spacing'])
+    grid = setup_grid(model)
 
     p = model['star']
     if 'MESA_file' in p:
@@ -239,15 +270,38 @@ def setup_disc(model):
     except KeyError:
         feedback = True
 
-    if model['disc']['d2g'] > 0:
-        amin = model['disc']['amin']
-
-        disc = DustGrowthTwoPop(grid, star, eos, p['d2g'], Sigma=Sigma, 
-                                amin=amin, Sc=model['disc']['Schmidt'], 
-                                f_grow=model['disc'].get('f_grow',1.0),
-                                feedback=feedback)
-    else:
+    if p['d2g'] <= 0:
         disc = AccretionDisc(grid, star, eos, Sigma)
+    else:
+        coag = model['coagulation']
+        if coag['use_smoluchowski']:
+            amin, amax, Nbins = coag['amin'], coag['amax'], coag['Nbins']
+            rho_s = coag['rho_s']
+            m_min, m_max = [4*np.pi*rho_s*a**3/3 for a in [amin, amax]]
+
+            u_f, u_b = coag['u_frag'], coag['u_bounce']
+            kernel = coag['kernel_type']
+            gsd, gsd_params = coag['gsd'], coag['gsd_params']
+
+            settle =  model['dust_transport'].get('settling', False)
+
+            disc = SmoluchowskiDust(grid, star, eos, 
+                    m_min, m_max, Nbins, p['d2g'],
+                    gsd=gsd, gsd_params=gsd_params, Sigma=Sigma,
+                    Schmidt=model['disc']['Schmidt'], 
+                    feedback=feedback, settling=settle,
+                    rho_s=rho_s,
+                    kernel_type=kernel, u_frag=u_f, u_bounce=u_b)
+
+        else:
+            amin = coag['amin']
+            f_grow = coag.get('f_grow',1.0)
+            rho_s = coag['rho_s']
+
+            disc = DustGrowthTwoPop(grid, star, eos, p['d2g'], Sigma=Sigma, 
+                                    rho_s=rho_s, amin=amin, 
+                                    Sc=model['disc']['Schmidt'], 
+                                    f_grow=f_grow, feedback=feedback)
 
     # Setup the chemical part of the disc
     if model['chemistry']["on"]:

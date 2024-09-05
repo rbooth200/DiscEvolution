@@ -11,13 +11,31 @@
     "mass"    : 0.01,
     "Rc"      : 100.0,
     "d2g"     : 0.01,
-    "Schmidt" : 1.0,
-    "f_grow"  : 1.0,
-    "amin"    : 0e-5
-    },
+    "Schmidt" : 1.0
+  },
+  
+  "coagulation" : {
+    "use_smoluchowski" : false,
+    "f_grow" : 1.0, 
+    "amin"   : 1e-5, 
+    "rho_s"  : 1.0,
+    
+    "u_frag"   : 1000.0,
+    "u_bounce" : 0.0,
+    "kernel_type" : "Birnstiel",
+    "amax"     : 10,
+    "Nbins"    : 180,
+    
+    "gsd" : "MRN",
+    "gsd_params" : {}
+  },
+    
+  "planets" : [
+    {"Mp" : 1, "ap" : 60}
+  ],
   
   "chemistry" : {
-    "on"   : true, 
+    "on"   : false, 
     "type" : "NoReact", 
     "fix_mu" : true,
     "mu"     : 2.4,
@@ -34,9 +52,9 @@
   },
 
   "star" : {
-    "mass" : 1.0,
-    "age"  : 1e4,
-    "MESA_file" : "MesaStar/1.0M_starevo.out"
+  "mass" : 1.0,
+  "radius" : 2.5,
+  "T_eff" : 4000.0
   },
 
   "transport" : {
@@ -46,7 +64,7 @@
   },
 
   "dust_transport" : {
-    "van leer" : false,
+    "van leer" : true,
     "settling" : false,
     "diffusion" : true
     },
@@ -63,9 +81,9 @@
     "base"	: "disc",
     "format"    : "hdf5",
     "first"     : 0.0,
-    "last"      : 3e6,
+    "last"      : 1e6,
     "interval"  : 1e4,
     "plot"      : true,
-    "plot_times" : [0, 1e5, 5e5, 1e6, 3e6]
+    "plot_times" : [0, 1e5, 5e5, 1e6]
   }
 }

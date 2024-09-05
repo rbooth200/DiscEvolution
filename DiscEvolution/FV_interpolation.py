@@ -24,7 +24,7 @@ def _construct_volume_factors(xi, m, order, dtype):
     for n in range(order):
         beta[:, n] = np.diff(xi**(m+n+1)) / (m + n + 1.)
 
-    beta.T[:] /= beta[:, 0]
+    beta.T[:] /= beta[:, 0].copy()
 
     return beta
 

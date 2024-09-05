@@ -130,13 +130,14 @@ class ViscousEvolution(object):
         tc = ((dXe2 * grid.Rc) / (2 * 3 * nu)).min()
         return self._tol * tc
 
-    def __call__(self, dt, disc, tracers=[]):
+    def __call__(self, dt, disc, tracers=[], adv=[]):
         """Compute one step of the viscous evolution equation
         args:
             dt      : time-step
             disc    : disc we are updating
             tracers : Tracer species to update. Should be a list of arrays with
                       shape = [*, disc.Ncells].
+            adv     : Tracers that are advected but not removed due to mass-loss
         """
         self._setup_grid(disc.grid)
         self._init_fluxes(disc)
@@ -144,7 +145,7 @@ class ViscousEvolution(object):
         f = self._fluxes()
         Sigma_new = disc.Sigma + dt * f
         
-        for t in tracers:
+        for t in (tracers+adv):
             if t is None: continue
             tracer_density = t*disc.Sigma
             t[:] = (dt*self._tracer_fluxes(t) + tracer_density) / (Sigma_new + 1e-300)
@@ -268,13 +269,14 @@ class ViscousEvolutionFV(object):
         tc = ((dXe2 * grid.Rc) / (2 * 3 * nu)).min()
         return self._tol * tc
 
-    def __call__(self, dt, disc, tracers=[]):
+    def __call__(self, dt, disc, tracers=[], adv=[]):
         """Compute one step of the viscous evolution equation
         args:
             dt      : time-step
             disc    : disc we are updating
             tracers : Tracer species to update. Should be a list of arrays with
                       shape = [*, disc.Ncells].
+            adv     : Tracers that are advected but not removed due to mass-loss
         """
         self._setup_grid(disc.grid)
         self._init_fluxes(disc)
@@ -282,10 +284,185 @@ class ViscousEvolutionFV(object):
         f = self._fluxes()
         Sigma_new = disc.Sigma + dt * f
 
-        for t in tracers:
+        for t in (tracers + adv):
             if t is None: continue
             t[:] += dt*(self._tracer_fluxes(t) - t*f) / (Sigma_new + 1e-300)
 
+        disc.Sigma[:] = Sigma_new
+
+
+class HybridWindModel(object):
+    """Finite volume model for combined viscous evolution + winds
+    
+    args:
+       psi_DW    : Ratio of the viscous alpha to the turbulent one.
+       lambda_DW : Wind level arm parameter. Default=3
+       tol       : Ratio of the time-step to the maximum stable one.
+                   Default = 0.5
+       in_bound  : Type of internal boundary condition:
+                     'Zero'      : Zero torque boundary
+                     'Mdot'      : Constant Mdot (power law).
+       boundary  : Type of external boundary condition:
+                     'Zero'      : Zero torque boundary
+                     'power_law' : Power-law extrapolation
+                     'Mdot_inn'  : Constant Mdot, same as inner (power law).
+                     'Mdot_out'  : Constant Mdot, for tail of LBP.
+
+    Notes :
+       The alpha provided by the disc model is assumed to be the total alpha, i.e.
+       the viscous + turbulent alpha. To get the usual diffusion coefficient and
+       turbulent collision velocity the Schmidt number should be defined as 
+       Sc = (1 + psi_DW)
+    """
+    def __init__(self, psi_DW, lambda_DW=3, tol=0.5, boundary='power_law', in_bound='Mdot'):
+        self._tol = tol
+        self._bound = boundary
+        self._in_bound = in_bound
+
+        self._lambda = lambda_DW
+        self._psi = psi_DW
+
+    def ASCII_header(self):
+        """header"""
+        return '# {} tol: {}, psi_DW: {}, lambda_DW: {}'.format(self.__class__.__name__, 
+            self._tol, self._psi, self._lambda)
+
+    def HDF5_attributes(self):
+        """Class information for HDF5 headers"""
+        return self.__class__.__name__, { "tol" : str(self._tol),
+                                          "psi_DW" : str(self._psi),
+                                          "lambda_DW" : str(self._lambda) }
+    def _setup_grid(self, grid):
+        """Compute the grid factors"""
+        self._Rh  = np.sqrt(grid.Rc)
+        self._dR3 = np.diff(np.sqrt(grid.Rce)**3)
+
+        self._dA = grid.Re
+        self._dV = 0.5 * np.diff(grid.Re**2)
+
+
+    def _init_fluxes_visc(self, disc):
+        """Compute the flux due to viscosity"""
+        nuRh = disc.nu *  self._Rh / (1 + self._psi)
+
+        S = np.zeros(len(nuRh) + 2, dtype='f8')
+        S[1:-1] = disc.Sigma_G * nuRh
+
+        # Inner boundary
+        if self._in_bound == 'Zero':            # Zero torque
+            S[0] = 0
+        elif self._in_bound == 'Mdot':          # Constant flux (appropriate for power law)
+            S[0] = S[1] * self._Rh[0] / self._Rh[1]
+        else:
+            raise ValueError("Error boundary type not recognised")
+
+        # Outer boundary
+        if self._bound == 'Zero':
+            S[-1] = 0
+        elif self._bound == 'power_law':
+            S[-1] = S[-2] ** 2 / S[-3]
+        elif self._bound == 'Mdot_out':         # Constant flux (appropriate for tail of LBP)
+            S[-1] = S[-2] * self._Rh[-2] / self._Rh[-1]
+        elif self._bound == 'Mdot_inn':         # Constant flux (appropriate for power law)
+            S[-1] = S[-2] * self._Rh[-1] / self._Rh[-2]
+        else:
+            raise ValueError("Error boundary type not recognised")
+
+        self._f_visc = 4.5 * np.diff(S) / self._dR3
+
+    def _init_fluxes_wind(self, disc, dt=0):
+        """Compute the flux and mass-loss rate due to the wind"""
+        #Use first order Donor cell method:
+        v_DW = 1.5 * (disc.nu/disc.R) * self._psi / (1 + self._psi)
+
+        F = np.zeros(len(disc.Sigma_G) + 1, dtype='f8')
+        F[:-1] = v_DW * disc.Sigma_G
+
+        # Outer boundary
+        if self._bound == 'Zero':
+            F[-1] = 0
+        else:
+            F[-1] = F[-2] * (v_DW[-1]*disc.R[-1]) / (v_DW[-2]*disc.R[-2])
+
+        # Compute the mass-loss rate:
+        loss_rate = v_DW * disc.Sigma_G / (2*(self._lambda-1) * disc.R)
+
+
+        self._f_wind = F
+        self._s_wind = loss_rate
+
+    def viscous_velocity(self, disc, S = None):
+        """Compute the radial velocity due to viscosity + winds"""
+        self._setup_grid(disc.grid)
+        self._init_fluxes_visc(disc)
+        self._init_fluxes_wind(disc)
+
+        if S is None:
+            S = disc.Sigma 
+        return - 0.5 * (self._f_visc + self._f_wind)[1:-1] / (S[1:] + S[:-1])
+
+    def _fluxes(self):
+        """Compute the mass fluxes and loss term """
+        return np.diff(self._dA * (self._f_visc + self._f_wind)) / self._dV
+
+    def _tracer_fluxes(self, tracers):
+        """Compute fluxes of a tracer.
+
+        Uses the viscous update to compute the flux of  Sigma*tracers,
+        divide by the updated Sigma to get the new tracer value.
+        """
+        shape = tracers.shape[:-1] + (tracers.shape[-1] + 2,)
+        s = np.zeros(shape, dtype='f8')
+        s[..., 1:-1] = tracers
+        s[..., 0] = s[..., 1]
+        s[..., -1] = s[..., -2]
+
+        F = self._f_visc + self._f_wind
+
+        # Upwind the tracer density 
+        ds = F * np.where(F <= 0, s[..., :-1], s[..., 1:])
+
+        # Compute the viscous update
+        return np.diff(self._dA * ds) / self._dV
+
+    def max_timestep(self, disc):
+        """Courant limited time-step"""
+        grid = disc.grid
+        nu = disc.nu / (1 + self._psi)
+
+        dXe2 = np.diff(2 * np.sqrt(grid.Re)) ** 2
+
+        t_visc = ((dXe2 * grid.Rc) / (2 * 3 * nu)).min()
+
+        v_DW   = 1.5 * (disc.nu/grid.Rc) * self._psi / (1 + self._psi)
+        t_wind = (np.diff(0.5*grid.Re**2) / (grid.Rc * v_DW)).min()
+
+        return self._tol * min(t_visc, t_wind)
+
+    def __call__(self, dt, disc, tracers=[], adv=[]):
+        """Compute one step of the evolution equation
+        args:
+            dt      : time-step
+            disc    : disc we are updating
+            tracers : Tracer species to update. Should be a list of arrays with
+                      shape = [*, disc.Ncells].
+            adv     : Tracers that are advected but not removed due to mass-loss
+        """
+        self._setup_grid(disc.grid)
+        self._init_fluxes_visc(disc)
+        self._init_fluxes_wind(disc, dt)
+
+        f = self._fluxes()
+        Sigma_new = disc.Sigma + dt * (f - self._s_wind)
+
+        for t in tracers: # Tracers advected + removed
+            if t is None: continue
+            t[:] += dt*(self._tracer_fluxes(t) - t*f) / (Sigma_new + 1e-300)
+
+        for t in adv: # Tracers advected only
+            if t is None: continue
+            t[:] += dt*(self._tracer_fluxes(t) +  - (t + self._s_wind)*f) / (Sigma_new + 1e-300)
+        
         disc.Sigma[:] = Sigma_new
 
 class LBP_Solution(object):
@@ -317,6 +494,40 @@ class LBP_Solution(object):
 
         return self._Sigma0 * ft * Xg * np.exp(- Xg * X * X / tt)
 
+class TaboneSolution(object):
+    """Analytical solution for the evolution of a hybrid viscous and
+    wind-driven accretion disc,
+
+    Tabone et al. (2022)
+
+    args:
+        M      : Disc mass
+        rc     : Critical radius at t=0
+        n_c    : viscosity at rc
+        psi_DW : Ratio of viscous to wind-driven alpha
+        lambda_dW : mass-loss efficiency
+    """
+
+    def __init__(self, M, rc, nuc, psi_DW, lambda_DW=3):
+        from scipy.special import gamma as gamma_fun
+        self._rc = rc
+        self._nuc = nuc
+        self._tc = rc * rc / (3 * nuc)
+
+        self._psi = psi_DW
+        
+        C = 4*psi_DW/((lambda_DW-1)*(1+psi_DW)**2)
+        self._xi = 0.25*(1 + psi_DW) * (np.sqrt(1 + C)-1) 
+        self._Sigma0 = M / (2 * np.pi * rc ** 2 * gamma_fun(1 + self._xi))
+
+    def __call__(self, R, t):
+        """Surface density at R and t"""
+        tt = t / ((1 + self._psi)*self._tc) + 1
+        X = R / (self._rc*tt)
+        Xg = X ** -(1-self._xi)
+        ft = tt ** -(2.5 + self._xi + self._psi/2)
+
+        return self._Sigma0 * ft * Xg * np.exp(- X)
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
@@ -346,6 +557,8 @@ if __name__ == "__main__":
 
     visc = ViscousEvolutionFV()
 
+    plt.figure()
+
     # Integrate to given times
     times = np.array([0, 1e4, 1e5, 1e6, 3e6]) * T0
 
@@ -372,4 +585,43 @@ if __name__ == "__main__":
 
     plt.xlabel('$R\,[\mathrm{au}]$')
     plt.ylabel('$\Sigma\,[\mathrm{g\,cm}]^{-2}$')
+
+    sol = TaboneSolution(M / AU**2, Rd, nud, psi_DW=1)
+
+    Sigma = sol(grid.Rc, 0.)
+
+    disc = AccretionDisc(grid, star, eos, Sigma)
+
+    visc = HybridWindModel(psi_DW=1)
+
+    plt.figure()
+
+    # Integrate to given times
+    times = np.array([0, 1e4, 1e5, 1e6, 3e6]) * T0
+    t = 0
+    n = 0
+    for ti in times:
+        while t < ti:
+            dt = visc.max_timestep(disc)
+            dti = min(dt, ti - t)
+
+            visc(dti, disc)
+
+            t = min(t + dt, ti)
+            n += 1
+
+            if (n % 1000) == 0:
+                print('Nstep: {}'.format(n))
+                print('Time: {} yr'.format(t / (2 * np.pi)))
+                print('dt: {} yr'.format(dt / (2 * np.pi)))
+
+        l, = plt.loglog(grid.Rc, disc.Sigma)
+        l, = plt.loglog(grid.Rc, sol(grid.Rc, t),
+                        c=l.get_color(), ls='--')
+
+    plt.xlabel('$R\,[\mathrm{au}]$')
+    plt.ylabel('$\Sigma\,[\mathrm{g\,cm}]^{-2}$')
+    plt.show()
+
+
     plt.show()
