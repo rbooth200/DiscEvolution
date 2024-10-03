@@ -53,9 +53,10 @@ class DiscEvolutionDriver(object):
         self._history = history
 
         self._t = t0
+        self._tchem = t0
         self._nstep = 0
 
-    def __call__(self, tmax):
+    def __call__(self, tmax, chem_substep=1):
         """Evolve the disc for a single timestep
 
         args:
@@ -143,18 +144,23 @@ class DiscEvolutionDriver(object):
             pass
 
         # Chemistry
-        if self._chemistry:
+        if self._chemistry and (self._nstep % chem_substep) == 0:
+
             rho = disc.midplane_gas_density
             eps = disc.dust_frac.sum(0)
             grain_size = disc.grain_size[-1]
             T = disc.T
 
-            self._chemistry.update(dt, T, rho, eps, disc.chem, 
+            dtchem = self._t-self._tchem + dt 
+
+            self._chemistry.update(dtchem, T, rho, eps, disc.chem, 
                                    grain_size=grain_size)
 
             # If we have dust, we should update it now the ice fraction has
             # changed
             disc.update_ices(disc.chem.ice)
+
+            self._tchem = self._t + dt
 
         # Update any planet properties
         if self._planets is not None:
