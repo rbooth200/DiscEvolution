@@ -43,7 +43,8 @@
     "use_abundance_file" : true,
     "abundances" : "Eistrup2016.dat",
     "normalize" : true,
-    "variable_grain_size" : true
+    "variable_grain_size" : true,
+    "substep" : 1
   },
 
   "eos" : {
