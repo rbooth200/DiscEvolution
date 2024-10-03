@@ -511,7 +511,7 @@ def _plot_grid(model, figs=None):
 
     return [f, subs]
 
-def run(model, io, base_name, restart, verbose=True, n_print=100):
+def run(model, io, base_name, restart, verbose=True, n_print=100, chem_sub=1):
 
     if restart:
         # Skip evolution already completed
@@ -530,7 +530,10 @@ def run(model, io, base_name, restart, verbose=True, n_print=100):
     while not io.finished():
         ti = io.next_event_time()
         while model.t < ti:
-            dt = model(ti)
+            # Sub-step the chemistry unless we are doing an output
+            sub = chem_sub if not io.check_event(model.t, 'save') else 1
+
+            dt = model(ti, chem_substep=sub)
 
             if verbose and (model.num_steps % n_print) == 0:
                 print('Nstep: {}'.format(model.num_steps))
@@ -584,7 +587,7 @@ def main(*args):
 
     output_name, io_control = setup_output(model)
 
-    run(driver, io_control, output_name, args.restart)
+    run(driver, io_control, output_name, args.restart, chem_sub=model['chemistry'].get("substep", 1))
 
     np.seterr(**err_state)
 
