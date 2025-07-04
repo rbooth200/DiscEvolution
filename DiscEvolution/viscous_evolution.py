@@ -343,7 +343,7 @@ class HybridWindModel(object):
 
     def _init_fluxes_visc(self, disc):
         """Compute the flux due to viscosity"""
-        nuRh = disc.nu *  self._Rh / (1 + self._psi)
+        nuRh = disc.nu *  self._Rh
 
         S = np.zeros(len(nuRh) + 2, dtype='f8')
         S[1:-1] = disc.Sigma_G * nuRh
@@ -373,7 +373,7 @@ class HybridWindModel(object):
     def _init_fluxes_wind(self, disc, dt=0):
         """Compute the flux and mass-loss rate due to the wind"""
         #Use first order Donor cell method:
-        v_DW = 1.5 * (disc.nu/disc.R) * self._psi / (1 + self._psi)
+        v_DW = 1.5 * (disc.nu/disc.R) * self._psi
 
         F = np.zeros(len(disc.Sigma_G) + 1, dtype='f8')
         F[:-1] = v_DW * disc.Sigma_G
@@ -428,13 +428,13 @@ class HybridWindModel(object):
     def max_timestep(self, disc):
         """Courant limited time-step"""
         grid = disc.grid
-        nu = disc.nu / (1 + self._psi)
+        nu = disc.nu
 
         dXe2 = np.diff(2 * np.sqrt(grid.Re)) ** 2
 
         t_visc = ((dXe2 * grid.Rc) / (2 * 3 * nu)).min()
 
-        v_DW   = 1.5 * (disc.nu/grid.Rc) * self._psi / (1 + self._psi)
+        v_DW   = 1.5 * (disc.nu/grid.Rc) * self._psi
         t_wind = (np.diff(0.5*grid.Re**2) / (grid.Rc * v_DW)).min()
 
         return self._tol * min(t_visc, t_wind)
