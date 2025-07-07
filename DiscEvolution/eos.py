@@ -375,7 +375,8 @@ class IrradiatedEOS(EOS_Table):
 
             # Viscous Heating
             # If psi is given, includes heating from disk winds based off and 
-            # derived from the weak disk winds model proposed by Suzuki et. al (2018)
+            # derived from the weak disk winds model proposed by Suzuki et. al (2018, 
+            #  doi:10.1051/0004-6361/201628955).
             visc_heat = 1.125*alpha*cs*cs * Om_k * (1 + self._psi/3)
             dEdt += visc_heat*(0.375*tau*Sigma + 1./kappa)
             
