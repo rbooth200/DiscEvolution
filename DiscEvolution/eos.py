@@ -293,7 +293,9 @@ class IrradiatedEOS(EOS_Table):
         kappa   : Opacity, default=Zhu2012
         accrete : Whether to include heating due to accretion,
                   default=True
-        psi : Ratio of disk winds to viscous turbulent alpha, default = 0
+        psi : Ratio of disk winds to viscous turbulent alpha. Energy carried away by the 
+               wind can be accounted by using phi = eps * phi_0, where phi_0 is the value
+               used in the wind model and eps < 1. Default: phi = 0.
     """
     def __init__(self, star, alpha_t, Tc=10, Tmax=1500., mu=2.4, gamma=1.4,
                  kappa=None,
