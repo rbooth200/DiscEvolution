@@ -293,10 +293,8 @@ class IrradiatedEOS(EOS_Table):
         kappa   : Opacity, default=Zhu2012
         accrete : Whether to include heating due to accretion,
                   default=True
-        psi : Ratio of disk winds to viscous turbulent alpha. Energy carried away by the 
-               wind can be accounted by using phi = eps * phi_0, where phi_0 is the value
-               used in the wind model and eps < 1. Default: phi = 0.
-        e_rad : fraction of energy lost to radiation, default = 1
+        psi : Ratio of disk winds to viscous turbulent alpha, default: psi = 0.
+        e_rad : fraction of energy lost to radiation (Suzuki et. al 2016), default = 1
 
     Notes: 
         If disk winds are being used, different choices of e_rad provide different heating
