@@ -296,10 +296,19 @@ class IrradiatedEOS(EOS_Table):
         psi : Ratio of disk winds to viscous turbulent alpha. Energy carried away by the 
                wind can be accounted by using phi = eps * phi_0, where phi_0 is the value
                used in the wind model and eps < 1. Default: phi = 0.
+        lamda : Magnetic lever arm parameter, default = 1.5
+
+    Notes: 
+        If disk winds are being used, different choices of lamda provide different heating
+        cases. See Suzuki et. al (2016). If:
+        - lamda = 1.5, all (and only) turbulent energy goes into heating.
+        - lamda > 3, e_rad approaches 1, so the weak winds case (from Suzuki et. al 2016) 
+            is applied.
+        - 1.5 < lamda < 3, general case of disk wind heating is applied.
     """
     def __init__(self, star, alpha_t, Tc=10, Tmax=1500., mu=2.4, gamma=1.4,
                  kappa=None,
-                 accrete=True, tol=None, psi=0): # tol is no longer used
+                 accrete=True, tol=None, psi=0, lamda=1.5): # tol is no longer used
         super(IrradiatedEOS, self).__init__()
 
         self._star = star
@@ -323,6 +332,7 @@ class IrradiatedEOS(EOS_Table):
         self._T = None
 
         self._psi = psi
+        self._lamda = lamda
 
         self._compute_constants()
 
@@ -373,11 +383,13 @@ class IrradiatedEOS(EOS_Table):
             # Compute the heating from stellar irradiation
             dEdt += star_heat * (f_flat + f_flare * (H/R))
 
-            # Viscous Heating
-            # If psi is given, includes heating from disk winds based off and 
-            # derived from the weak disk winds model proposed by Suzuki et. al (2018, 
+            # If psi > 0, includes heating from disk winds based off and 
+            # derived from the model proposed by Suzuki et. al (2018, 
             #  doi:10.1051/0004-6361/201628955).
-            visc_heat = 1.125*alpha*cs*cs * Om_k * (1 + self._psi/3)
+            e_rad = 1 - (self._psi/(3 + self._psi))/(2*(self._lamda - 1))
+            
+            # Viscous Heating
+            visc_heat = e_rad*1.125*alpha*cs*cs * Om_k * (1 + self._psi/3)
             dEdt += visc_heat*(0.375*tau*Sigma + 1./kappa)
             
             # Prevent heating above the temperature cap:
