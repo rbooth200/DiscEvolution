@@ -116,6 +116,7 @@ def init_abundances_from_file(model, abund, disc):
 
     for name, value in zip(init_abund['Species'], init_abund['Abundance']):
         name = name.decode()
+        
         if name in ice.species:
             value += abund.ice.number_abund(name)
             abund.ice.set_number_abund(name,value)
@@ -196,7 +197,7 @@ def setup_init_abund_simple(model, disc):
             if 'grain' not in s:
                 chem.gas.set_number_abund(s, 0.)
                 chem.ice.set_number_abund(s, 0.)
-        
+
         chem = init_abundances_from_file(model, chem, disc)
         disc.initialize_dust_density(chem.ice.total_abund)
 
@@ -297,9 +298,12 @@ def setup_disc(model):
             amin = coag['amin']
             f_grow = coag.get('f_grow',1.0)
             rho_s = coag['rho_s']
+            u_f = coag.get('u_frag', 1e3)
+            u_f0 = coag.get('u_frag_0', 1e2)
 
             disc = DustGrowthTwoPop(grid, star, eos, p['d2g'], Sigma=Sigma, 
                                     rho_s=rho_s, amin=amin, 
+                                    uf_0=u_f0, uf_ice=u_f,
                                     Sc=model['disc']['Schmidt'], 
                                     f_grow=f_grow, feedback=feedback)
 
@@ -488,7 +492,7 @@ def _plot_grid(model, figs=None):
 
         subs[0][1].loglog(grid.Rc, eps)
         subs[0][1].set_xlabel('$R$')
-        subs[0][1].set_ylabel('$\epsilon$')
+        subs[0][1].set_ylabel(r'$\epsilon$')
         subs[0][1].set_ylim(ymin=1e-4)
 
         subs[1][0].loglog(grid.Rc, model.disc.Stokes()[1])
@@ -497,7 +501,7 @@ def _plot_grid(model, figs=None):
 
         subs[1][1].loglog(grid.Rc, model.disc.grain_size[1])
         subs[1][1].set_xlabel('$R$') 
-        subs[1][1].set_ylabel('$a\,[\mathrm{cm}]$')
+        subs[1][1].set_ylabel(r'$a\,[\mathrm{cm}]$')
 
         l, = subs[0][0].loglog(grid.Rc, model.disc.Sigma_D.sum(0), '--')
         c = l.get_color()
@@ -506,7 +510,7 @@ def _plot_grid(model, figs=None):
 
     subs[0][0].loglog(grid.Rc, model.disc.Sigma_G, c=c)
     subs[0][0].set_xlabel('$R$')
-    subs[0][0].set_ylabel('$\Sigma_\mathrm{G, D}$')
+    subs[0][0].set_ylabel(r'$\Sigma_\mathrm{G, D}$')
     subs[0][0].set_ylim(ymin=1e-5)
 
     return [f, subs]
