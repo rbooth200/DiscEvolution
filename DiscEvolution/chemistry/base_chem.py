@@ -383,7 +383,7 @@ class ThermalChem(object):
         m_t = abund.gas[spec] + abund.ice[spec]
         X_t = m_t * mu / m_mol
 
-        X_s = (abund.ice[spec] / m_mol)
+        X_s = (abund.ice[spec] * mu / m_mol)
         X_max = self._etaNbind * dust_frac
         
         #Ad/De-sorpstion rate per gas-phase molecule
@@ -394,19 +394,68 @@ class ThermalChem(object):
         S0 = Sa + np.where(X_s > X_max, Sd, 0)
         S1 = Sa + np.where(X_s < X_max, Sd, 0)
 
+        # Equilibrium abundance:
+        X_eq0 = X_t - np.where(X_s > X_max, X_t   * Sd/(Sa + Sd + 1e-300),
+                                            X_max * Sd/(Sa + 1e-300))  
+        X_eq1 = X_t - np.where(X_s < X_max, X_t   * Sd/(Sa + Sd + 1e-300),
+                                            X_max * Sd/(Sa + 1e-300))  
+
         # Time of transition between 1st order/0th order phases
-        X1 = X_t * Sa / (Sa + Sd + 1e-300)
+        X1 = X_t * (Sa / (Sa + Sd + 1e-300))
         Xm = X_max * np.ones_like(X_s)
         Xm_1 = Xm * Sd / (Sa + 1e-300)
-        Xm_2 = Xm * (Sd + Sa) / (Sa + 1e-300)
 
+        
+        # Update cells that cross the 1st/0th order transition to the transition
+        # Also update evolution rates to the 2nd stage rate.
+        dtt = np.ones_like(X_s)* dt
+        S = S1.copy() # Set the rate to the initial rate
+        X_eq = X_eq1.copy() # Set the target equilibrium to the one for the current regime
+        
+        idx = (X_s < Xm)  & (X1 > Xm)
+        if np.any(idx):
+            with np.errstate(all='ignore'):
+                term = (X_s-X1)/(Xm-X1)
+                tt = np.log(term) / (Sa+Sd+1e-300)
+
+            idx = idx & (tt < dtt)
+            dtt[idx] -= tt[idx]
+            X_s[idx] = Xm[idx]
+            S[idx] = S0[idx]
+            X_eq[idx] = X_eq0[idx]
+            
+
+        idx =  (X_s > Xm) & (X1 < Xm)
+        if np.any(idx):
+            with np.errstate(all='ignore'):
+                term = (X_t-Xm_1-X_s)/(X_t-Xm_1-Xm)
+                tt = np.log(term) / (Sa+1e-300)        
+
+            idx = idx & (tt < dtt)
+            
+            #if spec == 'CO':
+            #    print(S[idx], Sd[idx], Sa[idx], self._f_des,  self._nu_i(Tbind, m_mol)/1e11, np.exp(-Tbind/T)[idx], X_s[idx]/X_max[idx], X_t[idx]/X_max[idx])
+            #    print(tt[idx], dt)
+
+            dtt[idx] =  dtt[idx] - tt[idx]
+            X_s[idx] = Xm[idx]
+            S[idx] = S0[idx]
+            X_eq[idx] = X_eq0[idx]
+
+
+        eta = S*dtt
+        #if np.any(dtt != dt):
+        #    print(True)
+
+        """
         tt = np.zeros_like(X_s)
 
         idx = (X_s < Xm)  & (X1 > Xm)
-        tt[idx] = np.log((X_s[idx]-X1[idx])/(Xm[idx]-X1[idx]))
+        term = (X_s[idx]-X1[idx])/(Xm[idx]-X1[idx])
+        tt[idx] = np.log(term) / (Sa[idx]+Sd[idx]+1e-300)
         
         idx = (X_s > Xm) & (X1 < Xm)
-        term = (X_t[idx]-X_s[idx]-Xm_1[idx])/(X_t[idx]-Xm_2[idx])
+        term = (X_t[idx]-Xm_1[idx]-X_s[idx])/(X_t[idx]-Xm_1[idx]-Xm[idx])
         tt[idx] = np.log(term) / (Sa[idx]+1e-300)
 
         # Time integrated in each phase
@@ -414,9 +463,12 @@ class ThermalChem(object):
         dt0 = dt - dt1
 
         eta = S0*dt0 + S1*dt1
-
+        
         X_eq = X_t - np.minimum(X_t   * Sd/(Sa + Sd + 1e-300),
                                 X_max * Sd/(Sa + 1e-300))
+
+        """
+
 
         X_d = np.minimum(X_s * np.exp(-eta) - X_eq * np.expm1(-eta), X_t)
         X_g = np.maximum(X_t - X_d, 0)
