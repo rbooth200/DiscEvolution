@@ -144,7 +144,7 @@ class DiscEvolutionDriver(object):
             pass
 
         # Chemistry
-        if self._chemistry and (self._nstep % chem_substep) == 0:
+        if self._chemistry and (((self._nstep % chem_substep) == 0) or (dt==(tmax-self.t))):
 
             rho = disc.midplane_gas_density
             eps = disc.dust_frac.sum(0)

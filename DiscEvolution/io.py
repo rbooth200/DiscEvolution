@@ -190,8 +190,13 @@ def dump_ASCII(filename, disc, time, header=None):
 ################################################################################
 def _write_nested_hdf5_header(hdf_obj, header):
     """Write the header data as attributes in a nested fashion."""
+    try:
+        from collections.abc import Mapping
+    except ImportError:
+        from collections import Mapping
+
     for key, value in header.items():
-        if isinstance(value, collections.Mapping):
+        if isinstance(value, Mapping):
             group = hdf_obj.create_group(key)
             _write_nested_hdf5_header(group, value)
         else:
