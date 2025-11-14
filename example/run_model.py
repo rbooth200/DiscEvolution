@@ -535,9 +535,7 @@ def run(model, io, base_name, restart, verbose=True, n_print=100, chem_sub=1):
         ti = io.next_event_time()
         while model.t < ti:
             # Sub-step the chemistry unless we are doing an output
-            sub = chem_sub if not io.check_event(model.t, 'save') else 1
-
-            dt = model(ti, chem_substep=sub)
+            dt = model(ti, chem_substep=chem_sub)
 
             if verbose and (model.num_steps % n_print) == 0:
                 print('Nstep: {}'.format(model.num_steps))
