@@ -80,7 +80,7 @@ class DustyDisc(AccretionDisc):
     @property
     def Sc(self):
         """Schmidt number, Sc = alpha cs H / D"""
-        return self._Sc / self.gap_profile
+        return self._Sc
 
     # Overload Accretion disc densities to make it dusty
     @property
