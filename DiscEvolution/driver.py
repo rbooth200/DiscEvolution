@@ -105,10 +105,15 @@ class DiscEvolutionDriver(object):
             ice_chem = disc.chem.ice.data
         except AttributeError:
             pass
-        try:
-            dust = disc.dust_frac
-        except AttributeError:
-            pass
+        # The dust module decides what is advected with the gas (by default
+        # the dust fractions themselves)
+        if self._dust:
+            dust = self._dust.pre_gas_transport(disc)
+        else:
+            try:
+                dust = disc.dust_frac
+            except AttributeError:
+                pass
 
         # Do Advection-diffusion update
         if self._gas:
@@ -121,6 +126,9 @@ class DiscEvolutionDriver(object):
                 ice_chem[:] += dt * self._diffusion(disc, ice_chem)
             if dust is not None:
                 dust[:] += dt * self._diffusion(disc, dust)
+
+        if self._dust:
+            self._dust.post_gas_transport(disc, dust)
 
         # Do external photoevaporation
         if self._external_photo:

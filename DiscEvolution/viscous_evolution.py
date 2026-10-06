@@ -295,8 +295,9 @@ class HybridWindModel(object):
     """Finite volume model for combined viscous evolution + winds
     
     args:
-       psi_DW    : Ratio of the viscous alpha to the turbulent one.
-       lambda_DW : Wind level arm parameter. Default=3
+       psi_DW    : Ratio of the wind-driven alpha to the turbulent (viscous)
+                   one, psi = alpha_DW / alpha_SS (Tabone et al. 2022).
+       lambda_DW : Wind lever arm parameter. Default=3
        tol       : Ratio of the time-step to the maximum stable one.
                    Default = 0.5
        in_bound  : Type of internal boundary condition:
@@ -309,10 +310,16 @@ class HybridWindModel(object):
                      'Mdot_out'  : Constant Mdot, for tail of LBP.
 
     Notes :
-       The alpha provided by the disc model is assumed to be the total alpha, i.e.
-       the viscous + turbulent alpha. To get the usual diffusion coefficient and
-       turbulent collision velocity the Schmidt number should be defined as 
-       Sc = (1 + psi_DW)
+       The viscosity provided by the disc model, disc.nu, is the turbulent
+       (viscous) part only, nu = alpha_SS cs H. The wind-driven radial velocity
+       is v_DW = 1.5 psi_DW nu / R, so the total effective viscosity is
+       (1 + psi_DW) nu. Since disc.alpha is alpha_SS, the turbulent diffusion
+       coefficient and collision velocities need no correction: the Schmidt
+       number keeps its usual (turbulent) meaning.
+
+       Tracers passed in `tracers` (gas species) are removed by the wind along
+       with the gas. Tracers passed in `adv` (dust and ices) are advected but
+       retained, so their concentration increases as gas is lost.
     """
     def __init__(self, psi_DW, lambda_DW=3, tol=0.5, boundary='power_law', in_bound='Mdot'):
         self._tol = tol
@@ -455,13 +462,20 @@ class HybridWindModel(object):
         f = self._fluxes()
         Sigma_new = disc.Sigma + dt * (f - self._s_wind)
 
+        # The wind removes gas only. Gas tracers are mass fractions of the
+        # total Sigma, so they are lost at a rate s_wind * t * Sigma/Sigma_G,
+        # i.e. faster than s_wind * t by s_wind * t * eps/(1-eps).
+        Sigma = disc.Sigma
+        eps = np.where(Sigma > 0, 1 - disc.Sigma_G/np.where(Sigma > 0, Sigma, 1), 0)
+        s_extra = self._s_wind * eps / np.maximum(1 - eps, 1e-300)
+
         for t in tracers: # Tracers advected + removed
             if t is None: continue
-            t[:] += dt*(self._tracer_fluxes(t) - t*f) / (Sigma_new + 1e-300)
+            t[:] += dt*(self._tracer_fluxes(t) - t*(f + s_extra)) / (Sigma_new + 1e-300)
 
-        for t in adv: # Tracers advected only
+        for t in adv: # Tracers advected only (retained when gas is lost)
             if t is None: continue
-            t[:] += dt*(self._tracer_fluxes(t) +  - (t + self._s_wind)*f) / (Sigma_new + 1e-300)
+            t[:] += dt*(self._tracer_fluxes(t) - t*(f - self._s_wind)) / (Sigma_new + 1e-300)
         
         disc.Sigma[:] = Sigma_new
 
@@ -503,9 +517,10 @@ class TaboneSolution(object):
     args:
         M      : Disc mass
         rc     : Critical radius at t=0
-        n_c    : viscosity at rc
-        psi_DW : Ratio of viscous to wind-driven alpha
-        lambda_dW : mass-loss efficiency
+        nuc    : Total effective viscosity at rc, (1 + psi_DW) * nu_SS, where
+                 nu_SS is the turbulent viscosity (disc.nu in HybridWindModel)
+        psi_DW : Ratio of wind-driven to viscous alpha, alpha_DW / alpha_SS
+        lambda_DW : Magnetic lever arm parameter (sets the mass-loss efficiency)
     """
 
     def __init__(self, M, rc, nuc, psi_DW, lambda_DW=3):
@@ -586,13 +601,14 @@ if __name__ == "__main__":
     plt.xlabel('$R\,[\mathrm{au}]$')
     plt.ylabel('$\Sigma\,[\mathrm{g\,cm}]^{-2}$')
 
-    sol = TaboneSolution(M / AU**2, Rd, nud, psi_DW=1)
+    psi_DW = 1
+    sol = TaboneSolution(M / AU**2, Rd, (1 + psi_DW)*nud, psi_DW=psi_DW)
 
     Sigma = sol(grid.Rc, 0.)
 
     disc = AccretionDisc(grid, star, eos, Sigma)
 
-    visc = HybridWindModel(psi_DW=1)
+    visc = HybridWindModel(psi_DW=psi_DW)
 
     plt.figure()
 

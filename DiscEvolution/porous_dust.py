@@ -562,6 +562,20 @@ class SingleFluidDrift(object):
         if dust_tracers is not None:
             dust_tracers[:] += d_tr
             
+    def pre_gas_transport(self, disc):
+        """Quantities to be advected with the gas by the driver's gas step.
+
+        Returns an array of mass fractions (per unit Sigma), shape [*, Ncells],
+        which the gas and diffusion steps update in place. Here this is just
+        the dust fractions themselves.
+        """
+        return disc.dust_frac
+
+    def post_gas_transport(self, disc, Q):
+        """Called after the gas and diffusion steps with the array returned by
+        pre_gas_transport. Nothing to do: Q is disc.dust_frac."""
+        pass
+
     def radial_drift_velocity(self, disc):
         """Compute the radial drift velocity for the disc"""
         eps = disc.dust_frac

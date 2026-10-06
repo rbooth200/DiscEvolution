@@ -143,6 +143,59 @@ class DustyDisc(AccretionDisc):
         """Update ice fractions"""
         pass
 
+    def remove_dust_with_gas(self, dSigma_G, a_cut=None, efficiency=None):
+        """Remove gas from each cell, together with the dust entrained by it.
+
+        In a cell losing a fraction f_g = dSigma_G / Sigma_G of its gas, grains
+        of size a lose a fraction f_g * eta(a) of their mass, where
+        eta(a) = H(a_cut - a) * efficiency(a). The dust left behind is
+        retained.
+
+        This implementation assumes a power-law size distribution, n(a) ∝ a^-p
+        from 0 to grain_size[-1], with p = self._p (default 3.5), and removes
+        the entrained mass in proportion from each dust species.
+
+        args:
+            dSigma_G   : gas surface density to remove, per cell
+            a_cut      : largest grain size entrained (cm), scalar or per cell.
+                         None: no dust is removed.
+            efficiency : Not supported here (raises NotImplementedError).
+
+        returns:
+            dSigma_D : dust surface density removed, per cell
+        """
+        if efficiency is not None:
+            raise NotImplementedError("{} does not support a size-dependent "
+                                      "entrainment efficiency"
+                                      "".format(self.__class__.__name__))
+
+        Sigma_G = self.Sigma_G
+        Sigma_D = self.Sigma_D
+        Sigma_D_tot = Sigma_D.sum(0)
+        dSigma_G = np.broadcast_to(dSigma_G, Sigma_G.shape)
+
+        dSigma_D = np.zeros_like(Sigma_D_tot)
+        if a_cut is not None:
+            p = getattr(self, '_p', 3.5)
+            has_gas = Sigma_G > 0
+            f_g = dSigma_G[has_gas] / Sigma_G[has_gas]
+            f_ent = np.minimum(1, (a_cut/self.grain_size[-1])**(4 - p))
+            f_ent = np.broadcast_to(f_ent, Sigma_G.shape)
+            dSigma_D[has_gas] = Sigma_D_tot[has_gas] * f_ent[has_gas] * f_g
+
+        self._Sigma -= dSigma_G
+        self._Sigma -= dSigma_D
+
+        # Update the dust fractions, keeping the share of each species
+        not_empty = (self.Sigma > 0)
+        dusty = Sigma_D_tot > 0
+        share = Sigma_D / np.where(dusty, Sigma_D_tot, 1)
+        new_eps = ((Sigma_D_tot - dSigma_D)[not_empty] /
+                   self.Sigma[not_empty])
+        self._eps[:, not_empty] = new_eps * share[:, not_empty]
+
+        return dSigma_D
+
     def ASCII_header(self):
         """Dusty disc header"""
         head = super(DustyDisc, self).ASCII_header() + '\n'
@@ -650,6 +703,20 @@ class SingleFluidDrift(object):
             dust_tracers[:] += d_tr
 
         disc.dust_frac[:] += dt*self._fluxes(disc, disc.dust_frac, DeltaV, disc.Stokes(), dt)
+
+    def pre_gas_transport(self, disc):
+        """Quantities to be advected with the gas by the driver's gas step.
+
+        Returns an array of mass fractions (per unit Sigma), shape [*, Ncells],
+        which the gas and diffusion steps update in place. Here this is just
+        the dust fractions themselves.
+        """
+        return disc.dust_frac
+
+    def post_gas_transport(self, disc, Q):
+        """Called after the gas and diffusion steps with the array returned by
+        pre_gas_transport. Nothing to do: Q is disc.dust_frac."""
+        pass
 
     def radial_drift_velocity(self, disc, v_visc=None, ret_vphi=False):
         """Compute the radial drift velocity for the disc and optionally the

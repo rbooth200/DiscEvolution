@@ -5,6 +5,7 @@
 #
 # Models for photo-evaporation of a disc
 ###############################################################################
+import warnings
 import numpy as np
 from .constants import AU, Msun, yr, Mjup
 from .dust import DustyDisc
@@ -75,12 +76,18 @@ class ExternalPhotoevaporationBase(object):
         empty = (excess_t > 0)
         disc._Sigma[empty] = 0
 
+        # Record the gas mass lost: all of the gas in emptied cells. Cells that
+        # were already empty contribute nothing (their dM_tot may be nan if the
+        # dust fraction is undefined there).
+        self._Mcum_gas += dM_tot[empty & (dM_tot > 0)].sum()
+
         # Deal with marginal cell (first for which dt<Dt) as long as entire disc isn't removed
         if (np.sum(empty)<np.size(disc.Sigma_G)):
             half_empty = -(np.sum(empty) + 1) # ID (from end) of half depleted cell
-            disc._Sigma[half_empty] *= -1.0*excess_t[half_empty] / (Dt[half_empty]-Dt[half_empty+1]) # Work out fraction left in cell 
+            f_left = -1.0*excess_t[half_empty] / (Dt[half_empty]-Dt[half_empty+1]) # Work out fraction left in cell
+            disc._Sigma[half_empty] *= f_left
 
-        self._Mcum_gas  += dt*dM_evap[empty].sum()+dM_tot[half_empty]*-1.0*excess_t[half_empty] / (Dt[half_empty]-Dt[half_empty+1])  # Record mass loss
+            self._Mcum_gas += dM_tot[half_empty] * (1 - f_left) # Record mass loss
         
     def optically_thin_weighting(self, disc):
         """Identify optical thickness transition and weight raw mass loss rates exterior"""
@@ -106,48 +113,30 @@ class ExternalPhotoevaporationBase(object):
         return (M_dot_eff, dM_gas)
 
     def weighted_removal(self, disc, dt):
-        """Remove gas according to the weighted prescription"""
+        """Remove gas according to the weighted prescription, along with
+        the dust entrained in the flow (grains below max_size_entrained)"""
         (dM_dot, dM_gas) = self.optically_thin_weighting(disc)
-
-        # Account for dust entrainment
-        if (isinstance(disc,DustyDisc)):
-            # First get initial dust conditions
-            Sigma_D0 = disc.Sigma_D
-            not_dustless = (Sigma_D0.sum(0) > 0)
-            f_m = np.zeros_like(disc.Sigma)
-            f_m[not_dustless] = disc.dust_frac[1,:].flatten()[not_dustless]/disc.integ_dust_frac[not_dustless]  # Large fraction
-
-            # Update the maximum entrained size
-            self.max_size_entrained(disc)
-            # Work out the total mass in entrained dust
-            M_ent = self.dust_entrainment(disc)
 
         # Annulus Areas
         Re = disc.R_edge * AU
         dA = np.pi * (Re[1:] ** 2 - Re[:-1] ** 2)
 
         dM_evap = dM_dot * dt
-        disc._Sigma -= dM_evap / dA # This amount of mass is lost in GAS
-
         self._Mcum_gas  += dM_evap.sum()  # Record mass loss
-        
+
         if (isinstance(disc,DustyDisc)):
-            # Remove dust mass proportionally to gas loss 
-            M_ent_w = np.zeros_like(M_ent)
-            M_ent_w[(dM_gas > 0)] = M_ent[(dM_gas > 0)] * dM_evap[(dM_gas > 0)] / dM_gas[(dM_gas > 0)]
-            disc._Sigma -= M_ent_w / dA
-
-            # Update the dust mass fractions
-            not_empty = (disc.Sigma > 0)
-            new_dust_frac = np.zeros_like(disc.Sigma)
-            new_Sigma_D = Sigma_D0.sum(0)[not_empty] - M_ent_w[not_empty] / dA[not_empty]
-            new_dust_frac[not_empty] = new_Sigma_D / disc.Sigma[not_empty]
-            disc._eps[0][not_empty] = new_dust_frac[not_empty] * (1.0-f_m[not_empty])
-            disc._eps[1][not_empty] = new_dust_frac[not_empty] * f_m[not_empty]
-
-            self._Mcum_dust += M_ent_w.sum() # Record mass loss
+            # Remove the gas and the entrained dust. The dust model decides
+            # how the entrained mass is distributed over grain sizes.
+            a_ent = self.max_size_entrained(disc)
+            dSigma_D = disc.remove_dust_with_gas(dM_evap / dA, a_ent)
+            self._Mcum_dust += (dSigma_D * dA).sum() # Record mass loss
+        else:
+            disc._Sigma -= dM_evap / dA # This amount of mass is lost in GAS
 
     def dust_entrainment(self, disc):
+        """Mass of dust entrained per annulus, for a power-law distribution
+        with slope disc._p. No longer used by weighted_removal (see
+        DustyDisc.remove_dust_with_gas), kept for compatibility."""
         # Representative sizes
         a_ent = self._amax
         a = disc.grain_size
@@ -235,24 +224,36 @@ class FixedExternalEvaporation(ExternalPhotoevaporationBase):
     
 class TimeExternalEvaporation(ExternalPhotoevaporationBase):
     """Mass loss via external evaporation at a constant mass-loss timescale,
-    Almost certainly deprecated in this branch
-        Mdot = pi R^2 Sigma / t_loss.
+        Mdot = pi R^2 Sigma_G / t_loss,
+    evaluated as if each annulus were the outer edge, and removed from the
+    outside in (as FixedExternalEvaporation).
+
+    Deprecated: kept so that existing scripts importing it still work. Use
+    FixedExternalEvaporation or one of the FRIED models instead.
 
     args:
-        time-scale : mass loss time-scale in years
-        amax : maximum grain size entrained, default = 10 micron
+        time : mass loss time-scale in years
+        amax : maximum grain size entrained, default = 10 micron. Unused, since
+               cells are cleared of gas and dust together.
     """
 
     def __init__(self, time=1e6, amax=1e-3):
+        warnings.warn("TimeExternalEvaporation is deprecated, use "
+                      "FixedExternalEvaporation or a FRIED model instead",
+                      DeprecationWarning, stacklevel=2)
         self._time = time
         self._amax = amax
+        self._empty = False
 
         self._Mcum_gas  = 0.0
         self._Mcum_dust = 0.0
 
-    def mass_loss_rate(self, disc):
+    def __call__(self, disc, dt):
+        self.timescale_remove(disc, dt)
+
+    def mass_loss_rate(self, disc, not_empty):
         k = np.pi * AU**2 / Msun
-        return k * disc.R**2 * disc.Sigma / self._time
+        return k * disc.R**2 * disc.Sigma_G / self._time
 
     def max_size_entrained(self, disc):
         return self._amax * np.ones_like(disc.Sigma)
