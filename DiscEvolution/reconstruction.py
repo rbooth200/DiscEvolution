@@ -42,19 +42,35 @@ class VanLeer(object):
 
         self._xe = xe
         self._xc = xc = compute_centroids(xe, m)
-        self._cF = (xc[2:] - xc[1:-1]) / (xe[2:-1] - xc[1:-1])
-        self._cB = (xc[2:] - xc[1:-1]) / (xc[2:  ] - xe[2:-1])
+        self._cF = (xc[2:  ] - xc[1:-1]) / (xe[2:-1] - xc[1:-1])
+        self._cB = (xc[1:-1] - xc[ :-2]) / (xc[1:-1] - xe[1:-2])
 
         self._dxe = np.diff(xe)
-        self._dxp = (self._xe[1:]  - self._xc) 
-        self._dxm = (self._xe[:-1] - self._xc) 
+        # Rescaling of the differences to slopes (Mignone 2014, eq. 29)
+        self._sF = self._dxe[1:-1] / (xc[2:  ] - xc[1:-1])
+        self._sB = self._dxe[1:-1] / (xc[1:-1] - xc[ :-2])
 
+        self._dxp = (self._xe[1:]  - self._xc)
+        self._dxm = (self._xe[:-1] - self._xc)
 
-    def __call__(self, v_edge, Q, dt=0.):
-        '''Compute the upwinded face value (optionally time-centered)'''
+    def face_values(self, Q, v_up=0., v_low=0., dt=0.):
+        '''Compute the reconstructed (optionally time-centered) values at the
+        faces of each cell.
+
+        args:
+            Q     : Cell values, including two ghost cells either side
+            v_up  : Velocity at the upper face of each reconstructed cell
+                    (i.e. excluding the outermost ghost cells)
+            v_low : Velocity at the lower face of each reconstructed cell
+            dt    : Time-step for time-centering
+
+        returns:
+            from_left, from_right : The value at each face from the cell to
+                                    its left / right
+        '''
         # Compute the limited slopes
         dQ = Q[...,1:] - Q[...,:-1]
-        QF, QB = dQ[...,1:], dQ[...,:-1]
+        QF, QB = self._sF*dQ[...,1:], self._sB*dQ[...,:-1]
 
         cF, cB = self._cF, self._cB
 
@@ -64,10 +80,15 @@ class VanLeer(object):
         dQ_lim = np.where(QB*QF > 0, num/den, 0) / self._dxe[1:-1]
 
         # Reconstruct the face states
-        Qp = Q[...,1:-1] + dQ_lim * (self._dxp[1:-1] - v_edge[...,1:  ]*dt/2.)
-        Qm = Q[...,1:-1] + dQ_lim * (self._dxm[1:-1] - v_edge[..., :-1]*dt/2.)
+        Qp = Q[...,1:-1] + dQ_lim * (self._dxp[1:-1] - v_up *dt/2.)
+        Qm = Q[...,1:-1] + dQ_lim * (self._dxm[1:-1] - v_low*dt/2.)
 
-        return np.where(v_edge[...,1:-1] > 0, Qp[...,:-1], Qm[...,1:])
+        return Qp[...,:-1], Qm[...,1:]
+
+    def __call__(self, v_edge, Q, dt=0.):
+        '''Compute the upwinded face value (optionally time-centered)'''
+        Qp, Qm = self.face_values(Q, v_edge[...,1:], v_edge[...,:-1], dt)
+        return np.where(v_edge[...,1:-1] > 0, Qp, Qm)
 
 
 class Weno3(object):
