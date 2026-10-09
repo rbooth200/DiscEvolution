@@ -556,8 +556,10 @@ class SingleFluidDrift(object):
         
         dV_i = np.empty(shape_v, dtype='f8')
         dV_i[...,2:-2] = deltaV_i - self._epsDeltaV
-        dV_i[...,  :2] = dV_i[...,2]
-        dV_i[...,-2: ] = dV_i[...,-3] 
+        # Ghost cells (slices keep the last axis, so this broadcasts for
+        # several species)
+        dV_i[...,  :2] = dV_i[...,2:3]
+        dV_i[...,-2: ] = dV_i[...,-3:-2]
             
         Sig_eps = np.zeros(shape_rho, dtype='f8')
         Sig_eps[...,2:-2] = Sigma*eps_i

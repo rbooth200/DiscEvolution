@@ -120,12 +120,20 @@ class Weno3(object):
         self._dp1 = 1 - self._dp0
         self._dm1 = 1 - self._dm0
         
-    def __call__(self, v_edge, Q):
-        '''Compute the upwinded face value'''
+    def face_values(self, Q):
+        '''Compute the reconstructed values at the faces of each cell.
 
+        args:
+            Q : Cell values, including two ghost cells either side. Leading
+                dimensions (e.g. several species) are allowed.
+
+        returns:
+            from_left, from_right : The value at each face from the cell to
+                                    its left / right
+        '''
         # Compute the face values using the forwards/backwards slopes
-        dQ = Q[1:] - Q[:-1]
-        QF, QB = dQ[1:], dQ[:-1]
+        dQ = Q[...,1:] - Q[...,:-1]
+        QF, QB = dQ[...,1:], dQ[...,:-1]
 
         # Compute the weights:
         dQFB = (QF-QB)**2
@@ -133,7 +141,8 @@ class Weno3(object):
         b1 = QB*QB
 
         Q2 = Q*Q
-        QR = self._cdx2*np.maximum(Q2[1:-1], np.maximum(Q2[2:], Q2[:-2]))
+        QR = self._cdx2*np.maximum(Q2[...,1:-1],
+                                   np.maximum(Q2[...,2:], Q2[...,:-2]))
 
         wp0 = self._dp0*(1 + dQFB/(b0 + QR + 1e-300))
         wp1 = self._dp1*(1 + dQFB/(b1 + QR + 1e-300))
@@ -146,18 +155,23 @@ class Weno3(object):
         wm0, wm1 = wm0 / (wm0 + wm1), wm1 / (wm0 + wm1)
 
         # Now compute the edge states
-        QFp = Q[1:-1] + QF * self._dxp[1:-1]
-        QFm = Q[1:-1] + QF * self._dxm[1:-1]
-        
-        QBp = Q[1:-1] + QB * self._dxp[1:-1]
-        QBm = Q[1:-1] + QB * self._dxm[1:-1]
-        
+        QFp = Q[...,1:-1] + QF * self._dxp[1:-1]
+        QFm = Q[...,1:-1] + QF * self._dxm[1:-1]
+
+        QBp = Q[...,1:-1] + QB * self._dxp[1:-1]
+        QBm = Q[...,1:-1] + QB * self._dxm[1:-1]
+
         Qp = wp0*QFp + wp1*QBp
         Qm = wm0*QFm + wm1*QBm
 
-        return np.where(v_edge[1:-1] > 0, Qp[:-1], Qm[1:])
-    
-        
+        return Qp[...,:-1], Qm[...,1:]
+
+    def __call__(self, v_edge, Q):
+        '''Compute the upwinded face value'''
+        Qp, Qm = self.face_values(Q)
+        return np.where(v_edge[...,1:-1] > 0, Qp, Qm)
+
+
 def _test_scheme(Npts, IC, reconstruction, tout, a, Ca = 0.9):
     '''Test schemes using an Explicit 3rd Order TVD RK integration:
 

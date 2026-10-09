@@ -89,14 +89,15 @@ class TracerDiffusion(object):
         F = self._diffusive_flux(disc, eps_i, Sc)
 
         if self._limit:
-            max_f = Sigma*eps_i*self._eos.cs+1e-300
-            F /= 1 + abs(F)/(0.5*(max_f[1:] + max_f[:-1]))
+            max_f = Sigma*eps_i*disc.cs+1e-300
+            F /= 1 + abs(F)/(0.5*(max_f[...,1:] + max_f[...,:-1]))
 
         F *= grid.Re[1:-1]
 
+        # Cell volume (per radian) is dRe2/2
         depsdt = np.zeros_like(eps_i)
-        depsdt[...,1:]  += F / grid.dRe2[1:]
-        depsdt[...,:-1] -= F / grid.dRe2[:-1]
+        depsdt[...,1:]  += F / (0.5*grid.dRe2[1:])
+        depsdt[...,:-1] -= F / (0.5*grid.dRe2[:-1])
 
         depsdt /= Sigma + 1e-300
         return depsdt
