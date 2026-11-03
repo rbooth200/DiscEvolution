@@ -380,14 +380,10 @@ def setup_model(model, disc, start_time):
         van_leer = model['dust_transport']['van leer']
         settling = model['dust_transport']['settling']
         
-        if model['dust_transport']['diffusion']:
-            dust_diffusion = diffuse
-            diffuse = None
-        else:
-            dust_diffusion = None
-
-        dust = SingleFluidDrift(diffusion=dust_diffusion, 
-                                settling=settling,
+        # The driver's diffusion step (transport/diffusion) diffuses the dust
+        # (with its Stokes-number Schmidt numbers) and the tracers; the old
+        # dust_transport/diffusion switch has no separate effect any more
+        dust = SingleFluidDrift(settling=settling,
                                 van_leer=van_leer)
     if model['photoevaporation']['on']:
         if model['photoevaporation']['method'] == 'const':

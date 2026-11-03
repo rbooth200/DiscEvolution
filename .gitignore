@@ -9,3 +9,16 @@ __pycache__
 *.avi
 *.pdf
 *.eps
+
+# build products and run output
+build/
+*.egg-info/
+scripts/mopod/output*/
+scripts/mopod/diagnostics/output*/
+example/output*/
+*.npz
+*.tar
+*.tar.gz
+*.tar.bz2
+*.timing
+.ipynb_checkpoints

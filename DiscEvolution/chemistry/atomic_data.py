@@ -60,7 +60,7 @@ def atomic_composition(mol, charge=False):
     atoms = defaultdict(int)
     for atom in keys:
         if mol == '': break
-        for chunk in re.findall(atom + '\d*', mol, re.IGNORECASE):
+        for chunk in re.findall(atom + r'\d*', mol, re.IGNORECASE):
             if len(chunk) > len(atom):
                 N = int(chunk[len(atom):])
             else:
@@ -68,8 +68,8 @@ def atomic_composition(mol, charge=False):
             atoms[atom] += N
             mol = mol.replace(chunk, "", 1)
 
-    for c in ['\+', '\-']:
-        for chunk in re.findall(c + '\d*', mol, re.IGNORECASE):
+    for c in [r'\+', r'\-']:
+        for chunk in re.findall(c + r'\d*', mol, re.IGNORECASE):
             if charge:
                 if len(chunk) > 1:
                     N = int(chunk[1:])

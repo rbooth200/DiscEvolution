@@ -21,7 +21,11 @@ class DiscEvolutionDriver(object):
     Optional Physics update:
         dust             : Update the dust, i.e. radial drift
         gas              : Update due to gas effects, i.e. Viscous evolution
-        diffusion        : Seperate diffusion update
+                           (ViscousEvolution, or rkl.ViscousEvolutionRKL)
+        diffusion        : Diffusion of the dust and of the gas and ice tracers
+                           (TracerDiffusion: explicit, limits the time-step;
+                           rkl.RKLDiffusion: super-stepped). The dust module
+                           sets what diffuses and how (its diffuse method).
         internal_photo   : Remove gas by internal photoevaporation
         photoevaporation : Remove gas by external photoevaporation
         chemistry        : Solver for the chemical evolution
@@ -29,7 +33,9 @@ class DiscEvolutionDriver(object):
     History:
         history          : Tracks values of key parameters over time
 
-    Note: Diffusion is usually handled in the dust dynamics module
+    The step: drift, the gas step (which moves the tracers and the dust
+    module's quantities with the gas), diffusion, photoevaporation,
+    chemistry, then the disc's own update (e.g. grain growth).
 
     Other options:
         t0  : Starting time, default = 0, code units
@@ -69,15 +75,16 @@ class DiscEvolutionDriver(object):
 
         # Compute the maximum time-step
         dt = tmax - self.t
+        # Each module limits the step as it needs: an explicit solver by its
+        # stability limit, an RKL one (rkl.py) only by its non-stiff terms
+        v_visc = None
         if self._gas:
             dt = min(dt, self._gas.max_timestep(self._disc))
+            v_visc = self._gas.viscous_velocity(disc)
         if self._dust:
-            v_visc  = self._gas.viscous_velocity(disc)
             dt = min(dt, self._dust.max_timestep(self._disc, v_visc))
-            if self._dust._diffuse:
-                dt = min(dt, self._dust._diffuse.max_timestep(self._disc))
         if self._diffusion:
-            dt = min(dt, self._diffusion.max_timestep(self._disc))       
+            dt = min(dt, self._diffusion.max_timestep(self._disc))
         if self._external_photo and hasattr(self._external_photo,"_density"): # If we are using density to calculate mass loss rates, we need to limit the time step based on photoevaporation
             (dM_dot, dM_gas) = self._external_photo.optically_thin_weighting(disc)
             Dt = dM_gas[(dM_dot>0)] / dM_dot[(dM_dot>0)]
@@ -119,13 +126,17 @@ class DiscEvolutionDriver(object):
         if self._gas:
             self._gas(dt, disc, [gas_chem], [dust, ice_chem])
 
+        # Diffusion, as a separate step: the dust module diffuses its own
+        # quantities and the tracers (with its Schmidt numbers); without one
+        # everything diffuses as the gas
         if self._diffusion:
-            if gas_chem is not None:
-                gas_chem[:] += dt * self._diffusion(disc, gas_chem)
-            if ice_chem is not None:
-                ice_chem[:] += dt * self._diffusion(disc, ice_chem)
-            if dust is not None:
-                dust[:] += dt * self._diffusion(disc, dust)
+            if self._dust:
+                self._dust.diffuse(dt, disc, self._diffusion, dust,
+                                   gas_tracers=gas_chem, dust_tracers=ice_chem)
+            else:
+                Sc = self._diffusion.gas_schmidt(disc)
+                self._diffusion.diffuse(dt, disc, [(x, Sc) for x in (gas_chem, ice_chem, dust)
+                                                   if x is not None])
 
         if self._dust:
             self._dust.post_gas_transport(disc, dust)
@@ -161,8 +172,9 @@ class DiscEvolutionDriver(object):
 
             dtchem = self._t-self._tchem + dt 
 
-            self._chemistry.update(dtchem, T, rho, eps, disc.chem, 
-                                   grain_size=grain_size)
+            self._chemistry.update(dtchem, T, rho, eps, disc.chem,
+                                   grain_size=grain_size,
+                                   grain_cross_section=disc.grain_cross_section)
 
             # If we have dust, we should update it now the ice fraction has
             # changed
@@ -334,9 +346,10 @@ if __name__ == "__main__":
 
     # Setup the dynamics modules:
     gas  = ViscousEvolution()
-    dust = SingleFluidDrift(TracerDiffusion())
+    dust = SingleFluidDrift()
 
-    evo = DiscEvolutionDriver(disc, gas=gas, dust=dust, chemistry=chemistry)
+    evo = DiscEvolutionDriver(disc, gas=gas, dust=dust, diffusion=TracerDiffusion(),
+                              chemistry=chemistry)
 
 
     # Setup the IO controller

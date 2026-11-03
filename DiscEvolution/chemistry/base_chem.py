@@ -64,6 +64,12 @@ class ChemicalAbund(object):
         """Get the raw data"""
         return self.data
 
+    def mix_area_to_mass(self, f):
+        """Move a fraction f of the area-distributed ice into the mass-
+        distributed ice (growth mixing). Nothing to do here: all the ice is
+        distributed by mass (see area_ice.AreaMassIceAbund)"""
+        pass
+
     def from_array(self, data):
         """Set the raw data"""
         if data.shape[0] == self.Nspec:
@@ -207,8 +213,18 @@ class SimpleChemBase(object):
         """Class information for HDF5 headers"""
         return self.__class__.__name__, { "fix_ratios" : self._fix_ratios }
 
-    def equilibrium_chem(self, T, rho, dust_frac, abund):
-        """Compute the equilibrium chemistry"""
+    def _effective_dust_frac(self, dust_frac, grain_cross_section=None):
+        """Dust fraction seen by grain-surface processes (no change here)"""
+        return dust_frac
+
+    def equilibrium_chem(self, T, rho, dust_frac, abund,
+                         grain_cross_section=None):
+        """Compute the equilibrium chemistry.
+
+        grain_cross_section: cross-section of the grains per unit dust mass,
+        [cm^2 g^-1], from the dust model. If None, the fixed grain size is used.
+        """
+        dust_frac = self._effective_dust_frac(dust_frac, grain_cross_section)
 
         ice = self.molecular_abundance(T, rho, dust_frac, abund)
         gas = ice.copy()
@@ -221,7 +237,9 @@ class SimpleChemBase(object):
         return MolecularIceAbund(gas=gas, ice=ice)
 
 
-    def update(self, dt, T, rho, dust_frac, chem, **kwargs):
+    def update(self, dt, T, rho, dust_frac, chem, grain_cross_section=None,
+               **kwargs):
+        dust_frac = self._effective_dust_frac(dust_frac, grain_cross_section)
 
         if not self._fix_ratios:
             mol_abund  = chem.gas.copy()
@@ -299,7 +317,10 @@ class ThermalChem(object):
         #      proportional to min(X_ice, X_max)
         N_bind = sig_b * 4*np.pi * a**2 * f_bind
         self._etaNbind = eta*N_bind
-        
+
+        # Both rates scale with the grain cross-section per unit dust mass
+        self._cross_section = 3 / (4*rho_s*a)
+
         # Cache the adsorpsion/desorption coefficients
         self._nu0 = np.sqrt(2 * sig_b * k_B / (m_H *np.pi**2))
         self._v0  = np.sqrt(8 * k_B / (m_H * np.pi))
@@ -329,6 +350,14 @@ class ThermalChem(object):
 
         return self.__class__.__name__, head
                      
+    def _effective_dust_frac(self, dust_frac, grain_cross_section=None):
+        """Dust fraction of grains of size a that have the same cross-section
+        as the dust. It sets the adsorption rate and the number of binding
+        sites, so the dust's own grain sizes replace a when known."""
+        if grain_cross_section is None:
+            return dust_frac
+        return dust_frac * grain_cross_section / self._cross_section
+
     def _nu_i(self, Tbind, m_mol):
         """Desorbtion rate per ice molecule"""
         return self._nu0 * np.sqrt(Tbind/m_mol) 
@@ -486,8 +515,10 @@ class TimeDependentChem(ThermalChem,SimpleChemBase):
         ThermalChem.__init__(self, **kwargs)
         SimpleChemBase.__init__(self)
 
-    def update(self, dt, T, rho, dust_frac, chem, **kwargs):
+    def update(self, dt, T, rho, dust_frac, chem, grain_cross_section=None,
+               **kwargs):
         """Update the gas/ice abundances"""
+        dust_frac = self._effective_dust_frac(dust_frac, grain_cross_section)
         for spec in chem:
             self._update_ice_balance(dt, T, rho, dust_frac, spec, chem)
 

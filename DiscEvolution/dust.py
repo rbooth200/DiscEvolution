@@ -7,6 +7,7 @@
 ################################################################################
 from __future__ import print_function
 import numpy as np
+from .diffusion import dust_schmidt
 from .constants import *
 from .disc import AccretionDisc
 from .reconstruction import DonorCell, VanLeer
@@ -66,6 +67,13 @@ class DustyDisc(AccretionDisc):
     def grain_size(self):
         """Grain size in cm"""
         return self._a
+
+    @property
+    def grain_cross_section(self):
+        """Geometric cross-section of the grains per unit dust mass
+        [cm^2 g^-1], or None if the dust model does not provide it (the
+        chemistry then uses its own fixed grain size)"""
+        return None
 
     @property
     def feedback(self):
@@ -479,36 +487,26 @@ class SingleFluidDrift(object):
         This currently neglects the viscous velocity, which can be important
         for small grains.
 
+    Diffusion is a separate step, done by the driver through diffuse().
+
     args:
-        diffusion : Diffusion algorithm, default=None
         settling  : Include settling in the velocity calculation, default=False
         van_leer  : Use 2nd-order Van-Leer reconstruction, default=False
     """
-    def __init__(self, diffusion=None, settling=False, van_leer=False):
-        self._diffuse = diffusion
+    def __init__(self, settling=False, van_leer=False):
         self._settling = settling
         self._van_leer = van_leer
 
     def ASCII_header(self):
         """Radial drift header"""
-        head = ''
-        if self._diffuse:
-            head += self._diffuse.ASCII_header() + '\n'
-        head += ('# {} diffusion: {} settling: {} van-leer: {}'
-                 ''.format(self.__class__.__name__,
-                           self._diffuse is not None,
-                           self._settling,
-                           self._van_leer))
-        return head
+        return ('# {} settling: {} van-leer: {}'
+                ''.format(self.__class__.__name__, self._settling, self._van_leer))
 
     def HDF5_attributes(self):
         """Class information for HDF5 headers"""
-        head = { "diffusion" : "{}".format(self._diffuse is not None),
-                 "settling"  : "{}".format(self._settling),
+        head = { "settling"  : "{}".format(self._settling),
                  "van-leer"  : "{}".format(self._van_leer),
                  }
-        if self._diffuse is not None:
-            head.update(dict([self._diffuse.HDF5_attributes()]))
         return self.__class__.__name__ , head
 
     def max_timestep(self, disc, v_visc=None):
@@ -575,7 +573,7 @@ class SingleFluidDrift(object):
         flux = Sig_eps * dV_i[...,1:-1]
         return flux
         
-    def _fluxes(self, disc, eps_i, deltaV_i, St_i, dt=0):
+    def _fluxes(self, disc, eps_i, deltaV_i, dt=0):
         """Update a quantity that moves with the gas/dust"""
 
         Sigma = disc.Sigma
@@ -585,21 +583,9 @@ class SingleFluidDrift(object):
             flux = self._van_leer_flux(grid.Ree, deltaV_i, Sigma, eps_i, dt)
         else:
             flux = self._donor_flux(grid.Ree, deltaV_i, Sigma, eps_i)
-            
+
         # Do the update
-        deps = - np.diff(flux*grid.Re) / ((Sigma+1e-300) * 0.5*grid.dRe2)
-
-        if self._diffuse:
-            St2 = St_i**2
-            try:
-                Sc = disc.Sc
-            except ValueError:
-                Sc = self._diffuse.Sc
-            Sc = Sc * (0.5625/(1 + 4*St2) + 0.4375 + 0.25*St2)
-            depsdiff = self._diffuse(disc, eps_i, Sc)
-            deps += depsdiff
-
-        return deps
+        return - np.diff(flux*grid.Re) / ((Sigma+1e-300) * 0.5*grid.dRe2)
 
     def _compute_deltaV(self, disc, v_visc=None):
         """Compute the total dust-gas background velocity"""
@@ -697,14 +683,32 @@ class SingleFluidDrift(object):
         
         # Compute and apply the fluxes
         if gas_tracers is not None:
-            gas_tracers[:] += dt * self._fluxes(disc, gas_tracers, np.zeros(disc.Ncells-1), 0, dt)
+            gas_tracers[:] += dt * self._fluxes(disc, gas_tracers, np.zeros(disc.Ncells-1), dt)
 
         if dust_tracers is not None:
             t_k = dust_tracers[...,None,:] * eps/(eps.sum(0) + np.finfo(eps.dtype).tiny)
-            d_tr = dt*self._fluxes(disc, t_k, DeltaV, disc.Stokes(), dt).sum(1)
+            d_tr = dt*self._fluxes(disc, t_k, DeltaV, dt).sum(1)
             dust_tracers[:] += d_tr
 
-        disc.dust_frac[:] += dt*self._fluxes(disc, disc.dust_frac, DeltaV, disc.Stokes(), dt)
+        disc.dust_frac[:] += dt*self._fluxes(disc, disc.dust_frac, DeltaV, dt)
+
+    def diffuse(self, dt, disc, diffusion, Q, gas_tracers=None, dust_tracers=None):
+        """Diffuse the dust fractions Q (from pre_gas_transport), the dust
+        tracers (split by species, each diffusing as its species) and the gas
+        tracers over dt, in one step of the diffusion object (TracerDiffusion,
+        or rkl.RKLDiffusion), with the Schmidt numbers of dust_schmidt"""
+        Sc_g = diffusion.gas_schmidt(disc)
+        Sc_d = dust_schmidt(Sc_g, disc.Stokes())
+        items = [(Q, Sc_d)]
+        if dust_tracers is not None:
+            eps = disc.dust_frac
+            t_k = dust_tracers[..., None, :] * eps/(eps.sum(0) + np.finfo(eps.dtype).tiny)
+            items.append((t_k, Sc_d))
+        if gas_tracers is not None:
+            items.append((gas_tracers, Sc_g))
+        diffusion.diffuse(dt, disc, items)
+        if dust_tracers is not None:
+            dust_tracers[:] = t_k.sum(-2)
 
     def pre_gas_transport(self, disc):
         """Quantities to be advected with the gas by the driver's gas step.
@@ -786,13 +790,13 @@ if __name__ == "__main__":
         l, = plt.loglog(grid.Rc, dust_ice.grain_size[1], '--', c=l.get_color())
 
     plt.subplot(211)
-    plt.xlabel('$R\,[\mathrm{au}]$')
+    plt.xlabel(r'$R\,[\mathrm{au}]$')
     plt.ylabel('Stokes number')
 
     plt.subplot(212)
     plt.loglog(grid.Rc, dust.a_BT(), 'k:')
-    plt.xlabel('$R\,[\mathrm{au}]$')
-    plt.ylabel('$a\,[\mathrm{cm}]$')
+    plt.xlabel(r'$R\,[\mathrm{au}]$')
+    plt.ylabel(r'$a\,[\mathrm{cm}]$')
     # Test the radial drift code
     plt.figure()
     dust = FixedSizeDust(grid, star, eos, 0.01, [0.01, 0.1], Sigma=Sigma)
@@ -825,8 +829,8 @@ if __name__ == "__main__":
     plt.loglog(grid.Rc, dust.Sigma_G, 'k:')
     plt.loglog(grid.Rc, dust.Sigma, 'k--')
     
-    plt.xlabel('$R\,[\mathrm{au}]$')
-    plt.ylabel('$\Sigma_{\mathrm{D,G}}$')
+    plt.xlabel(r'$R\,[\mathrm{au}]$')
+    plt.ylabel(r'$\Sigma_{\mathrm{D,G}}$')
     plt.ylim(ymin=1e-10)
     plt.show()
     

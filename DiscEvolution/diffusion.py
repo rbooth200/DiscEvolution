@@ -9,6 +9,13 @@ from __future__ import print_function
 import numpy as np
 
 
+def dust_schmidt(Sc, St):
+    """Schmidt number of grains with Stokes number St in gas with Schmidt
+    number Sc (Youdin & Lithwick 2007; coag_toolkit's default)"""
+    St2 = St*St
+    return Sc*(0.5625/(1 + 4*St2) + 0.4375 + 0.25*St2)
+
+
 class TracerDiffusion(object):
     """Diffusion of trace species in a turbulent background.
     args:
@@ -62,6 +69,31 @@ class TracerDiffusion(object):
             except AttributeError:
                 Sc = self.Sc
         return Sc
+
+    def gas_schmidt(self, disc):
+        """The gas Schmidt number: the disc's, else this object's"""
+        return self._get_Schmidt(disc, None)
+
+    def step(self, dt, disc, eps_i, Sc=None):
+        """Diffuse eps_i [..., Ncells] in place over dt: one forward-Euler step
+        (stable for dt <= max_timestep)"""
+        eps_i += dt*self(disc, eps_i, Sc)
+
+    def diffuse(self, dt, disc, quantities):
+        """Diffuse several quantities in one step (see step): quantities is a
+        list of (array [..., Ncells], Schmidt number broadcastable to it), each
+        array updated in place"""
+        rows = [Y.reshape(-1, disc.Ncells) for Y, _ in quantities]
+        if not rows:
+            return
+        Sc = np.concatenate([np.broadcast_to(Sc, Y.shape).reshape(-1, disc.Ncells)
+                             for Y, Sc in quantities])
+        Y = np.concatenate(rows)
+        self.step(dt, disc, Y, Sc)
+        i = 0
+        for (Yq, _), r in zip(quantities, rows):
+            Yq[...] = Y[i:i + len(r)].reshape(Yq.shape)
+            i += len(r)
 
     def max_timestep(self, disc, Sc=None):
         """Courant limited time-step"""
@@ -162,5 +194,5 @@ if __name__ == "__main__":
 
     plt.loglog(grid.Rc, 0.01*Sigma, 'k:')
     plt.xlabel('$R$')
-    plt.ylabel('$\Sigma_i$')
+    plt.ylabel(r'$\Sigma_i$')
     plt.show()

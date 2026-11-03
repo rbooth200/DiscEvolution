@@ -54,12 +54,13 @@ class ViscousEvolution(object):
         self._dXc = 2 * np.diff(np.sqrt(grid.Rce))
         self._RXdXe = grid.Rc * self._X * self._dXe
 
-    def _init_fluxes(self, disc):
-        """Cache the important variables needed for the fluxes"""
+    def _init_fluxes(self, disc, Sigma_G=None):
+        """Cache the important variables needed for the fluxes (for the
+        disc's gas surface density, or Sigma_G if given)"""
         nuX = disc.nu * self._X
 
         S = np.zeros(len(nuX) + 2, dtype='f8')
-        S[1:-1] = disc.Sigma_G * nuX
+        S[1:-1] = (disc.Sigma_G if Sigma_G is None else Sigma_G) * nuX
 
         # Inner boundary
         if self._in_bound == 'Zero':            # Zero torque
@@ -196,12 +197,13 @@ class ViscousEvolutionFV(object):
         self._dA = grid.Re
         self._dV = 0.5 * np.diff(grid.Re**2)
 
-    def _init_fluxes(self, disc):
-        """Cache the important variables needed for the fluxes"""
+    def _init_fluxes(self, disc, Sigma_G=None):
+        """Cache the important variables needed for the fluxes (for the
+        disc's gas surface density, or Sigma_G if given)"""
         nuRh = disc.nu * self._Rh
 
         S = np.zeros(len(nuRh) + 2, dtype='f8')
-        S[1:-1] = disc.Sigma_G * nuRh
+        S[1:-1] = (disc.Sigma_G if Sigma_G is None else Sigma_G) * nuRh
 
         # Inner boundary
         if self._in_bound == 'Zero':            # Zero torque
@@ -598,8 +600,8 @@ if __name__ == "__main__":
         l, = plt.loglog(grid.Rc, sol(grid.Rc, t) / AU ** 2,
                         c=l.get_color(), ls='--')
 
-    plt.xlabel('$R\,[\mathrm{au}]$')
-    plt.ylabel('$\Sigma\,[\mathrm{g\,cm}]^{-2}$')
+    plt.xlabel(r'$R\,[\mathrm{au}]$')
+    plt.ylabel(r'$\Sigma\,[\mathrm{g\,cm}]^{-2}$')
 
     psi_DW = 1
     sol = TaboneSolution(M / AU**2, Rd, (1 + psi_DW)*nud, psi_DW=psi_DW)
@@ -635,8 +637,8 @@ if __name__ == "__main__":
         l, = plt.loglog(grid.Rc, sol(grid.Rc, t),
                         c=l.get_color(), ls='--')
 
-    plt.xlabel('$R\,[\mathrm{au}]$')
-    plt.ylabel('$\Sigma\,[\mathrm{g\,cm}]^{-2}$')
+    plt.xlabel(r'$R\,[\mathrm{au}]$')
+    plt.ylabel(r'$\Sigma\,[\mathrm{g\,cm}]^{-2}$')
     plt.show()
 
 
