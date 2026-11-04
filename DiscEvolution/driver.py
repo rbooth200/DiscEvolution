@@ -157,8 +157,8 @@ class DiscEvolutionDriver(object):
         except AttributeError:
             pass
         try:
-            disc.chem.gas.data[:] = np.maximum(disc.chem.gas.data, 0)
-            disc.chem.ice.data[:] = np.maximum(disc.chem.ice.data, 0)
+            disc.chem.gas.clip_negative()
+            disc.chem.ice.clip_negative()
         except AttributeError:
             pass
 

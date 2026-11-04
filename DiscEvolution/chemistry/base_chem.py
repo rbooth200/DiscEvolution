@@ -70,6 +70,10 @@ class ChemicalAbund(object):
         distributed by mass (see area_ice.AreaMassIceAbund)"""
         pass
 
+    def clip_negative(self):
+        """Set any negative abundances (e.g. left by transport) to zero"""
+        self._data[:] = np.maximum(self._data, 0)
+
     def from_array(self, data):
         """Set the raw data"""
         if data.shape[0] == self.Nspec:
