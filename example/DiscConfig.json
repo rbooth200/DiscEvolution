@@ -66,8 +66,7 @@
 
   "dust_transport" : {
     "van leer" : true,
-    "settling" : false,
-    "diffusion" : true
+    "settling" : false
     },
 
   "photoevaporation" : {

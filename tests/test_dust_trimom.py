@@ -18,9 +18,10 @@ from DiscEvolution.reconstruction import VanLeer
 from DiscEvolution.FV_interpolation import compute_centroids
 
 from DiscEvolution.dust_trimom import (
-    DustGrowthTriMom, MomentDrift, SizeQuadrature, moment_ratio,
+    DustGrowthTriMom, MomentDrift, SizeQuadrature, moment_ratio, mean_drift_factors,
     large_fraction, s_from_split, mean_size, vrel_sqd_OC07, _lnE,
-    fit_moments, fit_mean_size)
+    fit_moments)
+from DiscEvolution.dust_tripod import make_drift, fit_mean_size
 
 
 def _setup_disc(**kwargs):
@@ -32,6 +33,14 @@ def _setup_disc(**kwargs):
     Sigma = (Mdot/(3*np.pi*eos.nu))*np.exp(-grid.Rc/100.)
     eos.update(0, Sigma)
     return DustGrowthTriMom(grid, star, eos, 0.01, Sigma=Sigma, **kwargs)
+
+
+def _zero_dust(disc, *cells):
+    """Remove the dust from the cells (slices or index arrays)"""
+    eps = disc.dust_frac.copy()
+    for c in cells:
+        eps[:, c] = 0
+    disc.set_dust_frac(eps)
 
 ###############################################################################
 # Power-law family
@@ -235,9 +244,8 @@ def test_transport_conservation(scheme, ks, van_leer):
     conserved up to the boundary fluxes"""
     disc = _setup_disc(a0=0.1)
     # Remove the dust near the boundaries so there is no boundary flux
-    disc.dust_frac[:, :15] = 0
-    disc.dust_frac[:, -15:] = 0
-    drift = MomentDrift(scheme=scheme, van_leer=van_leer)
+    _zero_dust(disc, slice(None, 15), slice(-15, None))
+    drift = make_drift(scheme=scheme, van_leer=van_leer)
     D = TracerDiffusion()
 
     Re = disc.grid.Re*AU
@@ -273,9 +281,8 @@ def test_gas_transport_conservation(scheme, ks):
     eps_tot, s, L = disc.size_distribution()
     L = L*(1 + 0.5*np.sin(np.log(disc.R)*3))
     disc.set_size_distribution(eps_tot, s, L)
-    disc.dust_frac[:, :15] = 0
-    disc.dust_frac[:, -15:] = 0
-    drift = MomentDrift(scheme=scheme, shrink=False)
+    _zero_dust(disc, slice(None, 15), slice(-15, None))
+    drift = make_drift(scheme=scheme, **({'shrink': False} if scheme == 'tripod' else {}))
     gas = ViscousEvolutionFV()
 
     Re = disc.grid.Re*AU
@@ -312,7 +319,7 @@ def test_trimax_amax_bounded(van_leer):
     eps_tot, s, L = disc.size_distribution()
     L = L*(1 + 0.5*np.sin(np.log(disc.R)*3))
     disc.set_size_distribution(eps_tot, s, L)
-    drift = MomentDrift(scheme='trimax', van_leer=van_leer)
+    drift = make_drift(scheme='trimax', van_leer=van_leer)
     amax0 = disc.amax.copy()
     for _ in range(20):
         drift(drift.max_timestep(disc), disc)
@@ -324,8 +331,9 @@ def test_trimax_amax_bounded(van_leer):
 def test_trimax_amax_velocity():
     """trimax's third velocity is that of amax itself"""
     disc = _setup_disc(a0=0.1)
-    drift = MomentDrift(scheme='trimax')
-    a_rep = drift._representative_sizes(disc)
+    drift = make_drift(scheme='trimax')
+    _, s, L = disc.size_distribution()
+    a_rep = drift._sizes(s, L, disc.amin)
     np.testing.assert_allclose(a_rep[2], disc.amax, rtol=1e-14)
     assert np.all(a_rep[1] < disc.amax)
 
@@ -357,9 +365,8 @@ def test_gas_transport_uniform_distribution():
 def test_moment_velocity_small_St():
     """For St << 1 the flux of M_k is carried by M_{k+1}: <v>_k ∝ M_{k+1}/M_k"""
     disc = _setup_disc(a0=1e-3, feedback=False)
-    drift = MomentDrift(scheme='moments')
-    Q, phi, a, w = drift._functionals(disc)
-    V_L, _, _ = drift._transport_velocities(disc, phi, a, w)
+    drift = make_drift(scheme='moments')
+    V_L, _ = drift._transport_velocities(disc)
     m = disc.moments((-1, 0, 1, 2))
     ratio_num = V_L[1]/V_L[0]
     ratio_ana = (m[2]/m[1] / (m[1]/m[0]))[:-1]
@@ -370,9 +377,9 @@ def test_trimean_velocity_small_St():
     """For St << 1 the trimean fluxes of the mass and of M_1 are exact:
     proportional to M_1 and M_2"""
     disc = _setup_disc(a0=1e-3, feedback=False)
-    drift = MomentDrift(scheme='trimean')
-    Q, phi, a, w = drift._functionals(disc)
-    V_L, _, _ = drift._transport_velocities(disc, phi, a, w)
+    drift = make_drift(scheme='trimean')
+    Q = drift._transported(disc)
+    V_L, _ = drift._transport_velocities(disc)
     m = disc.moments((0, 1, 2))
     F_mass = Q[0][:-1]*V_L[0] + Q[1][:-1]*V_L[1]
     np.testing.assert_allclose(Q[2], m[1], rtol=1e-12)
@@ -403,7 +410,7 @@ def test_trimean_reconstruct_roundtrip():
     eps_tot, s, L = disc.size_distribution()
     disc.set_size_distribution(eps_tot, s + 0.3*np.sin(np.log(disc.R)*3),
                                L*(1 + 0.5*np.sin(np.log(disc.R)*2)))
-    drift = MomentDrift(scheme='trimean')
+    drift = make_drift(scheme='trimean')
     Q = drift._transported(disc)
     eps0, amax0 = disc.dust_frac.copy(), disc.amax.copy()
     drift._reconstruct(disc, Q.copy())
@@ -432,9 +439,9 @@ def test_courant_limit(feedback, scheme, ks):
     """max_timestep keeps the outflow Courant number of every transported
     quantity <= 0.5 (regression: integ_dust_frac is zero without feedback)"""
     disc = _setup_disc(a0=1.0, feedback=feedback)
-    drift = MomentDrift(scheme=scheme)
-    Q, phi, a, w = drift._functionals(disc)
-    V_L, V_R, _ = drift._transport_velocities(disc, phi, a, w)
+    drift = make_drift(scheme=scheme)
+    Q = drift._transported(disc)
+    V_L, V_R = drift._transport_velocities(disc)
     dt = drift.max_timestep(disc)
     out = np.zeros_like(Q)
     out[..., :-1] += np.maximum(V_L, 0)
@@ -465,14 +472,76 @@ def test_equilibrium_band_converges_monotonically(beta_true, side):
     assert abs(err[-1]) < 1e-8
 
 
+def test_limit_slope():
+    """A crossing of the fragmentation limit (z changed sign) since the point
+    of the last step that moved amax, with the secant index between the two
+    points; a falling dv_max (negative secant) does not count. A step that
+    barely moves amax keeps the older point."""
+    disc = _setup_disc()
+    s = disc._s_frag
+    ln_dv = lambda z: np.log(disc._uf) - z/s          # ln dv_max for z
+    cell = np.arange(disc.Ncells) % 3
+    z_old = np.where(cell == 0, 1., -1.)
+    amax = disc.grain_size[1]
+    disc._remember_step(ln_dv(z_old), amax*np.exp(0.1))
+    disc.set_dust_frac(disc.dust_frac, [disc.grain_size[0], amax*np.exp(0.1)])
+    # A tiny step keeps the point
+    disc._remember_step(ln_dv(np.zeros(disc.Ncells)), amax*np.exp(0.1 + 1e-6))
+    # 0: crossed downwards; 1: not crossed; 2: crossed upwards with dv_max
+    # falling as amax grows (a negative secant index: kept local)
+    z_new = np.where(cell == 2, 0.5, -0.5)
+    crossed, beta_secant = disc._limit_slope(ln_dv(z_new))
+    assert (crossed == (cell == 0)).all()
+    assert np.allclose(beta_secant[cell == 0], (1. + 0.5)/(s*0.1), rtol=1e-10)
+
+
+@pytest.mark.parametrize("fac", [1., 1 + 1e-12])
+def test_limit_on_steep_transition(fac):
+    """With the fragmentation limit on the steep part of OC07's small-eddy
+    transition (St = 0.7 Re^-1/2), stepping at growth_timestep settles onto it
+    in a few hundred steps; with the local index alone, amax chatters across
+    the limit (5000 steps reach only 4e4 yr). fac > 1 leaves a tiny second
+    sub-step in each call, which must not wipe the stored secant point."""
+    disc = _setup_disc()
+    g = disc._collision_gas()
+    a_t = 0.7*g['sqrtRe_inv']/g['K']
+    disc._uf = disc.relative_velocity(a_t, disc._f_dv*a_t, gas=g)
+    t, n, T = 0., 0, 1e5*2*np.pi
+    while t < T and n < 1000:
+        h = min(disc.growth_timestep()*fac, T - t)
+        disc.do_grain_growth(h)
+        t, n = t + h, n + 1
+    assert t >= T and n < 400
+
+
+def test_size_dependent_frag_velocity():
+    """With v_frag = uf (amax/a0)^p (frag_slope p = -0.5, frag_size a0 = 1 mm),
+    cells settle where dv_max(amax) = v_frag(amax): above the size-independent
+    limit where that lies below a0 (v_frag larger there), below it above a0"""
+    def settle(**kwargs):
+        disc = _setup_disc(**kwargs)
+        t, n, T = 0., 0, 1e5*2*np.pi
+        while t < T and n < 2000:
+            h = min(disc.growth_timestep(), T - t)
+            disc.do_grain_growth(h)
+            t, n = t + h, n + 1
+        assert t >= T
+        return disc, disc._growth_rates()['z0']
+    disc, z = settle(frag_slope=-0.5, frag_size=0.1)
+    assert np.allclose(disc._v_frag(disc.amax), disc._uf*(disc.amax/0.1)**-0.5, rtol=1e-12)
+    disc0, z0 = settle()
+    at_limit = (np.abs(z) < 1e-6) & (np.abs(z0) < 1e-6)
+    assert at_limit.sum() > 10
+    a, a0 = disc.amax[at_limit], disc0.amax[at_limit]
+    assert ((a > a0) == (a0 < 0.1)).all()
+
+
 def test_local_beta_is_bounded():
+    """The weighted index lies within the range of its contributions'
+    indices, [-3/2, 1] (unclipped)"""
     disc = _setup_disc()
     r = disc._growth_rates()
-    s = disc._s_frag
-    assert np.all(r['n'] >= -1.5*s - 1e-12) and np.all(r['n'] <= s + 1e-12)
-    # Within the band, beta is in [1/2, 1]
-    near = r['near']
-    assert np.all(r['n'][near] >= 0.5*s - 1e-12)
+    assert np.all(r['beta'] >= -1.5 - 1e-12) and np.all(r['beta'] <= 1 + 1e-12)
 
 
 @pytest.mark.parametrize("feedback", [True, False])
@@ -480,21 +549,20 @@ def test_relative_velocity_index(feedback):
     """The weighted index matches d ln dv / d ln a away from the small-eddy
     transition of OC07 (where dv jumps steeply)."""
     disc = _setup_disc(feedback=feedback)
-    gv = disc._gas_velocities()
     sri = disc._sqrtRe_inv()
     h = 1e-4
     for la in np.linspace(-4.5, 1, 23):
         a = 10**la*np.ones(disc.Ncells)
-        dv, beta = disc.relative_velocity_index(a, 0.4*a, gv)
-        assert np.allclose(dv, disc.relative_velocity(a, 0.4*a, gv), rtol=1e-12)
-        bn = (np.log(disc.relative_velocity(a*np.exp(h), 0.4*a*np.exp(h), gv)) -
-              np.log(disc.relative_velocity(a*np.exp(-h), 0.4*a*np.exp(-h), gv)))/(2*h)
+        dv, beta = disc.relative_velocity_index(a, 0.4*a)
+        assert np.allclose(dv, disc.relative_velocity(a, 0.4*a), rtol=1e-12)
+        bn = (np.log(disc.relative_velocity(a*np.exp(h), 0.4*a*np.exp(h))) -
+              np.log(disc.relative_velocity(a*np.exp(-h), 0.4*a*np.exp(-h))))/(2*h)
         St = disc.Stokes(disc.Sigma_G, a)
         ok = (St < 0.3*sri) | (St > 3*sri)
         assert np.all(np.abs(beta - bn)[ok] < 0.25)
         # The drift components, as relative_velocity's
-        _, _, dr, da = disc.relative_velocity_index(a, 0.4*a, gv, components=True)
-        _, dr0, da0 = disc.relative_velocity(a, 0.4*a, gv, components=True)
+        _, _, dr, da = disc.relative_velocity_index(a, 0.4*a, components=True)
+        _, dr0, da0 = disc.relative_velocity(a, 0.4*a, components=True)
         assert np.allclose(dr, dr0, rtol=1e-12, atol=0) and np.allclose(da, da0, rtol=1e-12, atol=0)
 
 
@@ -729,18 +797,26 @@ def test_growth_keeps_dust_fraction_exactly():
     assert not np.allclose(M1[2], M[2])
 
 
-def test_direct_writes_update_state():
-    """Writes to dust_frac / grain_size define the state: an equal rescaling
-    of the populations keeps the shape exactly"""
+def test_set_dust_frac_updates_state():
+    """set_dust_frac defines the state from the populations: an equal
+    rescaling of them keeps the shape exactly (the stored moments agree to
+    round-trip accuracy); a new amax keeps the populations. dust_frac and
+    grain_size are read-only."""
     disc = _setup_disc(a0=0.1)
+    with pytest.raises(ValueError):
+        disc.dust_frac[:] *= 3
+    with pytest.raises(ValueError):
+        disc.grain_size[1] = 1.
     M = disc.moments()
-    disc.dust_frac[:] *= 3
+    disc.set_dust_frac(3*disc.dust_frac)
     M3 = disc.moments()
     np.testing.assert_allclose(M3[1], 3*M[1], rtol=1e-14)
     np.testing.assert_array_equal(M3/M3[1], M/M[1])
 
     eps, s, L = disc.size_distribution()
-    disc.grain_size[1] *= 2
+    a = disc.grain_size.copy()
+    a[1] *= 2
+    disc.set_dust_frac(disc.dust_frac, a)
     eps2, s2, L2 = disc.size_distribution()
     np.testing.assert_allclose(L2, L + np.log(2), rtol=1e-12)
     np.testing.assert_allclose(eps2, eps, rtol=1e-14)
@@ -754,8 +830,7 @@ def test_transport_conservation_newton(van_leer):
     iteration; the moments are still conserved"""
     disc = _setup_disc(a0=0.1, q_bounds=(-np.inf, -1.))
     assert disc._table is None
-    disc.dust_frac[:, :15] = 0
-    disc.dust_frac[:, -15:] = 0
+    _zero_dust(disc, slice(None, 15), slice(-15, None))
     drift = MomentDrift(van_leer=van_leer)
     D = TracerDiffusion()
     dA = np.pi*np.diff((disc.grid.Re*AU)**2)
@@ -771,12 +846,11 @@ def test_gap_transport_stays_realizable():
     and truncated, keeps the parameters bounded and finite, and conserves
     mass"""
     disc = _setup_disc(a0=0.3)
-    disc.dust_frac[:, :15] = 0
-    disc.dust_frac[:, -15:] = 0
+    _zero_dust(disc, slice(None, 15), slice(-15, None))
     # Gap: no gas and no dust in a ring
     ring = slice(55, 62)
     disc._Sigma[ring] *= 1e-3
-    disc.dust_frac[:, ring] = 0
+    _zero_dust(disc, ring)
     drift = MomentDrift(van_leer=True)
     D = TracerDiffusion()
 
@@ -808,9 +882,7 @@ def test_state_roundtrip():
     M = disc.moments(KS)
 
     new = _setup_disc(a0=0.2)
-    new._eps[:] = eps
-    new._a[:] = a
-    new._update_a0()
+    new.set_dust_frac(eps, a)
     np.testing.assert_allclose(new.moments(KS), M, rtol=1e-12)
     np.testing.assert_allclose(new.grain_size, a, rtol=1e-12)
 
@@ -822,7 +894,7 @@ def test_state_roundtrip():
 def test_empty_cells_are_finite():
     """Cells with no dust give finite state, velocities and time-step"""
     disc = _setup_disc(a0=0.1)
-    disc.dust_frac[:, 40:50] = 0
+    _zero_dust(disc, slice(40, 50))
     drift = MomentDrift()
     dt = drift.max_timestep(disc)
     assert np.isfinite(dt) and dt > 0
@@ -870,6 +942,47 @@ def _tanaka_u_gas(disc, a_L, a_R, e_L, e_R, la=None):
     return la1*eta/((1 + la0)**2 + la1**2)
 
 
+def _com_minus_gas(drift, disc, faces=False, v_visc=None):
+    """v_gas and v_COM - v_gas at the edges of the cell states (or the VL2
+    corrector's face states), recovered from the drift's velocities: the
+    velocity relative to the gas of a node (or, for the moment scheme
+    without settling, of the mass moment) minus its velocity relative to the
+    centre of mass"""
+    got = {}
+    edge_gas, nodes, moments = (drift._edge_gas_velocities, drift._node_velocities,
+                                drift._moment_velocities)
+    def capture_gas(*args):
+        got['u'], got['v'] = edge_gas(*args)
+        return got['u'], got['v']
+    def capture_nodes(*args):
+        out = nodes(*args)
+        got['nodes'] = args[1], out[0]          # sizes and velocities, left
+        return out
+    def capture_moments(*args):
+        out = moments(*args)
+        got['moments'] = args[1], out[0]        # side and velocities, left
+        return out
+    drift._edge_gas_velocities, drift._node_velocities = capture_gas, capture_nodes
+    drift._moment_velocities = capture_moments
+    if faces:
+        drift._vl2_faces(disc, v_visc=v_visc)
+    else:
+        drift._transport_velocities(disc, v_visc)
+    u, v = got['u'], got['v']
+    SigG = disc.Sigma_G
+    SigG_av = 0.5*(SigG[1:] + SigG[:-1])
+    if 'nodes' in got:
+        a, V = got['nodes']
+        St = disc.Stokes(SigG_av, a[0] + 1e-300)
+        dV = (2*v*St - u*St**2)/(1 + St**2)
+        return u, dV - V[0]
+    (_, s, L), V = got['moments']
+    m = drift._ks.index(0)
+    F1, F2 = mean_drift_factors(s, L, disc.Stokes(SigG_av, drift._f_drift*disc.amin),
+                                disc._quad, drift._ks)
+    return u, 2*v*F1[m] - u*F2[m] - V[m]
+
+
 @pytest.mark.parametrize("scheme,f_drift", [('moments', 1.0),
                                             ('moments', 0.8),
                                             ('tripod', 1.0),
@@ -878,13 +991,12 @@ def _tanaka_u_gas(disc, a_L, a_R, e_L, e_R, la=None):
                                             ('trimax', 1.0)])
 def test_feedback_centre_of_mass(scheme, f_drift):
     """With the feedback computed from the transported species, the inviscid
-    centre of mass is at rest: v_gas = -epsDeltaV"""
+    centre of mass is at rest: v_COM - v_gas = -v_gas, with v_gas checked
+    against Tanaka et al. (2005)"""
     disc = _setup_disc(a0=0.3)
-    disc._eps *= 10     # eps = 0.1, so that feedback matters
-    disc._update_a0()
-    drift = MomentDrift(scheme=scheme, f_drift=f_drift)
-    Q, phi, a, w = drift._functionals(disc)
-    _, _, epsDeltaV = drift._transport_velocities(disc, phi, a, w)
+    disc.set_dust_frac(10*disc.dust_frac)     # eps = 0.1, so that feedback matters
+    drift = make_drift(scheme=scheme, f_drift=f_drift)
+    _, epsDeltaV = _com_minus_gas(drift, disc)
 
     Sigma = disc.Sigma
     Sig_av = 0.5*(Sigma[1:] + Sigma[:-1]) + 1e-300
@@ -900,14 +1012,18 @@ def test_feedback_centre_of_mass(scheme, f_drift):
         # St^2/(1+St^2) for the mass
         SigG = disc.Sigma_G
         SigG_av = 0.5*(SigG[1:] + SigG[:-1])
-        AL, AR = drift._edge_blocks(disc, a, w, disc.Stokes(SigG_av, f_drift))
+        left, right = drift._cell_sides(disc)
+        St_min = disc.Stokes(SigG_av, f_drift*disc.amin)
+        (F1L, F2L), (F1R, F2R) = [mean_drift_factors(sd[1], sd[2], St_min, disc._quad)
+                                  for sd in (left, right)]
         SigD = disc.integ_dust_frac*Sigma
         eL, eR = SigD[:-1]/Sig_av, SigD[1:]/Sig_av
         eps_g = SigG_av/Sig_av
-        la0 = 0.5*(eL*(1 - AL[0, 2]) + eR*(1 - AR[0, 2]))/eps_g
-        la1 = 0.5*(eL*AL[0, 1] + eR*AR[0, 1])/eps_g
+        la0 = 0.5*(eL*(1 - F2L[1]) + eR*(1 - F2R[1]))/eps_g
+        la1 = 0.5*(eL*F1L[1] + eR*F1R[1])/eps_g
         u_gas = _tanaka_u_gas(disc, None, None, None, None, la=(la0, la1))
         # ... which agree with the node values
+        a, w = disc.quadrature()
         u_nodes = _tanaka_u_gas(disc, f_drift*a[:, :-1], f_drift*a[:, 1:],
                                 (SigD*w)[:, :-1]/Sig_av, (SigD*w)[:, 1:]/Sig_av)
         np.testing.assert_allclose(u_gas, u_nodes, rtol=1e-6)
@@ -917,20 +1033,78 @@ def test_feedback_centre_of_mass(scheme, f_drift):
                                atol=1e-12*np.abs(u_gas).max())
 
 
+@pytest.mark.parametrize("scheme", ['moments', 'tripod', 'trimean', 'trimax'])
+@pytest.mark.parametrize("settling", [False, True])
+@pytest.mark.parametrize("faces", [False, True])
+@pytest.mark.parametrize("v_visc", [None, 1e-3])
+def test_centre_of_mass_velocity(scheme, settling, faces, v_visc):
+    """The centre of mass moves with the viscous velocity, and is at rest
+    without it: v_gas + (v_COM - v_gas) = v_visc, with and without settling
+    (midplane densities in the feedback), for the cell states and for the
+    VL2 corrector's face states, which differ from the cells' (structure in
+    the dust fraction and the shape)"""
+    disc = _setup_disc(a0=0.3)
+    lR = np.log(disc.R)
+    disc.set_size_distribution(0.1*(1 + 0.5*np.sin(2*lR)), 0.5 + 0.8*np.cos(1.5*lR),
+                               np.log(0.3/disc.amin)*(1 + 0.3*np.sin(lR)))
+    drift = make_drift(scheme=scheme, settling=settling)
+    vv = None if v_visc is None else v_visc*np.ones(disc.Ncells - 1)
+    u, w = _com_minus_gas(drift, disc, faces, vv)
+    np.testing.assert_allclose(u + w, 0 if v_visc is None else v_visc,
+                               rtol=0, atol=1e-12*np.abs(u).max())
+
+
+@pytest.mark.parametrize("scheme", ['moments', 'tripod', 'trimean', 'trimax'])
+@pytest.mark.parametrize("settling", [False, True])
+@pytest.mark.parametrize("van_leer", [False, True])
+def test_gas_tracer_follows_gas(scheme, settling, van_leer):
+    """A gas tracer proportional to the gas stays so, with and without
+    settling: the gas tracers are carried by the gas, which carries the
+    opposite of the dust's mass flux (the drift leaves Sigma unchanged)"""
+    disc = _setup_disc(a0=0.3)
+    disc.set_dust_frac(10*disc.dust_frac)     # eps = 0.1, so that feedback matters
+    _zero_dust(disc, slice(None, 15), slice(-15, None))
+    drift = make_drift(scheme=scheme, settling=settling, van_leer=van_leer)
+    G = 0.7*(1 - disc.integ_dust_frac)[None]
+    for _ in range(20):
+        drift(drift.max_timestep(disc), disc, gas_tracers=G)
+    np.testing.assert_allclose(G[0], 0.7*(1 - disc.integ_dust_frac), rtol=1e-12)
+
+
+@pytest.mark.parametrize("scheme", ['moments', 'tripod'])
+def test_timestep_limits_gas_outflow(scheme):
+    """Where the dust outweighs the gas, the gas (which carries the opposite
+    of the dust's mass flux) can move faster than the dust: in a step of
+    max_timestep no cell loses more than half its gas (dust-to-gas 9, a
+    steep distribution, q = -1, so the dust moves nearly as one size)"""
+    disc = _setup_disc(a0=0.3)
+    n = disc.Ncells
+    disc.set_size_distribution(0.9*np.ones(n), 3.*np.ones(n),
+                               np.log(1./disc.amin)*np.ones(n))
+    disc.growth_timestep = lambda: np.inf     # the drift's own limit only
+    drift = make_drift(scheme=scheme)
+    dt = drift.max_timestep(disc)
+    Q, V_L, V_R = drift._velocities(disc)
+    pos, neg = drift._flux_parts(*drift._cell_faces(disc.Sigma*Q), V_L, V_R)
+    F_gas = -sum(drift._dust_mass_fluxes(pos, neg))
+    gas_out = np.maximum(F_gas[1:], 0) + np.maximum(-F_gas[:-1], 0)
+    assert (dt*gas_out/(disc.Sigma_G*disc.grid.dRe)).max() <= 0.5*(1 + 1e-12)
+
+
 @pytest.mark.parametrize("q", [-4.5, -3.5, -2., -8.])
 @pytest.mark.parametrize("amax", [1e-3, 0.1, 10.])
 def test_moment_velocities_vs_fine_quadrature(q, amax):
-    """The factorised averages <St^p/(1+St^2)>_k agree with a fine quadrature
-    of the node velocities, including steep power laws"""
+    """The factorised means <St^p/(1+St^2)>_k (mean_drift_factors) agree with
+    a fine quadrature of the node velocities, including steep power laws"""
     disc = _setup_disc(a0=0.1, q_bounds=(-np.inf, -1.))
     n = disc.Ncells
     disc.set_size_distribution(0.01*np.ones(n), (q + 4)*np.ones(n),
                                np.log(amax/disc.amin)*np.ones(n))
     drift = MomentDrift()
-    a, w = disc.quadrature()
     SigG = disc.Sigma_G
     K = disc.Stokes(0.5*(SigG[1:] + SigG[:-1]), 1.)
-    AL, _ = drift._edge_blocks(disc, a, w, K)
+    _, sL, LL = drift._cell_sides(disc)[0]
+    F = mean_drift_factors(sL, LL, K*disc.amin, disc._quad)
     _, s, L = disc.size_distribution()
     af, wf = SizeQuadrature(32, 12)(s, L, disc.amin)
     af, wf = af[:, :-1], wf[:, :-1]
@@ -939,4 +1113,98 @@ def test_moment_velocities_vs_fine_quadrature(q, amax):
         wk = wf*af**k
         for p in (1, 2):
             ref = (wk*St**p/(1 + St**2)).sum(0)/wk.sum(0)
-            np.testing.assert_allclose(AL[k, p], ref, rtol=2e-3)
+            np.testing.assert_allclose(F[p - 1][k + 1], ref, rtol=2e-3)
+
+
+###############################################################################
+# Transport by the van Leer integrator (VL2)
+###############################################################################
+@pytest.mark.parametrize("scheme", ['moments', 'tripod', 'trimean', 'trimax'])
+@pytest.mark.parametrize("feedback,settling", [(False, False), (True, False), (True, True)])
+@pytest.mark.parametrize("van_leer", [False, True])
+def test_transport_tracers(scheme, feedback, settling, van_leer):
+    """Dust tracers proportional to the dust mass (area_tracers: to the
+    area, M_-1) stay so, and the mass is conserved, with feedback and
+    settling; a uniform gas tracer without feedback stays uniform. (Cells
+    filled from empty, below 1e-6 of the peak, have their moments projected
+    onto the power law, which changes M_-1: they are left out of the area
+    comparison.)"""
+    disc = _setup_disc(a0=0.1, feedback=feedback)
+    if scheme in ('trimean', 'trimax'):
+        disc._s_bounds = (-np.inf, np.inf)
+    _zero_dust(disc, slice(None, 15), slice(-15, None))
+    area = scheme == 'moments'
+    drift = make_drift(scheme=scheme, settling=settling, van_leer=van_leer,
+                       **({'area_tracers': [1]} if area else {}))
+    n = disc.Ncells
+    gas = np.ones((1, n))
+    dust = np.array([0.3*disc.moments((0,))[0],
+                     (0.2/disc.amin)*disc.moments((-1,))[0] if area
+                     else 0.2*disc.moments((0,))[0]])
+    dA = np.pi*np.diff((disc.grid.Re*AU)**2)
+    M0 = (disc.Sigma*disc.dust_frac.sum(0)*dA).sum()
+    for _ in range(20):
+        drift(drift.max_timestep(disc), disc, gas_tracers=gas, dust_tracers=dust)
+    assert np.all(np.isfinite(disc.moments()))
+    assert np.isclose((disc.Sigma*disc.dust_frac.sum(0)*dA).sum(), M0, rtol=1e-10)
+    m = disc.moments((-1, 0))
+    np.testing.assert_allclose(dust[0], 0.3*m[1], rtol=1e-10, atol=1e-14*m[1].max())
+    if area:
+        full = m[1] > 1e-6*m[1].max()
+        np.testing.assert_allclose(dust[1][full], (0.2/disc.amin)*m[0][full], rtol=1e-10)
+    else:
+        np.testing.assert_allclose(dust[1], 0.2*m[1], rtol=1e-10, atol=1e-14*m[1].max())
+    if not feedback:
+        np.testing.assert_allclose(gas, 1., rtol=1e-12)
+
+
+@pytest.mark.parametrize("scheme", ['moments', 'tripod'])
+def test_vl2_reuses_courant_velocities(scheme):
+    """The VL2 predictor's velocities, from max_timestep or recomputed, give
+    the same step"""
+    a, b = _setup_disc(a0=0.1), _setup_disc(a0=0.1)
+    da, db = make_drift(scheme=scheme), make_drift(scheme=scheme)
+    for _ in range(5):
+        dt = da.max_timestep(a)
+        da(dt, a)
+        db._vcache = None
+        db(dt, b)
+    np.testing.assert_array_equal(a.moments(), b.moments())
+
+
+def _disc_n(n):
+    grid = Grid(1, 300, n, spacing='log')
+    star = SimpleStar()
+    eos = LocallyIsothermalEOS(star, 1/30., -0.25, 1e-3)
+    eos.set_grid(grid)
+    Mdot = 1e-8*Msun/(2*np.pi)/AU**2
+    Sigma = (Mdot/(3*np.pi*eos.nu))*np.exp(-grid.Rc/100.)
+    eos.update(0, Sigma)
+    disc = DustGrowthTriMom(grid, star, eos, 0.01, Sigma=Sigma, a0=0.1)
+    disc.growth_timestep = lambda: np.inf
+    return disc
+
+
+def _temporal_error(van_leer, n, dt, n_steps, f=0.25, f_ref=1/32., window=(10., 50.)):
+    """Error of n_steps/f steps of f dt against f_ref dt, in a smooth window"""
+    out = {}
+    for g in (f, f_ref):
+        disc, drift = _disc_n(n), MomentDrift(van_leer=van_leer)
+        for _ in range(int(round(n_steps/g))):
+            drift(g*dt, disc)
+        out[g] = disc.Sigma*disc.moments()
+    R = disc.grid.Rc
+    m = (R >= window[0]) & (R < window[1])
+    dA = np.diff(disc.grid.Re**2)
+    return max((np.abs(out[f][k] - out[f_ref][k])*dA)[m].sum() /
+               (out[f_ref][k]*dA)[m].sum() for k in range(3))
+
+
+def test_vl2_temporal_error_is_a_cross_term():
+    """At a fixed time-step, halving the cell size halves VL2's temporal
+    error (O(dt dx), second order) but not donor cell's (O(dt))"""
+    dt = MomentDrift(van_leer=False).max_timestep(_disc_n(120))
+    r = {vl: _temporal_error(vl, 120, dt, 40)/_temporal_error(vl, 240, dt, 40)
+         for vl in (False, True)}
+    assert r[True] > 1.7
+    assert r[False] < 1.1

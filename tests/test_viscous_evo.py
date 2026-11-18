@@ -6,6 +6,7 @@
 # ChecksLynden-Bell & Pringle solutions are reproduced
 ###############################################################################
 import numpy as np
+import pytest
 
 from DiscEvolution.disc      import AccretionDisc
 from DiscEvolution.grid      import Grid
@@ -13,11 +14,14 @@ from DiscEvolution.constants import AU, Msun
 from DiscEvolution.eos       import LocallyIsothermalEOS
 from DiscEvolution.star      import SimpleStar
 
-from DiscEvolution.viscous_evolution import LBP_Solution, ViscousEvolution
+from DiscEvolution.viscous_evolution import (LBP_Solution, ViscousEvolution,
+                                             ViscousEvolutionFV)
+from DiscEvolution.rkl import ViscousEvolutionRKL
 
 
-
-def test_LP_model():
+@pytest.mark.filterwarnings("ignore:ViscousEvolution is deprecated")
+@pytest.mark.parametrize("Visc", [ViscousEvolutionFV, ViscousEvolutionRKL, ViscousEvolution])
+def test_LP_model(Visc):
     alpha = 5e-3
 
     M = 1e-2 * Msun
@@ -37,7 +41,7 @@ def test_LP_model():
 
     disc = AccretionDisc(grid, star, eos, Sigma)
 
-    visc = ViscousEvolution()
+    visc = Visc()
 
     yr = 2*np.pi
     
@@ -45,7 +49,12 @@ def test_LP_model():
 
     times = np.logspace(0, 6, 7)*yr
 
-    max_err   = [3.6e-4, 3.6e-3, 3.6e-2, 3.6e-1, 2.2, 7.9, 17.5]
+    # ~1% above each scheme's errors (FV's, at this resolution, are up to 6%
+    # larger, mostly from the flux through the boundaries)
+    if Visc is ViscousEvolution:
+        max_err = [3.6e-4, 3.6e-3, 3.6e-2, 3.6e-1, 2.2, 7.9, 17.5]
+    else:
+        max_err = [3.7e-4, 3.7e-3, 3.7e-2, 3.6e-1, 2.3, 8.5, 18.8]
 
     t = 0
     for i, ti in enumerate(times):
@@ -65,3 +74,8 @@ def test_LP_model():
 
         assert(L1   < max_err[i])
 
+
+
+def test_ViscousEvolution_deprecated():
+    with pytest.warns(DeprecationWarning):
+        ViscousEvolution()

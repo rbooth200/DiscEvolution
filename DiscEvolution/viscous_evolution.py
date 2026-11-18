@@ -8,6 +8,7 @@
 from __future__ import print_function
 import numpy as np
 import copy
+import warnings
 
 class ViscousEvolution(object):
     """Solves the 1D viscous evolution equation.
@@ -30,9 +31,16 @@ class ViscousEvolution(object):
                      'power_law' : Power-law extrapolation
                      'Mdot_inn'  : Constant Mdot, same as inner (power law).
                      'Mdot_out'  : Constant Mdot, for tail of LBP.
+
+    Deprecated: use ViscousEvolutionFV (or rkl.ViscousEvolutionRKL). This
+    scheme conserves mass exactly only on log-spaced grids; the finite-volume
+    one does on any grid, with the same accuracy and cost.
     """
 
     def __init__(self, tol=0.5, boundary='power_law', in_bound='Mdot'):
+        warnings.warn("ViscousEvolution is deprecated: use ViscousEvolutionFV "
+                      "(or rkl.ViscousEvolutionRKL), which conserves mass "
+                      "exactly on any grid", DeprecationWarning, stacklevel=2)
         self._tol = tol
         self._bound = boundary
         self._in_bound = in_bound

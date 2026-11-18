@@ -4,7 +4,14 @@
 # Date: 4 - Jun - 2018
 #
 # Run a disc evolution model with transport and absorption / desorption but
-# no other chemical reactions. 
+# no other chemical reactions.
+#
+# The dust model is chosen by coagulation/model: "twopop" (the default,
+# Birnstiel et al. 2012's two-population model), or "trimom", "tripod",
+# "trimean" or "trimax" (dust_trimom / dust_tripod), with optional
+# coagulation/trimom_params passed to DustGrowthTriMom. transport/rkl: true
+# super-steps the viscous evolution and diffusion (rkl.py). See
+# DiscConfig_TriMom.json.
 #
 # Note:
 #   The environment variable 
@@ -21,10 +28,13 @@ from DiscEvolution.star import SimpleStar, MesaStar
 from DiscEvolution.eos  import IrradiatedEOS, LocallyIsothermalEOS, SimpleDiscEOS
 from DiscEvolution.disc import AccretionDisc
 from DiscEvolution.dust import DustGrowthTwoPop
+from DiscEvolution.dust_trimom import DustGrowthTriMom
+from DiscEvolution.dust_tripod import make_drift
 from DiscEvolution.opacity import Tazzari2016, Zhu2012
 from DiscEvolution.viscous_evolution import ViscousEvolutionFV
 from DiscEvolution.dust import SingleFluidDrift
 from DiscEvolution.diffusion import TracerDiffusion
+from DiscEvolution.rkl import ViscousEvolutionRKL, RKLDiffusion
 from DiscEvolution.driver import DiscEvolutionDriver
 from DiscEvolution.io import Event_Controller, DiscReader
 from DiscEvolution.disc_utils import mkdir_p
@@ -65,6 +75,12 @@ from DiscEvolution.internal_photo import ConstantInternalPhotoevap
 # Global Constants
 ###############################################################################
 DefaultModel = "DiscConfig.json"
+
+# Dust models of coagulation/model (default "twopop", DustGrowthTwoPop with
+# dust.py's SingleFluidDrift): the TriMom family uses DustGrowthTriMom, with
+# the drift scheme of dust_tripod.make_drift
+TRIMOM_SCHEMES = {"trimom": "moments", "tripod": "tripod",
+                  "trimean": "trimean", "trimax": "trimax"}
 
 ###############################################################################
 # Global Functions
@@ -301,11 +317,27 @@ def setup_disc(model):
             u_f = coag.get('u_frag', 1e3)
             u_f0 = coag.get('u_frag_0', 1e2)
 
-            disc = DustGrowthTwoPop(grid, star, eos, p['d2g'], Sigma=Sigma, 
-                                    rho_s=rho_s, amin=amin, 
-                                    uf_0=u_f0, uf_ice=u_f,
-                                    Sc=model['disc']['Schmidt'], 
-                                    f_grow=f_grow, feedback=feedback)
+            dust_model = coag.get('model', 'twopop')
+            if dust_model == 'twopop':
+                disc = DustGrowthTwoPop(grid, star, eos, p['d2g'], Sigma=Sigma, 
+                                        rho_s=rho_s, amin=amin, 
+                                        uf_0=u_f0, uf_ice=u_f,
+                                        Sc=model['disc']['Schmidt'], 
+                                        f_grow=f_grow, feedback=feedback)
+            elif dust_model in TRIMOM_SCHEMES:
+                # The calibrated growth parameters by default (f_grow is the
+                # two-population model's); trimom_params overrides them
+                kw = dict(coag.get('trimom_params', {}))
+                if dust_model in ('trimean', 'trimax'):
+                    # Their refits need no bounds on q
+                    kw.setdefault('q_bounds', (-np.inf, np.inf))
+                disc = DustGrowthTriMom(grid, star, eos, p['d2g'], Sigma=Sigma,
+                                        rho_s=rho_s, amin=amin,
+                                        uf_0=u_f0, uf_ice=u_f,
+                                        Sc=model['disc']['Schmidt'],
+                                        feedback=feedback, **kw)
+            else:
+                raise ValueError("coagulation/model {} not recognised".format(dust_model))
 
     # Setup the chemical part of the disc
     if model['chemistry']["on"]:
@@ -372,10 +404,13 @@ def setup_model(model, disc, start_time):
     ext_photoevap = None
     int_photoevap = None
 
+    # transport/rkl: super-step the viscous and diffusion steps (RKL2)
+    rkl = model['transport'].get('rkl', False)
     if model['transport']['gas']:
-        gas = ViscousEvolutionFV()
+        gas = ViscousEvolutionRKL() if rkl else ViscousEvolutionFV()
     if model['transport']['diffusion']:
-        diffuse = TracerDiffusion(Sc=model['disc']['Schmidt'])
+        Diffusion = RKLDiffusion if rkl else TracerDiffusion
+        diffuse = Diffusion(Sc=model['disc']['Schmidt'])
     if model['transport']['radial drift']:
         van_leer = model['dust_transport']['van leer']
         settling = model['dust_transport']['settling']
@@ -383,8 +418,13 @@ def setup_model(model, disc, start_time):
         # The driver's diffusion step (transport/diffusion) diffuses the dust
         # (with its Stokes-number Schmidt numbers) and the tracers; the old
         # dust_transport/diffusion switch has no separate effect any more
-        dust = SingleFluidDrift(settling=settling,
-                                van_leer=van_leer)
+        dust_model = model['coagulation'].get('model', 'twopop')
+        if dust_model in TRIMOM_SCHEMES:
+            dust = make_drift(TRIMOM_SCHEMES[dust_model], settling=settling,
+                              van_leer=van_leer)
+        else:
+            dust = SingleFluidDrift(settling=settling,
+                                    van_leer=van_leer)
     if model['photoevaporation']['on']:
         if model['photoevaporation']['method'] == 'const':
             ext_photoevap = \
@@ -419,8 +459,7 @@ def restart_model(model, disc, snap_number):
     snap = reader[snap_number]
 
     disc.Sigma[:] = snap.Sigma
-    disc.dust_frac[:] = snap.dust_frac
-    disc.grain_size[:] = snap.grain_size
+    disc.set_dust_frac(snap.dust_frac, snap.grain_size)
 
     time = snap.time * yr
 
@@ -428,6 +467,8 @@ def restart_model(model, disc, snap_number):
         chem = snap.chem
         disc.chem.gas.data[:] = chem.gas.data
         disc.chem.ice.data[:] = chem.ice.data
+        # The fragmentation velocity follows the restored ices
+        disc.update_ices(disc.chem.ice)
     except AttributeError as e:
         if model['chemistry']['on']:
             raise e

@@ -98,6 +98,11 @@ class AreaMassIceAbund(ChemicalAbund):
         """Indices of the area-distributed rows in data"""
         return np.array([self._indexes[s + ':A'] for s in self._area_species])
 
+    @property
+    def mass_rows(self):
+        """Indices of the mass-distributed rows of the area_species in data"""
+        return np.array([self._indexes[s] for s in self._area_species])
+
     def area(self, k):
         """Area-distributed ice of species k"""
         return self._data[self._indexes[k + ':A']]
@@ -114,8 +119,7 @@ class AreaMassIceAbund(ChemicalAbund):
     def mix_area_to_mass(self, f):
         """Move a fraction f of the area-distributed ice into the mass-
         distributed ice (growth mixing)"""
-        iA = self.area_rows
-        iM = np.array([self._indexes[s] for s in self._area_species])
+        iA, iM = self.area_rows, self.mass_rows
         dA = f*self._data[iA]
         self._data[iM] += dA
         self._data[iA] -= dA
@@ -129,8 +133,7 @@ class AreaMassIceAbund(ChemicalAbund):
         TimeDependentChemTriMom). Negative M is moved into A, keeping X
         (uniform ice, Y = X); a negative total is set to zero, with both
         rows (X = 0 needs Y = 0)."""
-        iA = self.area_rows
-        iM = np.array([self._indexes[s] for s in self._area_species])
+        iA, iM = self.area_rows, self.mass_rows
         rest = np.setdiff1d(np.arange(len(self._data)), np.concatenate([iA, iM]))
         self._data[rest] = np.maximum(self._data[rest], 0)
         A, M = self._data[iA], self._data[iM]
@@ -234,7 +237,7 @@ def _profile(g, Xm, X, Y, phi):
     return alpha + phi*Xm, beta, xf
 
 
-def _implicit_step(g, Sa, Sd, Xm, X_t, X0, alpha0, beta, phi_s, dt,
+def _implicit_step(g, Sa, Sd, Xm, X_t, alpha0, beta, phi_s, dt,
                    tol=1e-12, max_iter=200):
     """One step of the profile max(phi Xm, alpha + beta a/a_A), implicit in
     the gas: with the adsorption rate r_1 = Sa (X_t - X_1)/Xm of the end
@@ -387,7 +390,7 @@ class TimeDependentChemTriMom(ThermalChem, SimpleChemBase):
 
         b = self._rebuild(T, rho, eps, spec, chem)
         conv = b['conv']
-        g, X_t, X0, M0, Y0 = b['g'], b['X_t'], b['X'], b['M'], b['Y']
+        g, X_t, X0, M0 = b['g'], b['X_t'], b['X'], b['M']
         Sa, Sd, Xm, ok = b['Sa'], b['Sd'], b['Xm'], b['ok']
         phi_s, alpha, beta, xf = b['phi'], b['alpha'], b['beta'], b['xf']
         moved0 = b['moved']
@@ -438,7 +441,7 @@ class TimeDependentChemTriMom(ThermalChem, SimpleChemBase):
             k = np.nonzero(mixed)[0]
             gk = _sub(g, k)
             X1k, phi1, alpha1, xf1, xc1, conv_k = _implicit_step(
-                gk, Sa[k], Sd[k], Xm[k], X_t[k], X0[k], alpha[k], beta[k],
+                gk, Sa[k], Sd[k], Xm[k], X_t[k], alpha[k], beta[k],
                 phi_s[k], dt, tol=self._tol)
             Xk, Yk = _moments(gk, Xm[k], phi1, alpha1, beta[k], xf1)
             X_end[k] = Xk
@@ -502,7 +505,7 @@ class TimeDependentChemTriMom(ThermalChem, SimpleChemBase):
         phi_max = (1 - PHI_MARGIN)*(X0 - Y0/g['amax_r'])/(Xm_*(1 - 1/g['amax_r']))
         phi = np.where(ok, np.clip(np.minimum(np.minimum(theta_eq, 1), phi_max), 0, 1), 0.)
         alpha, beta, xf = _profile(g, Xm, X0, Y0, phi)
-        return dict(g=g, conv=conv, X_t=X_t, X=X0, M=M0, Y=Y0, moved=moved,
+        return dict(g=g, conv=conv, X_t=X_t, X=X0, M=M0, moved=moved,
                     Sa=Sa, Sd=Sd, Xm=Xm, ok=ok, phi=phi, alpha=alpha,
                     beta=beta, xf=xf)
 

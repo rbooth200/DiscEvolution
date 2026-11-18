@@ -198,15 +198,16 @@ def test_area_tracers_drift_with_area():
     # Dust tracers equal to M_-1 and M_0 (per unit mass) move exactly as the
     # transported moments, area_tracers with the M_-1 velocity
     disc = _setup_disc()
-    drift = MomentDrift(scheme='moments', area_tracers=[0])
+    drift = MomentDrift(area_tracers=[0])
     M = disc.moments((-1, 0))
     tracers = M.copy()
     dt = 0.5*drift.max_timestep(disc)
     drift(dt, disc, dust_tracers=tracers)
     assert np.allclose(tracers, disc.moments((-1, 0)), rtol=1e-6)
 
-    with pytest.raises(ValueError):
-        MomentDrift(scheme='tripod', area_tracers=[0])
+    from DiscEvolution.dust_tripod import TriPoDDrift
+    with pytest.raises(TypeError):
+        TriPoDDrift(area_tracers=[0])
 
 
 def test_stripping_step_is_zeroth_order():

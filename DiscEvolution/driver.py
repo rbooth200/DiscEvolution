@@ -21,7 +21,7 @@ class DiscEvolutionDriver(object):
     Optional Physics update:
         dust             : Update the dust, i.e. radial drift
         gas              : Update due to gas effects, i.e. Viscous evolution
-                           (ViscousEvolution, or rkl.ViscousEvolutionRKL)
+                           (ViscousEvolutionFV, or rkl.ViscousEvolutionRKL)
         diffusion        : Diffusion of the dust and of the gas and ice tracers
                            (TracerDiffusion: explicit, limits the time-step;
                            rkl.RKLDiffusion: super-stepped). The dust module
@@ -152,8 +152,8 @@ class DiscEvolutionDriver(object):
         # Pin the values to >= 0 and <=1:
         disc.Sigma[:] = np.maximum(disc.Sigma, 0)        
         try:
-            disc.dust_frac[:] = np.maximum(disc.dust_frac, 0)
-            disc.dust_frac[:] /= np.maximum(disc.dust_frac.sum(0), 1.0)
+            eps = np.maximum(disc.dust_frac, 0)
+            disc.set_dust_frac(eps / np.maximum(eps.sum(0), 1.0))
         except AttributeError:
             pass
         try:
@@ -278,10 +278,9 @@ if __name__ == "__main__":
     from .star import SimpleStar
     from .grid import Grid
     from .eos  import IrradiatedEOS
-    from .viscous_evolution import ViscousEvolution
+    from .rkl import ViscousEvolutionRKL, RKLDiffusion
     from .dust import DustGrowthTwoPop, SingleFluidDrift
     from .opacity import Zhu2012, Tazzari2016
-    from .diffusion import TracerDiffusion
     from .chemistry import TimeDepCOChemOberg, SimpleCOAtomAbund
     from .constants import Msun, AU
     from .disc_utils import mkdir_p
@@ -345,10 +344,10 @@ if __name__ == "__main__":
     disc.chem = chem
 
     # Setup the dynamics modules:
-    gas  = ViscousEvolution()
+    gas  = ViscousEvolutionRKL()
     dust = SingleFluidDrift()
 
-    evo = DiscEvolutionDriver(disc, gas=gas, dust=dust, diffusion=TracerDiffusion(),
+    evo = DiscEvolutionDriver(disc, gas=gas, dust=dust, diffusion=RKLDiffusion(),
                               chemistry=chemistry)
 
 

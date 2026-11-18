@@ -196,8 +196,10 @@ def test_single_fluid_drift_diffuse():
     Sigma = 100*grid.Rc**-1*np.exp(-grid.Rc/50.)
     eos.update(0, Sigma)
     disc = FixedSizeDust(grid, star, eos, 0.01, [1e-4, 0.1], Sigma=Sigma, feedback=False)
-    disc.dust_frac[:, :10] = 0
-    disc.dust_frac[:, -10:] = 0
+    eps = disc.dust_frac.copy()
+    eps[:, :10] = 0
+    eps[:, -10:] = 0
+    disc.set_dust_frac(eps)
     tr = 0.3*disc.dust_frac.sum(0)
     drift, D = SingleFluidDrift(), TracerDiffusion()
     dA = np.diff(grid.Re**2)
@@ -206,3 +208,20 @@ def test_single_fluid_drift_diffuse():
         drift.diffuse(D.max_timestep(disc), disc, D, drift.pre_gas_transport(disc), dust_tracers=tr)
     assert np.allclose((disc.Sigma*disc.dust_frac*dA).sum(1), M0, rtol=1e-10)
     assert np.allclose(tr, 0.3*disc.dust_frac.sum(0), rtol=1e-8, atol=1e-30)
+
+
+def test_dust_schmidt_models():
+    """dust_schmidt's St dependence: Youdin & Lithwick (2007) by default, DustPy's
+    1 + St^2 with dust_model='OnePlusSt2', on the disc's gas Schmidt number"""
+    from DiscEvolution.diffusion import dust_schmidt
+    St = np.logspace(-3, 2, 11)
+    assert np.allclose(dust_schmidt(2., St), 2*(1 + St**2)**2/(1 + 4*St**2))
+    assert np.allclose(dust_schmidt(2., St, 'OnePlusSt2'), 2*(1 + St**2))
+    with pytest.raises(ValueError):
+        TracerDiffusion(dust_model='OnePlusSt')
+
+    class _Disc(object):
+        Sc = 0.5
+    assert np.allclose(TracerDiffusion().dust_schmidt(_Disc(), St), dust_schmidt(0.5, St))
+    assert np.allclose(TracerDiffusion(dust_model='OnePlusSt2').dust_schmidt(_Disc(), St),
+                       0.5*(1 + St**2))

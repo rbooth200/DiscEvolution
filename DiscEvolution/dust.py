@@ -7,10 +7,9 @@
 ################################################################################
 from __future__ import print_function
 import numpy as np
-from .diffusion import dust_schmidt
 from .constants import *
 from .disc import AccretionDisc
-from .reconstruction import DonorCell, VanLeer
+from .reconstruction import VanLeer
 
 class DustyDisc(AccretionDisc):
     """Dusty accretion disc. Base class for an accretion disc that also
@@ -36,6 +35,10 @@ class DustyDisc(AccretionDisc):
 
         self._Sc = Sc
         self._feedback = feedback
+
+        # Slope -d ln n(a) / d ln a of the number distribution, used for dust
+        # entrainment (3.5 for MRN; growth models may set their own)
+        self._p = 3.5
 
     def Stokes(self, Sigma=None, size=None):
         """Stokes number of the particle"""
@@ -67,6 +70,14 @@ class DustyDisc(AccretionDisc):
     def grain_size(self):
         """Grain size in cm"""
         return self._a
+
+    def set_dust_frac(self, dust_frac, grain_size=None):
+        """Set the dust fractions of the species, and optionally their grain
+        sizes. Dust models whose dust_frac is derived from their own state
+        override this."""
+        self.dust_frac[:] = dust_frac
+        if grain_size is not None:
+            self.grain_size[:] = grain_size
 
     @property
     def grain_cross_section(self):
@@ -184,7 +195,7 @@ class DustyDisc(AccretionDisc):
 
         dSigma_D = np.zeros_like(Sigma_D_tot)
         if a_cut is not None:
-            p = getattr(self, '_p', 3.5)
+            p = self._p
             has_gas = Sigma_G > 0
             f_g = dSigma_G[has_gas] / Sigma_G[has_gas]
             f_ent = np.minimum(1, (a_cut/self.grain_size[-1])**(4 - p))
@@ -469,6 +480,36 @@ class DustGrowthTwoPop(DustyDisc):
 ################################################################################
 # Radial drift
 ################################################################################
+# Helpers shared by SingleFluidDrift and the drift schemes of dust_trimom
+def _cell_faces(X):
+    """Edge values of X [..., Ncells] at all edges from the cells to their left
+    and right (the boundary edges: the end cells)"""
+    return (np.concatenate([X[..., :1], X], axis=-1),
+            np.concatenate([X, X[..., -1:]], axis=-1))
+
+def _divergence(disc, flux):
+    """Rate of change per unit Sigma of the fluxes at all edges"""
+    grid = disc.grid
+    return - np.diff(flux*grid.Re) / ((disc.Sigma+1e-300) * 0.5*grid.dRe2)
+
+def _gas_tracer_flux(disc, X_L, X_R, F_dust):
+    """Flux of the gas tracers at all edges, from their ratios to the gas X
+    from the left and right: the gas carries the opposite of the dust's mass
+    flux F_dust (the drift leaves Sigma unchanged; without feedback the dust
+    mass is neglected and the gas is at rest), and the tracers are carried by
+    it at their ratio on its upwind side"""
+    F_gas = -F_dust if disc.feedback else 0*F_dust
+    return np.where(F_gas > 0, X_L, X_R)*F_gas
+
+def _gas_timestep(disc, F_dust, Cou):
+    """Largest step in which no cell loses more than a fraction Cou of its
+    gas, which carries the opposite of the dust's mass flux F_dust (all
+    edges). This limits the step where the dust outweighs the gas."""
+    F_gas = -F_dust
+    gas_out = np.maximum(F_gas[1:], 0) + np.maximum(-F_gas[:-1], 0)
+    return Cou * (disc.grid.dRe*disc.Sigma_G / (gas_out + 1e-300)).min()
+
+
 class SingleFluidDrift(object):
     """Radial Drift in the single fluid approximation with the short friction
     time limit.
@@ -481,21 +522,26 @@ class SingleFluidDrift(object):
     advection step must be handled seperately.
 
     The dust-gas relative velocity, Delta v_i, is calculated following
-    Tanaka+ (2005).
-
-    Note:
-        This currently neglects the viscous velocity, which can be important
-        for small grains.
+    Tanaka+ (2005), with feedback and the gas's viscous velocity v_visc
+    (Dipierro et al. 2018).
 
     Diffusion is a separate step, done by the driver through diffuse().
 
+    With van_leer=True the update is Stone & Gardiner's (2009) van Leer
+    integrator (VL2), second order in space and time: a donor-cell half step,
+    the velocities of the half-step state (with feedback, its gas surface
+    density and pressure), then fluxes from van Leer face states of the
+    half-step dust fractions, applied to the start of the step.
+
     args:
         settling  : Include settling in the velocity calculation, default=False
-        van_leer  : Use 2nd-order Van-Leer reconstruction, default=False
+        van_leer  : Use the van Leer integrator (VL2), default=False (donor
+                    cell)
     """
     def __init__(self, settling=False, van_leer=False):
         self._settling = settling
         self._van_leer = van_leer
+        self._vl, self._vl_grid = None, None
 
     def ASCII_header(self):
         """Radial drift header"""
@@ -510,92 +556,128 @@ class SingleFluidDrift(object):
         return self.__class__.__name__ , head
 
     def max_timestep(self, disc, v_visc=None):
-        step = np.inf
+        """Courant limited time-step, for the dust velocities relative to the
+        centre of mass"""
         Cou = 0.5       # Courant number
-        
-        dV = self._compute_deltaV(disc, v_visc)
-        dVout = np.empty((dV.shape[0],dV.shape[-1]+2))
-        dVout[:,1:-1] = dV
-        dVout[:, 0] = dVout[:, 1]
-        dVout[:,-1] = dVout[:,-2]
-        dVtot = np.abs(dVout[:,1:]) + np.abs(dVout[:,:-1])  # Potentially a cell can lose dust in both directions, both should be included to ensure stability
-        
+        V = self._velocities(disc, v_visc)[0]
+        Ve = self._edge_velocity(V)
+        # A cell can lose dust in both directions: include both
+        Vtot = np.abs(Ve[:, 1:]) + np.abs(Ve[:, :-1])
+
         # Prevent empty cells limiting the time-step
-        dVtot[disc.dust_frac < 1e-20] *= 1e-3
-        return Cou * (disc.grid.dRe / dVtot).min()
-    
-    def _donor_flux(self, Ree, deltaV_i, Sigma, eps_i):
-        """Compute flux using Donor-Cell method"""
-        # Add boundary cells        
-        shape_v   = deltaV_i.shape[:-1] + (deltaV_i.shape[-1]+2,)
-        shape_rho = eps_i.shape[:-1] + (eps_i.shape[-1]+2,)
-        
-        dV_i = np.empty(shape_v, dtype='f8')
-        dV_i[...,1:-1] = deltaV_i - self._epsDeltaV
-        dV_i[..., 0] = dV_i[..., 1] 
-        dV_i[...,-1] = dV_i[...,-2] 
-            
-        Sig_eps = np.zeros(shape_rho, dtype='f8')
-        Sig_eps[...,1:-1] = Sigma*eps_i
-            
-        # Upwind the density
-        dc = DonorCell(Ree[1:-1], 1)
-        Sig_eps = dc(dV_i, Sig_eps)
+        Vtot[disc.dust_frac < 1e-20] *= 1e-3
+        dt = Cou * (disc.grid.dRe / Vtot).min()
 
-        # Compute the fluxes
-        flux = Sig_eps * dV_i
-        return flux
-        
-    def _van_leer_flux(self, Ree, deltaV_i, Sigma, eps_i, dt):
-        """Compute flux using Van-Leer reconstruction"""
-        # Add boundary cells
-        shape_v   = deltaV_i.shape[:-1] + (deltaV_i.shape[-1]+4,)
-        shape_rho = eps_i.shape[:-1] + (eps_i.shape[-1]+4,)
-        
-        dV_i = np.empty(shape_v, dtype='f8')
-        dV_i[...,2:-2] = deltaV_i - self._epsDeltaV
-        # Ghost cells (slices keep the last axis, so this broadcasts for
-        # several species)
-        dV_i[...,  :2] = dV_i[...,2:3]
-        dV_i[...,-2: ] = dV_i[...,-3:-2]
-            
-        Sig_eps = np.zeros(shape_rho, dtype='f8')
-        Sig_eps[...,2:-2] = Sigma*eps_i
+        # The gas (tracers), which carries the opposite of the dust's mass flux
+        if disc.feedback:
+            dt = min(dt, _gas_timestep(disc, self._donor_flux(disc.Sigma, disc.dust_frac, V).sum(0), Cou))
+        return dt
 
-        Sig_eps[..., 1] = np.where(dV_i[..., 1] < 0, Sig_eps[..., 2], 0)
-        Sig_eps[...,-2] = np.where(dV_i[...,-2] > 0, Sig_eps[...,-3], 0)
-        
-        # Upwind the density
-        vl = VanLeer(Ree, 1)
-        Sig_eps = vl(dV_i, Sig_eps, dt)
+    def _donor_flux(self, Sigma, eps_i, V_i):
+        """Donor-cell fluxes at all edges of Sigma*eps_i, moving at the
+        velocities V_i (relative to the centre of mass, interior edges)"""
+        return sum(self._flux_parts(*_cell_faces(Sigma*eps_i), self._edge_velocity(V_i)))
 
-        # Compute the fluxes
-        flux = Sig_eps * dV_i[...,1:-1]
-        return flux
-        
-    def _fluxes(self, disc, eps_i, deltaV_i, dt=0):
-        """Update a quantity that moves with the gas/dust"""
+    def _fluxes(self, disc, eps_i, V_i):
+        """Donor-cell rate of change of a quantity that moves at the
+        velocities V_i relative to the centre of mass"""
+        return _divergence(disc, self._donor_flux(disc.Sigma, eps_i, V_i))
 
+    _divergence = staticmethod(_divergence)
+    _cell_faces = staticmethod(_cell_faces)
+
+    @staticmethod
+    def _gas_ratios(G, eps):
+        """Gas tracers per unit gas mass (G per unit Sigma, eps the dust
+        fractions); zero where there is no gas"""
+        g = 1 - eps.sum(0)
+        ok = g > 0
+        return np.where(ok, G/np.where(ok, g, 1), 0.)
+
+    @staticmethod
+    def _edge_velocity(V):
+        """The velocities V at the interior edges extended to all edges (the
+        boundary edges take those of the nearest interior edges)"""
+        return np.concatenate([V[..., :1], V, V[..., -1:]], axis=-1)
+
+    def _vl_faces(self, disc, X):
+        """van Leer face values of X [..., Ncells] at all edges, from the
+        left and right (the end cells' slopes are zero)"""
+        if self._vl is None or self._vl_grid is not disc.grid:
+            self._vl = VanLeer(disc.grid.Ree, 1)
+            self._vl_grid = disc.grid
+        pad = np.concatenate([X[..., :1]]*2 + [X] + [X[..., -1:]]*2, axis=-1)
+        return self._vl.face_values(pad)
+
+    @staticmethod
+    def _flux_parts(X_from_L, X_from_R, v):
+        """Upwind fluxes at all edges for the edge values and velocities v
+        (all edges), split into the parts carried from the left and from the
+        right; nothing flows in through the boundaries"""
+        pos = X_from_L*np.maximum(v, 0)
+        neg = X_from_R*np.minimum(v, 0)
+        pos[..., 0] = 0
+        neg[..., -1] = 0
+        return pos, neg
+
+    def _vl2_step(self, dt, disc, gas_tracers, dust_tracers, v_visc):
+        """The van Leer integrator (van_leer=True): the dust fractions and
+        tracers after dt"""
+        eps = disc.dust_frac
+        tiny = np.finfo(eps.dtype).tiny
         Sigma = disc.Sigma
-        grid = disc.grid
+        eps0 = eps.copy()
 
-        if self._van_leer:
-            flux = self._van_leer_flux(grid.Ree, deltaV_i, Sigma, eps_i, dt)
-        else:
-            flux = self._donor_flux(grid.Ree, deltaV_i, Sigma, eps_i)
+        # Predictor: donor cell over dt/2 (dust tracers split by species, as
+        # the donor-cell step)
+        V, _ = self._velocities(disc, v_visc=v_visc)
+        flux = self._donor_flux(Sigma, eps0, V)
+        eps_h = eps0 + 0.5*dt*self._divergence(disc, flux)
+        if gas_tracers is not None:
+            XL, XR = self._cell_faces(self._gas_ratios(gas_tracers, eps0))
+            F_g = _gas_tracer_flux(disc, XL, XR, flux.sum(0))
+            g_h = gas_tracers + 0.5*dt*self._divergence(disc, F_g)
+        if dust_tracers is not None:
+            t_k = dust_tracers[..., None, :] * eps0/(eps0.sum(0) + tiny)
+            d_h = dust_tracers + 0.5*dt*self._fluxes(disc, t_k, V).sum(1)
 
-        # Do the update
-        return - np.diff(flux*grid.Re) / ((Sigma+1e-300) * 0.5*grid.dRe2)
+        # Corrector: the velocities and face states of the half-step state
+        disc.set_dust_frac(eps_h)
+        V, _ = self._velocities(disc, v_visc=v_visc)
+        v = self._edge_velocity(V)
+        pos, neg = self._flux_parts(*self._vl_faces(disc, Sigma*eps_h), v)
+        eps_new = eps0 + dt*self._divergence(disc, pos + neg)
 
-    def _compute_deltaV(self, disc, v_visc=None):
-        """Compute the total dust-gas background velocity"""
+        if gas_tracers is not None:
+            XL, XR = self._vl_faces(disc, self._gas_ratios(g_h, eps_h))
+            F_g = _gas_tracer_flux(disc, XL, XR, (pos + neg).sum(0))
+            gas_tracers[:] += dt*self._divergence(disc, F_g)
+        if dust_tracers is not None:
+            # Carried by the species' fluxes at the face values of their
+            # ratio to the dust mass
+            e_tot = eps_h.sum(0)
+            X = np.where(e_tot > 0, d_h/np.where(e_tot > 0, e_tot, 1), 0.)
+            XL, XR = self._vl_faces(disc, X)
+            flux = pos.sum(0)*XL + neg.sum(0)*XR
+            dust_tracers[:] += dt*self._divergence(disc, flux)
+        disc.set_dust_frac(eps_new)
+
+    def _velocities(self, disc, v_visc=None):
+        """Velocities of the dust species relative to the centre of mass at
+        the interior edges, from the dust-gas relative velocities of Tanaka et
+        al. (2005), with feedback and the viscous velocity (Dipierro et al.
+        2018).
+
+        returns:
+            V_dust    : of each dust species, [Nspecies, Ncells-1]
+            DeltaVphi : azimuthal velocity of the dust relative to the gas
+        """
 
         Sigma  = disc.Sigma
         SigmaD = disc.Sigma_D
         SigmaG = disc.Sigma_G
         Om_k   = disc.Omega_k
         a      = disc.grain_size
-        R      = disc.R
 
         # Average to cell edges:        
         Om_kav  = 0.5*(Om_k      [1:] + Om_k      [:-1])
@@ -603,7 +685,6 @@ class SingleFluidDrift(object):
         SigD_av = 0.5*(SigmaD[...,1:] + SigmaD[...,:-1])
         SigG_av = 0.5*(SigmaG[...,1:] + SigmaG[...,:-1])
         a_av    = 0.5*(a    [..., 1:] + a     [...,:-1])
-        R_av    = 0.5*(R         [1:] + R         [:-1])
 
         #eps_geff = ((R*SigmaG)[...,1:] + (R*SigmaG)[...,:-1]) / ((R*Sigma)     [1:] + (R*Sigma)     [:-1] + 1e-300)
 
@@ -637,7 +718,6 @@ class SingleFluidDrift(object):
         # Compute the lambda factors
         # DON'T Use lambda * eps_g instead of lambda to avoid 0/0 in D_1 when eps_g -> 0.
         la0, la1 = 0, 0 
-        St_1 = 1 / (1 + St_av**2)
         if disc.feedback:
             la0 = (eps_av/eps_g / (1     + St_av** 2)).sum(0)
             la1 = (eps_av/eps_g / (St_av + St_av**-1)).sum(0)
@@ -660,45 +740,48 @@ class SingleFluidDrift(object):
         DeltaV = (2*v_gas / (St_av + St_av**-1) 
                   - u_gas / (1     + St_av**-2))
 
-        # epsDeltaV = v_COM - v_gas (= 0 if dust mass is neglected)
-        if disc.feedback:
-            self._epsDeltaV = (eps_av * DeltaV).sum(0)
-        else:
-            self._epsDeltaV = 0
+        # The dust relative to the centre of mass: epsDeltaV = v_COM - v_gas
+        # (zero if the dust mass is neglected, eps_av = 0)
+        epsDeltaV = (eps_av * DeltaV).sum(0)
+        V_dust = DeltaV - epsDeltaV
 
-        # Store the azimuthal velocity.
-        self._DeltaVphi =  (-0.5*u_gas / (St_av + St_av**-1) 
-                               + v_gas / (1     + St_av** 2))
+        # The azimuthal velocity
+        DeltaVphi = (-0.5*u_gas / (St_av + St_av**-1)
+                     + v_gas / (1     + St_av** 2))
 
-        return DeltaV
+        return V_dust, DeltaVphi
 
     def __call__(self, dt, disc, gas_tracers=None, dust_tracers=None, v_visc=None):
         """Apply the update for radial drift over time-step dt"""
+        if self._van_leer:
+            return self._vl2_step(dt, disc, gas_tracers, dust_tracers, v_visc)
         eps = disc.dust_frac
-        a   = disc.grain_size
-        eps_inv = 1. / (eps.sum(0) + np.finfo(eps.dtype).tiny)
 
-        # Compute the dust-gas relative velocity
-        DeltaV = self._compute_deltaV(disc, v_visc=v_visc)
-        
-        # Compute and apply the fluxes
+        # The dust fluxes, with the velocities relative to the centre of mass
+        V, _ = self._velocities(disc, v_visc=v_visc)
+        flux = self._donor_flux(disc.Sigma, eps, V)
+
+        # The gas tracers are carried by the gas, at the opposite of the
+        # dust's mass flux
         if gas_tracers is not None:
-            gas_tracers[:] += dt * self._fluxes(disc, gas_tracers, np.zeros(disc.Ncells-1), dt)
+            XL, XR = self._cell_faces(self._gas_ratios(gas_tracers, eps))
+            F_g = _gas_tracer_flux(disc, XL, XR, flux.sum(0))
+            gas_tracers[:] += dt * self._divergence(disc, F_g)
 
         if dust_tracers is not None:
             t_k = dust_tracers[...,None,:] * eps/(eps.sum(0) + np.finfo(eps.dtype).tiny)
-            d_tr = dt*self._fluxes(disc, t_k, DeltaV, dt).sum(1)
+            d_tr = dt*self._fluxes(disc, t_k, V).sum(1)
             dust_tracers[:] += d_tr
 
-        disc.dust_frac[:] += dt*self._fluxes(disc, disc.dust_frac, DeltaV, dt)
+        disc.set_dust_frac(eps + dt*self._divergence(disc, flux))
 
     def diffuse(self, dt, disc, diffusion, Q, gas_tracers=None, dust_tracers=None):
         """Diffuse the dust fractions Q (from pre_gas_transport), the dust
         tracers (split by species, each diffusing as its species) and the gas
         tracers over dt, in one step of the diffusion object (TracerDiffusion,
-        or rkl.RKLDiffusion), with the Schmidt numbers of dust_schmidt"""
+        or rkl.RKLDiffusion), with the Schmidt numbers of its dust_schmidt"""
         Sc_g = diffusion.gas_schmidt(disc)
-        Sc_d = dust_schmidt(Sc_g, disc.Stokes())
+        Sc_d = diffusion.dust_schmidt(disc, disc.Stokes())
         items = [(Q, Sc_d)]
         if dust_tracers is not None:
             eps = disc.dust_frac
@@ -725,14 +808,12 @@ class SingleFluidDrift(object):
         pass
 
     def radial_drift_velocity(self, disc, v_visc=None, ret_vphi=False):
-        """Compute the radial drift velocity for the disc and optionally the
-        azimuthal velocity"""
-        DeltaV = self._compute_deltaV(disc, v_visc)
-        
+        """Compute the radial drift velocity for the disc (relative to the
+        centre of mass) and optionally the azimuthal velocity"""
+        V, DeltaVphi = self._velocities(disc, v_visc)
         if ret_vphi:
-            return DeltaV - self._epsDeltaV, self._DeltaVphi
-        else:
-            return DeltaV - self._epsDeltaV
+            return V, DeltaVphi
+        return V
     
 if __name__ == "__main__":
     import matplotlib.pyplot as plt

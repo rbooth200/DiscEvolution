@@ -57,11 +57,17 @@ Solves for the evolution of the surface density driven by the disc's viscosity
 #### Single Fluid Drift
 Updates the dust fraction according to radial drift (and optionally diffusion).
 
+#### TriMom and TriPoD dust models
+dust_trimom.py contains TriMom, a three-parameter growth model based on TriPoD (Pfeil et al. 2024) that transports the moments of the grain size distribution (DustGrowthTriMom, MomentDrift). dust_tripod.py contains TriPoD's own transport scheme and two variants, TriMean and TriMax, for the same growth model (make_drift). The example's run_model.py selects them with "model" in the "coagulation" section (see example/DiscConfig_TriMom.json; the default is the two-population model). dust_trimom.py also provides DustGrowthTwoPop and SingleFluidDrift as aliases, so it can replace dust.py in other scripts. Details will be given in a forthcoming paper.
+
 #### Diffusion
 Solves the for the evolution of the concentration of trace species via diffusion.
 
+#### Super-time-stepping
+rkl.py integrates the viscous evolution and diffusion with RKL2 super-time-stepping (Meyer, Balsara & Aslam 2014), so that the time-step is set by the dust drift instead. In control_scripts/run_model.py it is switched on by "rkl": true in the "transport" section of the configuration.
+
 #### Chemistry
-Contains simple modules for following the evolution of volatile species such as carbon, nitrogen and oxygen. There is now a wrapper to the KROME chemistry package that can be used to integrate a chemical kinetics scheme.
+Contains simple modules for following the evolution of volatile species such as carbon, nitrogen and oxygen. There is now a wrapper to the KROME chemistry package that can be used to integrate a chemical kinetics scheme. chemistry/area_ice.py splits each volatile's ice between the grains' surface area and their mass, for use with TriMom.
 
 #### Planet formation
 Contains prescriptions for the growth and migration of planets. Currently does not include their feedback on the disc's evolution.

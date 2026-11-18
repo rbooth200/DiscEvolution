@@ -9,11 +9,22 @@ from __future__ import print_function
 import numpy as np
 
 
-def dust_schmidt(Sc, St):
+DUST_MODELS = ('YoudinLithwick2007', 'OnePlusSt2')
+
+
+def dust_schmidt(Sc, St, model='YoudinLithwick2007'):
     """Schmidt number of grains with Stokes number St in gas with Schmidt
-    number Sc (Youdin & Lithwick 2007; coag_toolkit's default)"""
+    number Sc:
+        YoudinLithwick2007 : Sc (1 + St^2)^2 / (1 + 4 St^2) (Youdin & Lithwick
+                             2007; coag_toolkit's library default)
+        OnePlusSt2         : Sc (1 + St^2), as in DustPy and TriPoDPy
+    """
     St2 = St*St
-    return Sc*(0.5625/(1 + 4*St2) + 0.4375 + 0.25*St2)
+    if model == 'OnePlusSt2':
+        return Sc*(1 + St2)
+    if model == 'YoudinLithwick2007':
+        return Sc*(0.5625/(1 + 4*St2) + 0.4375 + 0.25*St2)
+    raise ValueError("Dust diffusion model not recognised: {}".format(model))
 
 
 class TracerDiffusion(object):
@@ -23,21 +34,27 @@ class TracerDiffusion(object):
              default=1.
         limit : Whether to limit the diffusive velocity to the sound speed,
                 default=False.
+        dust_model : Dependence of the dust's Schmidt number on St, one of
+                     DUST_MODELS (see dust_schmidt), default='YoudinLithwick2007'.
     """
-    def __init__(self, Sc=1, limit=False):
+    def __init__(self, Sc=1, limit=False, dust_model='YoudinLithwick2007'):
+        if dust_model not in DUST_MODELS:
+            raise ValueError("Dust diffusion model not recognised: {}".format(dust_model))
         self._Sc = Sc
         self._limit = limit
+        self._dust_model = dust_model
 
     def ASCII_header(self):
         """Tracer diffusion header"""
-        return '# {} Sc: {}, flux_limit: {}'.format(self.__class__.__name__,
-                                                    self.Sc, self._limit)
+        return '# {} Sc: {}, flux_limit: {}, dust_model: {}'.format(
+            self.__class__.__name__, self.Sc, self._limit, self._dust_model)
 
     def HDF5_attributes(self):
         """Class information for HDF5 headers"""
         return (self.__class__.__name__,
                 {"Sc" : "{}".format(self.Sc),
-                 "flux_limit" : "{}".format(bool(self._limit))}
+                 "flux_limit" : "{}".format(bool(self._limit)),
+                 "dust_model" : self._dust_model}
                 )
 
     @staticmethod
@@ -73,6 +90,11 @@ class TracerDiffusion(object):
     def gas_schmidt(self, disc):
         """The gas Schmidt number: the disc's, else this object's"""
         return self._get_Schmidt(disc, None)
+
+    def dust_schmidt(self, disc, St):
+        """Schmidt number of grains with Stokes number St (dust_schmidt with
+        this object's dust_model)"""
+        return dust_schmidt(self.gas_schmidt(disc), St, self._dust_model)
 
     def step(self, dt, disc, eps_i, Sc=None):
         """Diffuse eps_i [..., Ncells] in place over dt: one forward-Euler step

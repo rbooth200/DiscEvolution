@@ -26,6 +26,7 @@ from DiscEvolution.viscous_evolution import ViscousEvolution, ViscousEvolutionFV
 from DiscEvolution.disc import AccretionDisc
 from DiscEvolution.dust import SingleFluidDrift
 from DiscEvolution.diffusion import TracerDiffusion
+from DiscEvolution.rkl import ViscousEvolutionRKL, RKLDiffusion
 from DiscEvolution.driver import DiscEvolutionDriver
 from DiscEvolution.io import Event_Controller, DiscReader
 from DiscEvolution.disc_utils import mkdir_p
@@ -144,18 +145,23 @@ def setup_model(model, disc, history, start_time=0, internal_photo_type="Primord
     diffuse   = None
     chemistry = None
 
+    # "rkl": super-step the viscous and diffusion steps (RKL2; finite-volume
+    # viscous scheme). Without it, the explicit steps (as before Nov 2026)
+    rkl = model['transport'].get('rkl', False)
+    Viscous = ViscousEvolutionRKL if rkl else ViscousEvolution
+    Diffusion = RKLDiffusion if rkl else TracerDiffusion
+
     if model['transport']['gas']:
         try:
-            gas = ViscousEvolution(boundary=model['grid']['outer_bound'], in_bound=model['grid']['inner_bound'])
+            gas = Viscous(boundary=model['grid']['outer_bound'], in_bound=model['grid']['inner_bound'])
         except KeyError:
             print("Default boundaries")
-            gas = ViscousEvolution(boundary='Mdot_out')
+            gas = Viscous(boundary='Mdot_out')
         
     if model['transport']['diffusion']:
-        diffuse = TracerDiffusion(Sc=model['disc']['Schmidt'])
+        diffuse = Diffusion(Sc=model['disc']['Schmidt'])
     if model['transport']['radial drift']:
-        dust = SingleFluidDrift(diffuse)
-        diffuse = None
+        dust = SingleFluidDrift()
 
     # Inititate the correct external photoevaporation routine
     # FRIED should be considered default 
@@ -356,8 +362,7 @@ def restart_model(model, disc, history, snap_number):
 
     disc.Sigma[:] = snap.Sigma
     try:
-        disc.dust_frac[:] = snap.dust_frac
-        disc.grain_size[:] = snap.grain_size
+        disc.set_dust_frac(snap.dust_frac, snap.grain_size)
     except:
         pass
 

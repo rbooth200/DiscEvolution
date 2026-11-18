@@ -43,18 +43,16 @@ class ConstantInternalPhotoevap:
         gas_fac = 1 - mass_loss / Mgas
 
         if hasattr(disc, "Sigma_D"):
-            # Work out final surface density, fraction of total mass
-            # removed, and new dustfraction
-            Sigma_new = disc.Sigma_G * gas_fac + disc.Sigma_D.sum(0)
-            tot_fac = Sigma_new / disc.Sigma
-            eps_new = np.minimum(disc.Sigma_D / Sigma_new, 1)
+            # Remove the gas, keeping the dust; tot_fac is the fraction of the
+            # total mass that remains
+            dSigma = disc.Sigma_G * (1 - gas_fac)
+            tot_fac = (disc.Sigma - dSigma) / disc.Sigma
 
             if hasattr(disc, 'chem'):
                 disc.chem.gas.data[:] = np.maximum(disc.chem.gas.data[:]*gas_fac/tot_fac, 0.0)
                 disc.chem.ice.data[:] = np.minimum(disc.chem.ice.data[:]/tot_fac, 1.0)
 
-            disc.Sigma[:] = Sigma_new
-            disc.dust_frac[:] = eps_new
+            disc.remove_dust_with_gas(dSigma)
         else:
             disc.Sigma[:] *= gas_fac
 
@@ -183,12 +181,9 @@ class PhotoBase():
 
         # Apply, preserving the dust mass
         if hasattr(disc, 'Sigma_D'):
-            Sigma_D = disc.Sigma_D                              # Save the dust density
-        disc._Sigma -= dSigma
-        if hasattr(disc, 'Sigma_D'):
-            dusty = Sigma_D.sum(0)>0
-            disc.dust_frac[:,dusty] = np.fmin(Sigma_D[:,dusty]/disc.Sigma[dusty],disc.dust_frac[:,dusty]/disc.dust_frac.sum(0)[dusty])
-            disc.dust_frac[:] /= np.maximum(disc.dust_frac.sum(0), 1.0)           # Renormalise to 1 if it exceeds
+            disc.remove_dust_with_gas(dSigma)
+        else:
+            disc._Sigma -= dSigma
 
         # Calculate actual mass loss given limit
         if dt>0:

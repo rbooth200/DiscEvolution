@@ -34,7 +34,8 @@
 "transport" : {
 "gas" : true,
 "radial drift" : true,
-"diffusion" : true
+"diffusion" : true,
+"rkl" : true
 },
 
 "output" : {
