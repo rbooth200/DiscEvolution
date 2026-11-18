@@ -161,7 +161,7 @@ class ExternalPhotoevaporationBase(object):
         raise NotImplementedError("Derived class must implement the choice of mass loss proceedure")
 
 def Facchini_limit(disc, Mdot):
-    """
+    r"""
     Equation 35 of Facchini et al (2016)
     Note following definitions:
     F = H / sqrt(H^2+R^2) (dimensionless)

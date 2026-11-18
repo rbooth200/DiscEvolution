@@ -843,8 +843,8 @@ if __name__ == "__main__":
         plt.loglog(M_p,  Ri/migI(planets)/t0,  c=l.get_color(), ls='-.')
         plt.loglog(M_p, -Ri/migII(planets)/t0, c=l.get_color(), ls=':')
 
-    plt.xlabel('$M\,[M_\oplus]$')
-    plt.ylabel('$t_\mathrm{mig}\,[yr]$')
+    plt.xlabel(r'$M\,[M_\oplus]$')
+    plt.ylabel(r'$t_\mathrm{mig}\,[yr]$')
 
     Rp = np.logspace(-0.5,2,100)
     planets.R[:] = Rp
@@ -855,8 +855,8 @@ if __name__ == "__main__":
         plt.loglog(Rp, -Rp/migI(planets)/t0,  c=l.get_color(), ls='--')
         plt.loglog(Rp,  Rp/migI(planets)/t0,  c=l.get_color(), ls='-.')
         plt.loglog(Rp, -Rp/migII(planets)/t0, c=l.get_color(), ls=':')
-    plt.xlabel('$R\,[AU]$')
-    plt.ylabel('$t_\mathrm{mig}\,[yr]$')
+    plt.xlabel(r'$R\,[AU]$')
+    plt.ylabel(r'$t_\mathrm{mig}\,[yr]$')
     #######
     # Test the growth models
     
@@ -880,8 +880,8 @@ if __name__ == "__main__":
         plt.loglog(M_p, M_p/GasAcc(planets)/t0,
                    c=l.get_color(), ls='--')
 
-    plt.xlabel('$M\,[M_\oplus]$')
-    plt.ylabel('$t_\mathrm{grow}\,[yr]$')
+    plt.xlabel(r'$M\,[M_\oplus]$')
+    plt.ylabel(r'$t_\mathrm{grow}\,[yr]$')
 
     # Growth tracks
     plt.figure()
@@ -913,18 +913,18 @@ if __name__ == "__main__":
         
     ax =plt.subplot(311)
     plt.loglog(times, Mcs)
-    plt.ylabel('$M_\mathrm{core}\,[M_\oplus]$')
+    plt.ylabel(r'$M_\mathrm{core}\,[M_\oplus]$')
     plt.ylim(ymax=1e3)
 
     plt.subplot(312, sharex=ax)
     plt.loglog(times, Mes/317.8)
-    plt.ylabel('$M_\mathrm{env}\,[M_J]$')
+    plt.ylabel(r'$M_\mathrm{env}\,[M_J]$')
 
     plt.subplot(313, sharex=ax)
     plt.loglog(times, Rs)
-    plt.ylabel('$R\,[\mathrm{au}]$')
+    plt.ylabel(r'$R\,[\mathrm{au}]$')
     plt.ylim(Rin, Rout)
     
-    plt.xlabel('$t\,[yr]$')
+    plt.xlabel(r'$t\,[yr]$')
     plt.show()
         

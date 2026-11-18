@@ -19,7 +19,7 @@ Simplified photo-evaporation routines
 """""""""
 #################################################################################
 class ConstantInternalPhotoevap:
-    """Simple photoevaporation model with constant rate and 
+    r"""Simple photoevaporation model with constant rate and 
     \dot{\Sigma} ~ \Sigma
     
     Parameters
@@ -737,7 +737,7 @@ def Test_Removal():
         internal_photo(disc1, 2e3)
         plt.loglog(0.5*(R[1:]+R[:-1]), disc1.Sigma, label='{}'.format(t))
     plt.xlabel("R / AU")
-    plt.ylabel("$\Sigma_G~/~\mathrm{g~cm^{-2}}$")
+    plt.ylabel(r"$\Sigma_G~/~\mathrm{g~cm^{-2}}$")
     plt.legend(title='Time / yr')
     plt.show()
 
@@ -765,7 +765,7 @@ def Sigma_dot_plot():
     t_w_E = disc.Sigma[photoevaporating_E] / Sigma_dot_E[photoevaporating_E]
     print("Mdot maximum at R = {} AU".format(R[np.argmax(Sigma_dot_E)]))    
     print("Time minimum at R = {} AU".format(R[photoevaporating_E][np.argmin(t_w_E)]))
-    plt.loglog(R, Sigma_dot_E, label='EUV (AA07), $\Phi={}~\mathrm{{s^{{-1}}}}$'.format(1e42), linestyle='--')
+    plt.loglog(R, Sigma_dot_E, label=r'EUV (AA07), $\Phi={}~\mathrm{{s^{{-1}}}}$'.format(1e42), linestyle='--')
 
     # Calculate X-ray rates
     disc._star = starX
@@ -775,7 +775,7 @@ def Sigma_dot_plot():
     t_w_X = disc.Sigma[photoevaporating_X] / Sigma_dot_X[photoevaporating_X]
     print("Mdot maximum at R = {} AU".format(R[np.argmax(Sigma_dot_X)]))    
     print("Time minimum at R = {} AU".format(R[photoevaporating_X][np.argmin(t_w_X)]))
-    plt.loglog(R, Sigma_dot_X, label='X-ray (OEC12), $L_X={}~\mathrm{{erg~s^{{-1}}}}$'.format(1e30))
+    plt.loglog(R, Sigma_dot_X, label=r'X-ray (OEC12), $L_X={}~\mathrm{{erg~s^{{-1}}}}$'.format(1e30))
 
     # Calculate X-ray rates
     disc._star = starX
@@ -785,11 +785,11 @@ def Sigma_dot_plot():
     t_w_X2 = disc.Sigma[photoevaporating_X2] / Sigma_dot_X2[photoevaporating_X2]
     print("Mdot maximum at R = {} AU".format(R[np.argmax(Sigma_dot_X2)]))    
     print("Time minimum at R = {} AU".format(R[photoevaporating_X2][np.argmin(t_w_X2)]))
-    plt.loglog(R, Sigma_dot_X2, label='X-ray (PEOW19), $L_X={}~\mathrm{{erg~s^{{-1}}}}$'.format(1e30))
+    plt.loglog(R, Sigma_dot_X2, label=r'X-ray (PEOW19), $L_X={}~\mathrm{{erg~s^{{-1}}}}$'.format(1e30))
 
     # Plot mass loss rates
     plt.xlabel("R / AU")
-    plt.ylabel("$\dot{\Sigma}_{\\rm w}$ / g cm$^{-2}$ yr$^{-1}$")
+    plt.ylabel(r"$\dot{\Sigma}_{\rm w}$ / g cm$^{-2}$ yr$^{-1}$")
     plt.xlim([0.1,1000])
     plt.ylim([1e-8,1e-2])
     plt.legend()
@@ -797,11 +797,11 @@ def Sigma_dot_plot():
 
     # Plot depletion time
     plt.figure(figsize=(6,6))
-    plt.loglog(R[photoevaporating_E], t_w_E, label='EUV (AA07), $\Phi={}~\mathrm{{s^{{-1}}}}$'.format(1e42), linestyle='--')
-    plt.loglog(R[photoevaporating_X], t_w_X, label='X-ray (OEC12), $L_X={}~\mathrm{{erg~s^{{-1}}}}$'.format(1e30))
-    plt.loglog(R[photoevaporating_X2], t_w_X2, label='X-ray (PEOW19), $L_X={}~\mathrm{{erg~s^{{-1}}}}$'.format(1e30))
+    plt.loglog(R[photoevaporating_E], t_w_E, label=r'EUV (AA07), $\Phi={}~\mathrm{{s^{{-1}}}}$'.format(1e42), linestyle='--')
+    plt.loglog(R[photoevaporating_X], t_w_X, label=r'X-ray (OEC12), $L_X={}~\mathrm{{erg~s^{{-1}}}}$'.format(1e30))
+    plt.loglog(R[photoevaporating_X2], t_w_X2, label=r'X-ray (PEOW19), $L_X={}~\mathrm{{erg~s^{{-1}}}}$'.format(1e30))
     plt.xlabel("R / AU")
-    plt.ylabel("$t_w / \mathrm{yr}$")
+    plt.ylabel(r"$t_w / \mathrm{yr}$")
     plt.xlim([0.1,1000])
     plt.ylim([1e4,1e12])
     plt.legend()

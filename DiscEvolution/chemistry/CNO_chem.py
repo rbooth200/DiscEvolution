@@ -395,7 +395,7 @@ if __name__ == "__main__":
     plt.semilogx(R, EQ_atom.number_abund('N') * 1e4 * muH, 'g:')
     plt.semilogx(R, EQ_atom.number_abund('O') * 1e4 * muH, 'b:')
     plt.ylabel(r'$[X/H]\,(\times 10^4)$')
-    plt.xlabel('$R\,[\mathrm{au}]$')
+    plt.xlabel(r'$R\,[\mathrm{au}]$')
 
     mol_solar = S_chem.molecular_abundance(T, rho, d2g, X_solar)
 
@@ -424,6 +424,6 @@ if __name__ == "__main__":
 
     plt.semilogx(R, EQ_mol.gas['H2O'] / mol_solar['H2O'], 'k-')
     plt.semilogx(R, EQ_mol.ice['H2O'] / mol_solar['H2O'], 'k:')
-    plt.xlabel('$R\,[\mathrm{au}}$')
+    plt.xlabel(r'$R\,[\mathrm{au}}$')
 
     plt.show()

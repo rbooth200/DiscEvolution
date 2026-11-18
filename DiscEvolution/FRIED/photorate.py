@@ -192,8 +192,8 @@ def D2_space(interp_type = '400', extrapolate=True, UV=1000, M_star = 1.0, save=
         pcm = plt.contourf(R_interp,Sigma_interp,rates,levels=np.logspace(-11,-4,n_levels),norm=colors.LogNorm(vmin=1e-11,vmax=1e-4,clip=True),extend='min')
         Sig_max = Sigma_max(R,M_star)
         Sig_min = Sigma_min(R,M_star)
-        plt.plot(R,Sig_max,linestyle='--',color='red',label='$\Sigma_{max}$')
-        plt.plot(R,Sig_min,linestyle='--',color='red',label='$\Sigma_{min}$')
+        plt.plot(R,Sig_max,linestyle='--',color='red',label=r'$\Sigma_{max}$')
+        plt.plot(R,Sig_min,linestyle='--',color='red',label=r'$\Sigma_{min}$')
 
         # Can show the actual points where the calculations are made    
         if markers:
@@ -203,13 +203,13 @@ def D2_space(interp_type = '400', extrapolate=True, UV=1000, M_star = 1.0, save=
         # Adorn plot
         plt.xscale('log')
         plt.yscale('log')
-        plt.xlabel('$R~/\mathrm{AU}$',fontsize=18)
-        plt.ylabel('$\Sigma~/\mathrm{g~cm}^{-2}$', fontsize=18)
+        plt.xlabel(r'$R~/\mathrm{AU}$',fontsize=18)
+        plt.ylabel(r'$\Sigma~/\mathrm{g~cm}^{-2}$', fontsize=18)
         plt.tick_params(axis='x', which='major', labelsize=14)
         plt.tick_params(axis='y', which='major', labelsize=14)
         plt.xlim([1,400])
         plt.ylim([1e-5,1e3])
-        bar_label='Mass Loss Rate ($M_\odot~\mathrm{yr}^{-1}$)'
+        bar_label=r'Mass Loss Rate ($M_\odot~\mathrm{yr}^{-1}$)'
         cbar = plt.colorbar(pcm)
         cbar.ax.tick_params(labelsize=14) 
         cbar.set_label(label=bar_label, fontsize=18)
@@ -217,11 +217,11 @@ def D2_space(interp_type = '400', extrapolate=True, UV=1000, M_star = 1.0, save=
         # Add a title, if desired
         if title:
             if (interp_type == 'MS'):
-                plt.title("Interpolation on $M(\Sigma)$",fontsize=24)
+                plt.title(r"Interpolation on $M(\Sigma)$",fontsize=24)
             elif (interp_type == 'S'):
-                plt.title("Interpolation on $\Sigma$",fontsize=24)
+                plt.title(r"Interpolation on $\Sigma$",fontsize=24)
             elif (interp_type == '400'):
-                plt.title("Interpolation on $M_{400}(\Sigma)$",fontsize=24)
+                plt.title(r"Interpolation on $M_{400}(\Sigma)$",fontsize=24)
 
         # Either save the figure or return it
         if save:
