@@ -821,12 +821,18 @@ class DustGrowthTriMom(DustyDisc):
         y = np.where(np.isclose(y, self._y, rtol=0, atol=1e-8), self._y, y)
         self._set_state(eps.sum(0), y, s, L, eps, amax)
 
-    def set_moments(self, Q):
+    def set_moments(self, Q, L_max=None):
         """Set the state from the moments (M_-1, M_0, M_1) per unit Sigma.
 
         Moments outside the range of the power law are projected onto it,
         keeping M_0 and M_1. Where M_0, M_-1 or M_1 is not positive the shape
         is kept.
+
+        L_max, optional, is a per-cell upper bound on L = ln(amax/amin) where
+        the moments need q > q_max (e.g. the largest amax that transport can
+        have brought into the cell). There the projection keeps M_0 and M_1
+        by raising amax; where that would exceed the bound, q = q_max and
+        amax = amin e^L_max are kept instead of M_1.
 
         returns:
             the number of cells projected
@@ -845,6 +851,16 @@ class DustGrowthTriMom(DustyDisc):
             s, L, moved = self._fit_newton(y)
             moved &= ok
             y = np.where(moved, self._shape_moments(s, L), y)
+
+        if L_max is not None:
+            # Projected onto q = q_max (the table's projection leaves s
+            # within ~1e-6 of it) with amax above the bound
+            s_hi = self._s_bounds[1]
+            top = moved & (s > s_hi - 1e-4) & (L > L_max*(1 + 1e-9))
+            if top.any():
+                s, L = np.where(top, s_hi, s), np.where(top, L_max, L)
+                y = np.where(top, self._shape_moments(s, L), y)
+
         self._set_state(eps, y, np.where(ok, s, self._s), np.where(ok, L, self._L))
         return moved.sum()
 
@@ -1533,6 +1549,9 @@ class MomentDrift(object):
                     chemistry.area_ice), which drift with the area (M_-1)
                     velocity and diffuse with its Stokes number. The other
                     rows follow the dust mass. Default None (all by mass)
+        limit_amax: Where the moments after transport need q > q_max, keep
+                    amax no larger than the largest of the cell and the
+                    cells upwind of it (instead of keeping M_1), default=True
     """
     _scheme = 'moments'
 
@@ -1544,11 +1563,17 @@ class MomentDrift(object):
     # undefined)
     _empty_frac = 1e-6
 
+    # Reach of a drift step (VL2's stencil): the number of cells upwind of a
+    # face whose grains can enter through it
+    _reach = 2
+
     def __init__(self, settling=False, van_leer=True, f_drift=1.0,
-                 area_tracers=None):
+                 area_tracers=None, limit_amax=True):
         self._settling = settling
         self._van_leer = van_leer
         self._f_drift = f_drift
+        self._limit_amax = limit_amax
+        self._L_upwind = None       # the bound on L in a drift step
         self._area_tracers = (None if area_tracers is None
                               else np.atleast_1d(area_tracers))
         self._vl = None
@@ -1573,6 +1598,7 @@ class MomentDrift(object):
                  "scheme"    : "{}".format(self._scheme),
                  "moments"   : "{}".format(self._ks),
                  "f_drift"   : "{}".format(self._f_drift),
+                 "limit_amax": "{}".format(self._limit_amax),
                  }
         return self.__class__.__name__ , head
 
@@ -1586,8 +1612,37 @@ class MomentDrift(object):
     def _reconstruct(self, disc, Q, shrink=True):
         """Set the disc's size distribution from the transported quantities
         (shrink: TriPoD's shrinkage, for the schemes that have it)"""
-        # The moments are the disc's state
-        self.n_clamped += disc.set_moments(Q)
+        # The moments are the disc's state. With limit_amax, where they need
+        # q > q_max, amax is kept no larger than upwind (in a drift step,
+        # _L_upwind; after the gas and diffusion steps, its value before
+        # them). Without it, where all the grains have St > 1 the drift
+        # narrows the distribution (the smaller grains, nearer St = 1, drift
+        # faster), and keeping M_1 at q_max raises amax. The larger, slower
+        # grains then hold back M_1, so amax runs away, and seeds runaways in
+        # broad fits where these grains mix with others. A bound from
+        # downwind would let the clipped cells raise each other's.
+        L_max = None
+        if self._limit_amax:
+            L_max = self._L_upwind
+            if L_max is None:
+                L_max = disc.size_distribution()[2]
+        self.n_clamped += disc.set_moments(Q, L_max)
+
+    def _upwind_amax(self, disc, V_L, V_R):
+        """The largest L = ln(amax/amin) of each cell and the _reach cells
+        upwind of its faces, from the velocities of the transported
+        quantities at the interior edges [*, Ncells-1] (a face is upwind
+        from a side if any of them flows in from it)"""
+        _, _, L = disc.size_distribution()
+        n, N = self._reach, L.size
+        V_L, V_R = np.reshape(V_L, (-1, N - 1)), np.reshape(V_R, (-1, N - 1))
+        from_R = np.concatenate([((V_L < 0) | (V_R < 0)).any(0), [False]])
+        from_L = np.concatenate([[False], ((V_L > 0) | (V_R > 0)).any(0)])
+        pad = np.concatenate([np.full(n, -np.inf), L, np.full(n, -np.inf)])
+        right = np.max([pad[n + k:n + k + N] for k in range(1, n + 1)], axis=0)
+        left = np.max([pad[n - k:n - k + N] for k in range(1, n + 1)], axis=0)
+        return np.maximum(L, np.maximum(np.where(from_R, right, -np.inf),
+                                        np.where(from_L, left, -np.inf)))
 
     ############################################################################
     # Velocities
@@ -2091,6 +2146,7 @@ class MomentDrift(object):
         feedback). Tracers take the same steps."""
         Q, V_L, V_R = self._velocities(disc, v_visc)
         self._vcache = None      # the state changes below
+        self._L_upwind = self._upwind_amax(disc, V_L, V_R)
 
         state, faces = self._cell_state(disc, Q)
         state['G'], state['D'] = gas_tracers, dust_tracers
@@ -2116,6 +2172,7 @@ class MomentDrift(object):
         if dust_tracers is not None:
             dust_tracers[:] = D_new
         self._reconstruct(disc, Q_new)
+        self._L_upwind = None
 
     def radial_drift_velocity(self, disc, v_visc=None, ret_vphi=False):
         """Mass-weighted radial drift velocity of each population, and

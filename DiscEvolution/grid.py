@@ -13,19 +13,14 @@ import numpy as np
 class Grid(object):
     """Construct a simple 1D grid with different spacings"""
     def __init__(self, R0, R1, N, spacing='log'):
+        if not 0 < R0 < R1:
+            raise ValueError("Grid needs 0 < R0 < R1 (got R0 = {}, R1 = {})"
+                             "".format(R0, R1))
 
         if spacing == 'log':
             self._setup_log(R0, R1, N)
-        elif spacing == 'linear':
-            self._setup_powerlaw(R0, R1, N, 1.0)
-        elif spacing == 'natural':
-            self._setup_powerlaw(R0, R1, N, 0.5)
         else:
-            try:
-                self._setup_powerlaw(R0, R1, N, float(spacing))
-            except ValueError:
-                raise AttributeError("Spacing must be a power law index, or "
-                                     "one of 'log', 'linear' and 'natural'")
+            self._setup_powerlaw(R0, R1, N, self._power_index(spacing))
         self._N = N
 
         self._R0 = R0
@@ -48,6 +43,23 @@ class Grid(object):
         self._Re  = Ree[2:-2]
         self._Ree = Ree
 
+    @staticmethod
+    def _power_index(spacing):
+        """Index alpha of a power-law spacing (uniform in R^alpha)"""
+        if spacing == 'linear':
+            return 1.0
+        if spacing == 'natural':
+            return 0.5
+        try:
+            alpha = float(spacing)
+        except ValueError:
+            raise AttributeError("Spacing must be a power law index, or "
+                                 "one of 'log', 'linear' and 'natural'")
+        if alpha == 0:
+            raise ValueError("A power-law spacing needs a non-zero index "
+                             "(use 'log')")
+        return alpha
+
     def _setup_powerlaw(self, R0, R1, N, alpha):
         """Setup a power law grid"""
         alpha = float(alpha)
@@ -59,11 +71,16 @@ class Grid(object):
         dRa = (R1a - R0a) / N
 
         Ree_a = R0a + np.arange(-2, N+3, dtype='f8') * dRa
+        # The ghost edges, two beyond each end, must have R^alpha > 0 too
+        if not (Ree_a > 0).all():
+            raise ValueError("Power-law grid (index {}) has ghost cells at "
+                             "R <= 0: use a larger R0, more cells or log "
+                             "spacing".format(alpha))
         Ree = Ree_a**alpha1
 
         self._Re  = Ree[2:-2]
         self._Ree = Ree
-        
+
     def _setup_centers(self):
         if self._spacing == 'log':
             self._Rce = np.sqrt(self._Ree[2:-1]*self._Ree[1:-2])
@@ -75,7 +92,10 @@ class Grid(object):
             self._Rce = (0.5*(self._Ree[2:-1]**0.5 + self._Ree[1:-2]**0.5))**2
             self._Rc = self._Rce[1:-1]
         else:
-            raise ValueError("Should not occur")
+            # Centred in R^alpha, as the 'linear' and 'natural' cases
+            a = self._power_index(self._spacing)
+            self._Rce = (0.5*(self._Ree[2:-1]**a + self._Ree[1:-2]**a))**(1/a)
+            self._Rc = self._Rce[1:-1]
 
 
     def _setup_aux(self):

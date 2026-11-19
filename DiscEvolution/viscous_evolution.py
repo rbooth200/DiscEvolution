@@ -10,6 +10,36 @@ import numpy as np
 import copy
 import warnings
 
+
+def _set_ghost_cells(S, grid, in_bound, bound):
+    """Set the ghost cells, S[0] and S[-1], of S = nu Sigma R^1/2 (or a
+    multiple of it) at the centres grid.Rce, for the boundary types of
+    ViscousEvolutionFV. The extrapolations use the ghost cells' own centres,
+    so they hold on any grid, not only a log-spaced one."""
+    Rce = grid.Rce
+
+    # Inner boundary
+    if in_bound == 'Zero':            # Zero torque
+        S[0] = 0
+    elif in_bound == 'Mdot':          # Constant flux (appropriate for power law): S ~ R^1/2
+        S[0] = S[1] * np.sqrt(Rce[0] / Rce[1])
+    else:
+        raise ValueError("Error boundary type not recognised")
+
+    # Outer boundary
+    if bound == 'Zero':               # Zero torque
+        S[-1] = 0
+    elif bound == 'power_law':        # Power law in R through the last two cells
+        p = np.log(Rce[-1] / Rce[-2]) / np.log(Rce[-2] / Rce[-3])
+        S[-1] = S[-2] * (S[-2] / S[-3]) ** p
+    elif bound == 'Mdot_out':         # Constant flux (appropriate for tail of LBP): S ~ R^-1/2
+        S[-1] = S[-2] * np.sqrt(Rce[-2] / Rce[-1])
+    elif bound == 'Mdot_inn':         # Constant flux (appropriate for power law): S ~ R^1/2
+        S[-1] = S[-2] * np.sqrt(Rce[-1] / Rce[-2])
+    else:
+        raise ValueError("Error boundary type not recognised")
+
+
 class ViscousEvolution(object):
     """Solves the 1D viscous evolution equation.
 
@@ -69,26 +99,7 @@ class ViscousEvolution(object):
 
         S = np.zeros(len(nuX) + 2, dtype='f8')
         S[1:-1] = (disc.Sigma_G if Sigma_G is None else Sigma_G) * nuX
-
-        # Inner boundary
-        if self._in_bound == 'Zero':            # Zero torque
-            S[0] = 0
-        elif self._in_bound == 'Mdot':          # Constant flux (appropriate for power law)
-            S[0] = S[1] * self._X[0] / self._X[1]
-        else:
-            raise ValueError("Error boundary type not recognised")
-
-        # Outer boundary
-        if self._bound == 'Zero':               # Zero torque
-            S[-1] = 0
-        elif self._bound == 'power_law':
-            S[-1] = S[-2] ** 2 / S[-3]
-        elif self._bound == 'Mdot_out':         # Constant flux (appropriate for tail of LBP)
-            S[-1] = S[-2] * self._X[-2] / self._X[-1]
-        elif self._bound == 'Mdot_inn':         # Constant flux (appropriate for power law)
-            S[-1] = S[-2] * self._X[-1] / self._X[-2]
-        else:
-            raise ValueError("Error boundary type not recognised")
+        _set_ghost_cells(S, disc.grid, self._in_bound, self._bound)
 
         self._dS = np.diff(S) / self._dXc
 
@@ -212,26 +223,7 @@ class ViscousEvolutionFV(object):
 
         S = np.zeros(len(nuRh) + 2, dtype='f8')
         S[1:-1] = (disc.Sigma_G if Sigma_G is None else Sigma_G) * nuRh
-
-        # Inner boundary
-        if self._in_bound == 'Zero':            # Zero torque
-            S[0] = 0
-        elif self._in_bound == 'Mdot':          # Constant flux (appropriate for power law)
-            S[0] = S[1] * self._Rh[0] / self._Rh[1]
-        else:
-            raise ValueError("Error boundary type not recognised")
-
-        # Outer boundary
-        if self._bound == 'Zero':
-            S[-1] = 0
-        elif self._bound == 'power_law':
-            S[-1] = S[-2] ** 2 / S[-3]
-        elif self._bound == 'Mdot_out':         # Constant flux (appropriate for tail of LBP)
-            S[-1] = S[-2] * self._Rh[-2] / self._Rh[-1]
-        elif self._bound == 'Mdot_inn':         # Constant flux (appropriate for power law)
-            S[-1] = S[-2] * self._Rh[-1] / self._Rh[-2]
-        else:
-            raise ValueError("Error boundary type not recognised")
+        _set_ghost_cells(S, disc.grid, self._in_bound, self._bound)
 
         self._dS = 4.5 * np.diff(S) / self._dR3
 
@@ -364,26 +356,7 @@ class HybridWindModel(object):
 
         S = np.zeros(len(nuRh) + 2, dtype='f8')
         S[1:-1] = disc.Sigma_G * nuRh
-
-        # Inner boundary
-        if self._in_bound == 'Zero':            # Zero torque
-            S[0] = 0
-        elif self._in_bound == 'Mdot':          # Constant flux (appropriate for power law)
-            S[0] = S[1] * self._Rh[0] / self._Rh[1]
-        else:
-            raise ValueError("Error boundary type not recognised")
-
-        # Outer boundary
-        if self._bound == 'Zero':
-            S[-1] = 0
-        elif self._bound == 'power_law':
-            S[-1] = S[-2] ** 2 / S[-3]
-        elif self._bound == 'Mdot_out':         # Constant flux (appropriate for tail of LBP)
-            S[-1] = S[-2] * self._Rh[-2] / self._Rh[-1]
-        elif self._bound == 'Mdot_inn':         # Constant flux (appropriate for power law)
-            S[-1] = S[-2] * self._Rh[-1] / self._Rh[-2]
-        else:
-            raise ValueError("Error boundary type not recognised")
+        _set_ghost_cells(S, disc.grid, self._in_bound, self._bound)
 
         self._f_visc = 4.5 * np.diff(S) / self._dR3
 

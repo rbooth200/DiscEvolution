@@ -144,7 +144,8 @@ from DiscEvolution.dust import DustGrowthTwoPop
 
 
 def _dusty(cls, **kw):
-    grid, star, eos, nud = _setup(N=60)
+    # (N >= 88: with fewer cells the natural grid's ghost cells reach R <= 0)
+    grid, star, eos, nud = _setup(N=100)
     sol = TaboneSolution(1e-2*Msun/AU**2, 30., nud, psi_DW=0)
     return cls(grid, star, eos, 0.01, Sigma=sol(grid.Rc, 0.), **kw)
 

@@ -79,3 +79,40 @@ def test_LP_model(Visc):
 def test_ViscousEvolution_deprecated():
     with pytest.warns(DeprecationWarning):
         ViscousEvolution()
+
+
+@pytest.mark.parametrize("spacing,R0", [('natural', 0.1), ('log', 0.1), ('linear', 10.), (0.25, 0.1)])
+@pytest.mark.parametrize("bound,power", [('Mdot', 0.5), ('Mdot_out', -0.5),
+                                         ('Mdot_inn', 0.5), ('power_law', -1.3)])
+def test_ghost_cells_power_law(spacing, R0, bound, power):
+    """The boundary extrapolations are exact for the power laws they assume,
+    on any grid (not only log-spaced ones)"""
+    from DiscEvolution.viscous_evolution import _set_ghost_cells
+    grid = Grid(R0, 1000., 200, spacing=spacing)
+    S_exact = grid.Rce**power
+    S = S_exact.copy()
+    S[0] = S[-1] = np.nan
+    in_bound = 'Mdot' if bound == 'Mdot' else 'Zero'
+    _set_ghost_cells(S, grid, in_bound, 'Zero' if bound == 'Mdot' else bound)
+    if bound == 'Mdot':
+        assert np.isclose(S[0], S_exact[0], rtol=1e-12)
+    else:
+        assert np.isclose(S[-1], S_exact[-1], rtol=1e-12)
+
+
+@pytest.mark.parametrize("spacing", ['natural', 'log'])
+@pytest.mark.parametrize("Visc", [ViscousEvolutionFV, ViscousEvolutionRKL])
+def test_steady_accretion_inner_boundary(spacing, Visc):
+    """With the constant-Mdot inner boundary, steady accretion (nu Sigma =
+    const) passes through the inner edge unchanged"""
+    from types import SimpleNamespace
+    grid = Grid(0.1, 1000., 500, spacing=spacing)
+    nu = grid.Rc.copy()
+    disc = SimpleNamespace(grid=grid, nu=nu, Sigma_G=1/nu, Sigma=1/nu)
+    visc = Visc()
+    visc._setup_grid(grid)
+    visc._init_fluxes(disc)
+    rate = visc._fluxes() * grid.Rc**2 / nu / disc.Sigma    # dSigma/dt in Sigma / t_nu
+    flux = visc._dA * visc._dS
+    assert abs(rate[0]) < 1e-2
+    assert np.isclose(flux[0], flux[len(flux)//2], rtol=1e-2)
