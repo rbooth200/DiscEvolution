@@ -1,53 +1,55 @@
 # area_ice.py
 #
-# Thermal adsorption/desorption with the ice of each volatile split into a
-# part distributed by grain surface area and a part distributed by grain mass,
-# for the TriMom dust model (dust_trimom.DustGrowthTriMom).
+# Thermal adsorption/desorption for the TriMom dust model
+# (dust_trimom.DustGrowthTriMom) with the ice of each volatile in two parts:
+# a mass-distributed part, inside the grains, and a shell, a mantle of
+# uniform thickness d on every grain.
 #
-# Per grain, adsorption adds coverage (in monolayers) uniformly, at a rate
-# ~ X_gas, and desorption removes it at k_d min(theta, 1): first order below a
-# monolayer, zeroth order above, as ThermalChem. Every grain follows the same
-# equation, so at a sublimation front the small grains empty first and the
-# large ones keep their ice for longer.
+# Per unit grain surface, adsorption (~ the vapour) and multilayer desorption
+# (zeroth order) change every grain's radius at the same rate, so a mantle of
+# uniform thickness stays uniform: the ice that condenses is a shell, one
+# number per volatile and cell. Its thickness follows from its mass on
+# TriMom's power law (dust_trimom.shell_thickness), and it adsorbs and
+# desorbs on the coated area. The equilibria are those of ThermalChem.
 #
-# The ice of a volatile on a grain of size a is represented by the profile
-#     theta(a) = max(phi, (alpha + beta a/a_A)/X_mono)
-# with a_A = M_0/M_-1 the area-weighted mean size and X_mono the monolayer
-# capacity of the dust (ThermalChem's X_max with the dust's own area): a
-# floor phi on the small grains (bare or below a monolayer) and a line, a
-# uniform mantle plus one of thickness ~ a. Two rows are stored, A and M, read
-# as moments of the ice: X = A + M and its a/a_A-weighted moment
-# Y = A + c M (c = <a^2>_area/a_A^2). Without a floor region they are the
-# line's coefficients. Each step takes the floor in equilibrium with the gas
-# (out of A), rebuilds the line from (X, Y), and then either solves a pure
-# regime exactly or takes one step implicit in the gas, the line shifted with
-# its slope fixed and the floor integrated (two_component_ice.tex in
-# scripts/trimom/production/ice_area/).
+# Each step is backward Euler for every grain, in closed form on the power
+# law. The grains are the dust less the shells: size a, with the volatile's
+# mass-distributed ice uniform by mass (core c = kappa a). A grain's ice
+# thickness t = a + d - c after the step is linear in its start for a given
+# end vapour: t + gain - loss above a monolayer, (t + gain)/(1 + loss) below
+# one (first-order desorption). So the ice is a closed form of the vapour,
+# and the vapour is a monotone root. New ice goes into the shell. Losses come
+# out of the shell, then out of the mass-distributed part (peeling, which
+# strips the small grains first). The sub-monolayer equilibrium coverage of
+# the cores goes into the shell (it moves with the area).
 #
-# Transport (MomentDrift(area_tracers=...)) moves A with the area-weighted
-# velocity and M with the mass-weighted one, and growth (DustGrowthTriMom)
-# mixes A into M (mix_area_to_mass).
+# Transport (MomentDrift(area_tracers=...)) moves each shell at its
+# mass-weighted velocity with the Stokes number of the coated size, and the
+# mass-distributed ice with the grains. Growth (DustGrowthTriMom) mixes the
+# shells into the grains (mix_area_to_mass), which grow with it if
+# ice_sizes=True. Write-up: shell_ice.tex in scripts/trimom/production/ice_area/.
 ################################################################################
 import numpy as np
 
 from ..constants import m_H
+from ..dust_trimom import moment_ratio, shell_thickness
 from .base_chem import ChemicalAbund, ThermalChem, SimpleChemBase
 
 
 class AreaMassIceAbund(ChemicalAbund):
     """Ice abundances with the ice of the volatiles in area_species split
-    into an area-distributed part (rows '<spec>:A') and a mass-distributed
-    part (rows '<spec>'). The other species (e.g. refractory grains) are
-    distributed by mass.
+    into a shell (rows '<spec>:A'), a mantle of uniform thickness on the
+    grains, and a mass-distributed part (rows '<spec>'). The other species
+    (e.g. refractory grains) are distributed by mass.
 
-    ice[spec] is the total; setting it keeps the area part (up to the new
+    ice[spec] is the total; setting it keeps the shell (up to the new
     total). data holds all the rows, which the driver transports; area_rows
     are the indices to pass to MomentDrift(area_tracers=...).
 
     args:
         species      : list of species names
         masses       : their molecular masses in amu
-        area_species : the species with an area-distributed part
+        area_species : the species with a shell
         sizes        : shape of the data for each species
     """
     def __init__(self, species, masses, area_species, *sizes):
@@ -95,7 +97,7 @@ class AreaMassIceAbund(ChemicalAbund):
 
     @property
     def area_rows(self):
-        """Indices of the area-distributed rows in data"""
+        """Indices of the shell rows in data"""
         return np.array([self._indexes[s + ':A'] for s in self._area_species])
 
     @property
@@ -104,7 +106,7 @@ class AreaMassIceAbund(ChemicalAbund):
         return np.array([self._indexes[s] for s in self._area_species])
 
     def area(self, k):
-        """Area-distributed ice of species k"""
+        """The ice in the shell of species k"""
         return self._data[self._indexes[k + ':A']]
 
     def mass_part(self, k):
@@ -112,253 +114,99 @@ class AreaMassIceAbund(ChemicalAbund):
         return self._data[self._indexes[k]]
 
     def set_parts(self, k, area, mass):
-        """Set the area- and mass-distributed ice of species k"""
+        """Set the shell and mass-distributed ice of species k"""
         self._data[self._indexes[k + ':A']] = area
         self._data[self._indexes[k]] = mass
 
     def mix_area_to_mass(self, f):
-        """Move a fraction f of the area-distributed ice into the mass-
-        distributed ice (growth mixing)"""
+        """Move a fraction f of the shells into the mass-distributed ice
+        (growth mixing)"""
         iA, iM = self.area_rows, self.mass_rows
         dA = f*self._data[iA]
         self._data[iM] += dA
         self._data[iA] -= dA
 
     def clip_negative(self):
-        """Set negative abundances to zero, except the area-distributed ice,
-        which can be negative (the rows are the moments X = A + M and
-        Y = A + c M of a profile that increases with size, so the realisable
-        rows are X >= 0 and 0 <= M <= X (amax/a_A - 1)/(c - 1); the upper
-        bound needs the size distribution and is kept by
-        TimeDependentChemTriMom). Negative M is moved into A, keeping X
-        (uniform ice, Y = X); a negative total is set to zero, with both
-        rows (X = 0 needs Y = 0)."""
+        """Set negative abundances to zero. For the area_species, a negative
+        part is taken out of the other one, keeping the total; a negative
+        total empties both."""
         iA, iM = self.area_rows, self.mass_rows
         rest = np.setdiff1d(np.arange(len(self._data)), np.concatenate([iA, iM]))
         self._data[rest] = np.maximum(self._data[rest], 0)
         A, M = self._data[iA], self._data[iM]
-        neg = np.minimum(M, 0)
-        M -= neg
-        A += neg
-        empty = A + M < 0
-        self._data[iA] = np.where(empty, 0., A)
-        self._data[iM] = np.where(empty, 0., M)
+        X = np.maximum(A + M, 0)
+        A = np.clip(A, 0, X)
+        self._data[iA] = A
+        self._data[iM] = X - A
 
 
-def _frac_below(k, xi, L):
-    """int_0^xi e^(k x) dx / int_0^L e^(k x) dx, for 0 <= xi <= L"""
+def _frac_below(k, x, L):
+    """int_0^x e^(k y) dy / int_0^L e^(k y) dy, for 0 <= x <= L, without
+    overflow"""
     small = np.abs(k*L) < 1e-8
     ks = np.where(small, 1., k)
-    return np.where(small, xi/L, np.expm1(ks*xi)/np.expm1(ks*L))
+    with np.errstate(over='ignore', invalid='ignore'):
+        up = np.exp(ks*(x - L))*np.expm1(-ks*x)/np.expm1(-ks*L)
+        down = np.expm1(ks*x)/np.expm1(ks*L)
+    return np.where(small, x/L, np.where(ks > 0, up, down))
 
 
-def _h(z):
-    """(1 - e^-z)/z, = 1 at z = 0 (z >= 0)"""
-    small = z < 1e-8
-    zs = np.where(small, 1., z)
-    return np.where(small, 1 - 0.5*z, -np.expm1(-zs)/zs)
+def _newton_root(fdf, x0, lo, hi, tol, max_iter=100):
+    """Roots of increasing functions f in [lo, hi] (f(lo) <= 0 <= f(hi)),
+    vectorised: Newton's method from x0, bisecting when a step leaves the
+    bracket, on the unconverged cells only (fdf(x, idx) gives f and f' at x
+    for the cells idx). Converged when |f| <= tol, or the step or the bracket
+    is at round-off.
 
-
-PHI_MARGIN = 1e-3      # margin from a delta at amax (floor and realisability)
-
-
-def _lnG(k, L):
-    """ln G_k(L) = ln((e^(kL) - 1)/k), stable for either sign of k"""
-    small = np.abs(k*L) < 1e-8
-    ks = np.where(small, 1., k)
-    return np.where(small, np.log(L),
-                    np.log(np.abs(np.expm1(ks*L))) - np.log(np.abs(ks)))
-
-
-def _shape(s, L):
-    """The size distribution as the ice profile sees it: s, L, lr =
-    ln(a_A/amin), c = <a^2>_area/a_A^2, amin_r = amin/a_A, amax_r = amax/a_A"""
-    lr = _lnG(s, L) - _lnG(s - 1, L)
-    c = np.exp(_lnG(s + 1, L) - _lnG(s - 1, L) - 2*lr)
-    return dict(s=s, L=L, lr=lr, c=c, amin_r=np.exp(-lr), amax_r=np.exp(L - lr))
-
-
-def _fracs(g, x):
-    """(P_A, P_M, P_C): the fractions of the area and of its a- and
-    a^2-moments on grains below x = ln(a/amin)"""
-    s, L = g['s'], g['L']
-    return (_frac_below(s - 1, x, L), _frac_below(s, x, L),
-            _frac_below(s + 1, x, L))
-
-
-def _moments(g, Xm, phi, alpha, beta, xf):
-    """(X, Y) = (int n_i, int (a/a_A) n_i) of the profile
-    max(phi Xm, alpha + beta a/a_A), with the floor below xf"""
-    PA, PM, PC = _fracs(g, xf)
-    X = Xm*phi*PA + alpha*(1 - PA) + beta*(1 - PM)
-    Y = Xm*phi*PM + alpha*(1 - PM) + beta*g['c']*(1 - PC)
-    return X, Y
-
-
-def _cutoff_moments(g, x):
-    """(I_1, I_2): the moments of (a - a_f)_+/a_A, with a_f = amin e^x"""
-    PA, PM, PC = _fracs(g, x)
-    af = g['amin_r']*np.exp(x)
-    return (1 - PM) - af*(1 - PA), g['c']*(1 - PC) - af*(1 - PM)
-
-
-def _sub(g, k):
-    """The values of g in the cells k"""
-    return {key: v[k] for key, v in g.items()}
-
-
-def _profile(g, Xm, X, Y, phi):
-    """(alpha, beta, xf): the line of the profile max(phi Xm, alpha + beta
-    a/a_A) with moments (X, Y). The floor is taken out of the area part,
-    X' = X - phi Xm, Y' = Y - phi Xm; the rest is the line (A', M) if it is
-    above the floor at amin, otherwise a line cut off at a_f > amin, with
-    I_2/I_1(xf) = Y'/X' (monotone in xf)"""
-    Xp, Yp = X - phi*Xm, Y - phi*Xm
-    beta = (Yp - Xp)/(g['c'] - 1)
-    alpha = Xp - beta
-    xf = np.zeros_like(X)
-    cut = (alpha < -beta*g['amin_r']) & (Xp > 0)
-    if cut.any():
-        k = np.nonzero(cut)[0]
-        gk = _sub(g, k)
-        target = Yp[k]/Xp[k]
-        lo, hi = np.zeros(len(k)), gk['L'].copy()
-        for _ in range(60):
-            mid = 0.5*(lo + hi)
-            I1, I2 = _cutoff_moments(gk, mid)
-            above = I2 > target*I1
-            hi = np.where(above, mid, hi)
-            lo = np.where(above, lo, mid)
-        x = 0.5*(lo + hi)
-        I1, _ = _cutoff_moments(gk, x)
-        beta[k] = Xp[k]/np.maximum(I1, 1e-300)
-        alpha[k] = -beta[k]*gk['amin_r']*np.exp(x)
-        xf[k] = x
-    return alpha + phi*Xm, beta, xf
-
-
-def _implicit_step(g, Sa, Sd, Xm, X_t, alpha0, beta, phi_s, dt,
-                   tol=1e-12, max_iter=200):
-    """One step of the profile max(phi Xm, alpha + beta a/a_A), implicit in
-    the gas: with the adsorption rate r_1 = Sa (X_t - X_1)/Xm of the end
-    state,
-        alpha_1 = alpha_0 + Xm D,  D = dt (r_1 - Sd)  (the line: every grain
-                                                       above a monolayer
-                                                       shifts by D layers)
-        phi_1   = phi_s + dt [r_1 - Sd min(phi_1, 1)]  (the floor)
-        X_1     = X(phi_1, alpha_1, beta)              (moments of the profile)
-    beta fixed. Line grains that empty within the step end on the floor
-    (the max), so the stripping at a front is exact however far the cut-off
-    moves. Solved for D (well scaled however long the step): the residual
-    X_1(D) - X(phi_1(D), alpha_1(D), beta) decreases with D, one root.
-
-    returns X_1, phi_1, alpha_1, xf_1, xc_1 and the converged mask"""
-    L, amin_r = g['L'], g['amin_r']
-
-    def state(D):
-        X1 = X_t - Xm*(Sd + D/dt)/Sa
-        phi1 = (phi_s + D + Sd*dt)/(1 + Sd*dt)
-        multi = phi1 >= 1
-        phi1 = np.where(multi, phi_s + D, phi1)
-        alpha = alpha0 + Xm*D
-        xf = np.log(np.maximum((phi1*Xm - alpha)/(beta*amin_r), 1e-300))
-        xf = np.clip(xf, 0, L)
-        xc = np.log(np.maximum((Xm - alpha)/(beta*amin_r), 1e-300))
-        xc = np.where(multi, xf, np.clip(xc, xf, L))
-        X, _ = _moments(g, Xm, phi1, alpha, beta, xf)
-        return X1 - X, phi1, alpha, xf, xc
-
-    # D from r_1 = 0 (all gas adsorbed... none: X_1 = X_t) to X_1 = 0
-    a = -Sd*dt
-    b = dt*(Sa*X_t/Xm - Sd)
-    fa, fb = state(a)[0], state(b)[0]
-    z = a.copy()
-    side = np.zeros(len(a), dtype=int)
-    done = fa <= 0                      # the end state takes all the gas
-    width = b - a
-    bisect = np.zeros(len(a), dtype=bool)
-    scale = tol*np.maximum(X_t, 1e-300)
+    returns: the roots and the converged mask"""
+    x, lo, hi = np.clip(x0, lo, hi), lo.copy(), hi.copy()
+    done = np.zeros(len(x), dtype=bool)
+    idx = np.arange(len(x))
     for _ in range(max_iter):
-        # Illinois (modified regula falsi); bisection when it stalls
+        xi = x[idx]
+        f, df = fdf(xi, idx)
+        pos = f > 0
+        hi[idx] = np.where(pos, xi, hi[idx])
+        lo[idx] = np.where(pos, lo[idx], xi)
         with np.errstate(divide='ignore', invalid='ignore'):
-            zn = (a*fb - b*fa)/(fb - fa)
-        ok = np.isfinite(zn) & (zn > a) & (zn < b) & ~bisect
-        zn = np.where(ok, zn, 0.5*(a + b))
-        z = np.where(done, z, zn)
-        fz = state(z)[0]
-        pos = fz > 0
-        a = np.where(pos & ~done, z, a)
-        fa = np.where(pos & ~done, fz, fa)
-        b = np.where(~pos & ~done, z, b)
-        fb = np.where(~pos & ~done, fz, fb)
-        fb = np.where(pos & (side == 1), 0.5*fb, fb)
-        fa = np.where(~pos & (side == -1), 0.5*fa, fa)
-        side = np.where(pos, 1, -1)
-        bisect = (b - a) > 0.5*width
-        width = b - a
-        done |= (np.abs(fz) <= scale) | (b - a <= 1e-15*(np.abs(a) + np.abs(b)))
-        if done.all():
+            xn = xi - f/df
+        inside = np.isfinite(xn) & (xn > lo[idx]) & (xn < hi[idx])
+        xn = np.where(inside, xn, 0.5*(lo[idx] + hi[idx]))
+        conv = (np.abs(f) <= tol[idx]) | (np.abs(xn - xi) <= 1e-15*np.abs(xi)) | \
+            (hi[idx] - lo[idx] <= 1e-15*np.abs(hi[idx]))
+        done[idx[conv]] = True
+        x[idx] = np.where(conv, xi, xn)
+        idx = idx[~conv]
+        if not len(idx):
             break
-    _, phi1, alpha, xf, xc = state(z)
-    X1, _ = _moments(g, Xm, phi1, alpha, beta, xf)
-    return X1, phi1, alpha, xf, xc, done
-
-
-def _realisable(X, M, g):
-    """(M, amount moved): the ice can be no more concentrated on the largest
-    grains than all of it at amax, Y/X <= amax/a_A, i.e.
-    M <= X (amax/a_A - 1)/(c - 1), less the margin PHI_MARGIN (at the bound
-    the profile is a delta at amax); beyond it mass-distributed ice is moved
-    into the area part, keeping X"""
-    M_max = (1 - PHI_MARGIN)*X*(g['amax_r'] - 1)/(g['c'] - 1)
-    M_new = np.minimum(M, np.maximum(M_max, 0))
-    return M_new, M - M_new
-
-
-def _pure(sub, X, M, Sa, Sd, Xm, X_t, t):
-    """(X, M) after a time t in a pure regime, exact for any profile:
-    all grains above a monolayer (a uniform shift),
-        dX/dt = Sa (X_t - X) - Sd Xm,   M fixed;
-    all below (sub; one linear map of every grain's coverage),
-        dX/dt = Sa (X_t - X) - Sd X,    dM/dt = -Sd M"""
-    lam = np.where(sub, Sa + Sd, Sa)
-    c = np.where(sub, Sa*X_t, Sa*X_t - Sd*Xm)
-    X1 = X*np.exp(-lam*t) + c*t*_h(lam*t)
-    return X1, np.where(sub, M*np.exp(-Sd*t), M)
+    return x, done
 
 
 class TimeDependentChemTriMom(ThermalChem, SimpleChemBase):
-    """Time dependent thermal adsorption/desorption with area- and mass-
-    distributed ice (AreaMassIceAbund), for the TriMom dust model.
+    """Time dependent thermal adsorption/desorption with the ice in shells
+    and mass-distributed parts (AreaMassIceAbund), for the TriMom dust model.
 
     Uses the size distribution of disc (a DustGrowthTriMom) and the rates of
-    ThermalChem with the dust's own grain area. The chemistry is a separate
-    operator: transport moves the two parts with their own velocities and
-    growth mixes them (MomentDrift(area_tracers=...), DustGrowthTriMom).
+    ThermalChem, on the area of the grains with their shells. The grains are
+    the dust less all the shells (dust_frac less the shell rows). The
+    chemistry is a separate operator: transport moves the two parts with
+    their own velocities and growth mixes them (MomentDrift(area_tracers=...),
+    DustGrowthTriMom).
 
-    The rows are read as moments of the ice: X = A + M and its a/a_A-weighted
-    moment Y = A + c M. Each step rebuilds the profile
-        theta(a) = max(phi, (alpha + beta a/a_A)/X_mono)
-    with the floor phi (the small, sub-monolayer or bare grains) in
-    equilibrium with the gas, taken out of the area part, and the rest a
-    line, cut off at a_f if it would fall below the floor
-    (notes/bare_grains.md). Cells that stay in a pure regime (all grains
-    above a monolayer, or all below) take the exact solution, and uniform
-    ice (M = 0) reduces to TimeDependentChem. The others take one step
-    implicit in the gas: every line grain above a monolayer shifts by the
-    same, the floor is integrated, beta is fixed, and a_f, a_c are those of
-    the end state (two_component_ice.tex).
+    Each step is backward Euler for every grain of the power law, in closed
+    form, with the vapour at the end of the step a monotone root. It is exact
+    in equilibrium, for multilayer desorption into empty gas, and in the
+    sub-monolayer regime's linear decay. New ice goes into the shell; losses
+    come out of the shell, then out of the mass-distributed part (peeling,
+    the small grains bare). The equilibrium sub-monolayer coverage of the
+    cores is kept in the shell.
 
-    last_clip holds the mass abundance moved by the realisability bound in
-    the last step (Y/X <= amax/a_A), per species; last_floor the floor ice at
-    the start and the end of the step (and phi), the ice on the band
-    (between the floor and one layer) at the end and the cells that took the
-    implicit step ('mixed'), per species; n_unconverged the number of
-    cells whose implicit step did not converge.
+    n_unconverged is the number of cells whose vapour did not converge in
+    the last step.
 
     args:
         disc : the DustGrowthTriMom disc
-        tol  : relative tolerance of the implicit step, default 1e-12
+        tol  : relative tolerance of the vapour, default 1e-12
         other args as ThermalChem
     """
     def __init__(self, disc, tol=1e-12, **kwargs):
@@ -366,157 +214,131 @@ class TimeDependentChemTriMom(ThermalChem, SimpleChemBase):
         SimpleChemBase.__init__(self)
         self._disc = disc
         self._tol = tol
-        self.last_clip = {}
-        self.last_floor = {}
         self.n_unconverged = 0
 
     def update(self, dt, T, rho, dust_frac, chem, grain_cross_section=None,
                **kwargs):
         """Update the gas/ice abundances"""
-        if grain_cross_section is None:
-            grain_cross_section = self._disc.grain_cross_section
-        eps = self._effective_dust_frac(dust_frac, grain_cross_section)
+        g = self._grains(dust_frac, chem.ice, grain_cross_section)
         self.n_unconverged = 0
         for spec in chem:
             if 'grain' in spec:
                 self._update_ice_balance(dt, T, rho, dust_frac, spec, chem)
             else:
-                self._update_two_parts(dt, T, rho, eps, spec, chem)
+                self._update_shell(dt, T, rho, g, spec, chem)
 
-    def _update_two_parts(self, dt, T, rho, eps, spec, chem):
+    def _grains(self, dust_frac, ice, grain_cross_section=None):
+        """The grains without their shells: dust fraction ('base'), the
+        effective dust fraction of ThermalChem ('eps'), the power law (s, L,
+        amin) and its mass-weighted moments R_j = <a^-j>, j = 0..3"""
+        if grain_cross_section is None:
+            grain_cross_section = self._disc.grain_cross_section
+        shells = sum(np.maximum(ice.area(s), 0) for s in ice.area_species)
+        base = np.maximum(dust_frac - shells, 0)
+        _, s, L = self._disc.size_distribution()
+        amin = self._disc.amin
+        R = np.array([moment_ratio(-j, s, L, amin) for j in range(4)])
+        return dict(base=base, eps=self._effective_dust_frac(base, grain_cross_section),
+                    s=s, L=L, amin=amin, R=R)
+
+    def thickness(self, dust_frac, ice, spec, grain_cross_section=None):
+        """Thickness of spec's shell [cm]"""
+        g = self._grains(dust_frac, ice, grain_cross_section)
+        ok = g['base'] > 0
+        r = np.where(ok, np.maximum(ice.area(spec), 0)/np.where(ok, g['base'], 1), 0.)
+        return shell_thickness(r, g['s'], g['L'], g['amin'])
+
+    def _update_shell(self, dt, T, rho, g, spec, chem):
         ice, gas = chem.ice, chem.gas
         if spec not in ice.area_species:
-            raise KeyError("{} has no area-distributed ice".format(spec))
+            raise KeyError("{} has no shell".format(spec))
 
-        b = self._rebuild(T, rho, eps, spec, chem)
-        conv = b['conv']
-        g, X_t, X0, M0 = b['g'], b['X_t'], b['X'], b['M']
-        Sa, Sd, Xm, ok = b['Sa'], b['Sd'], b['Xm'], b['ok']
-        phi_s, alpha, beta, xf = b['phi'], b['alpha'], b['beta'], b['xf']
-        moved0 = b['moved']
-        amin_r, amax_r = g['amin_r'], g['amax_r']
-        Xm_ = np.where(ok, Xm, 1.)
-
-        # Regimes: all grains below a monolayer, or all above
-        th_min = np.maximum(phi_s, (alpha + beta*amin_r)/Xm_)
-        th_max = np.maximum(phi_s, (alpha + beta*amax_r)/Xm_)
-        sub = (th_max <= 1) & ok
-        multi = (th_min >= 1) & ~sub & ok
-        pure = sub | multi
-
-        # Pure regimes: exact, unless the regime is left during the step
-        X1, M1 = _pure(sub, X0, M0, Sa, Sd, Xm, X_t, dt)
-        e = np.exp(-Sd*dt)
-        stay = np.where(sub, th_max*e + (X1 - X0*e)/Xm_ <= 1,
-                        th_min + (X1 - X0)/Xm_ >= 1) & pure
-        X_end = np.where(stay, X1, X0)
-        M_end = np.where(stay, M1, M0)
-        floor_end = np.where(sub, phi_s*e + (X1 - X0*e)/Xm_, phi_s + (X1 - X0)/Xm_)
-        PA_s = _fracs(g, xf)[0]
-        floor0 = Xm*phi_s*PA_s
-        floor1 = np.where(stay, Xm*floor_end*PA_s, floor0)
-        phi_end = np.where(stay, floor_end, phi_s)
-        band1 = np.zeros_like(X0)
-
-        # Uniform ice (M = 0) that leaves its regime: the crossing time, then
-        # the other regime for the rest of the step (as TimeDependentChem)
-        uni = pure & ~stay & (M0 <= 0)
-        if uni.any():
-            k = np.nonzero(uni)[0]
-            Xk, Mk, sk = X0[k], M0[k], sub[k]
-            r = (Sa[k], Sd[k], Xm[k], X_t[k])
-            lo, hi = np.zeros(len(k)), np.full(len(k), dt)
-            for _ in range(60):
-                mid = 0.5*(lo + hi)
-                Xa, _ = _pure(sk, Xk, Mk, *r, mid)
-                out = np.where(sk, Xa > Xm[k], Xa < Xm[k])
-                hi = np.where(out, mid, hi)
-                lo = np.where(out, lo, mid)
-            Xc, Mc = _pure(sk, Xk, Mk, *r, lo)
-            X_end[k], M_end[k] = _pure(~sk, Xc, Mc, *r, dt - lo)
-
-        # Everything else (the mixed regime): one step implicit in the gas
-        mixed = ~stay & ~uni & ok
-        if mixed.any():
-            k = np.nonzero(mixed)[0]
-            gk = _sub(g, k)
-            X1k, phi1, alpha1, xf1, xc1, conv_k = _implicit_step(
-                gk, Sa[k], Sd[k], Xm[k], X_t[k], alpha[k], beta[k],
-                phi_s[k], dt, tol=self._tol)
-            Xk, Yk = _moments(gk, Xm[k], phi1, alpha1, beta[k], xf1)
-            X_end[k] = Xk
-            M_end[k] = (Yk - Xk)/(gk['c'] - 1)
-            PAf, PMf, _ = _fracs(gk, xf1)
-            PAc, PMc, _ = _fracs(gk, xc1)
-            floor1[k] = Xm[k]*np.minimum(phi1, 1)*PAf
-            phi_end[k] = phi1
-            band1[k] = np.where(phi1 < 1, alpha1*(PAc - PAf) + beta[k]*(PMc - PMf), 0.)
-            self.n_unconverged += int((~conv_k).sum())
-
-        # Keep 0 <= X <= X_t, M >= 0 and Y/X <= amax/a_A
-        X_end = np.clip(X_end, 0, X_t)
-        M_end = np.clip(M_end, 0, None)
-        M_end, moved = _realisable(X_end, M_end, g)
-        A_end = X_end - M_end
-        self.last_clip[spec] = (moved0 + moved)/conv
-        self.last_floor[spec] = dict(start=floor0/conv, end=floor1/conv,
-                                     band=band1/conv, mixed=mixed,
-                                     phi_start=phi_s, phi_end=phi_end)
-
-        ice.set_parts(spec, A_end/conv, M_end/conv)
-        gas[spec] = np.maximum(X_t - X_end, 0)/conv
-
-    def _rebuild(self, T, rho, eps, spec, chem):
-        """The start of a step: rates, the realisable rows and the profile
-        max(phi, (alpha + beta a/a_A)/Xm), with the floor phi in equilibrium
-        with the gas (at most one layer, and no more than leaves the rest
-        realisable), taken out of the area part. Abundances in units of the
-        number abundance per H (conv)."""
-        ice, gas = chem.ice, chem.gas
         m_mol, mu = ice.mass(spec), self._mu
         conv = mu/m_mol
-
-        A0 = ice.area(spec)*conv
-        M0 = ice.mass_part(spec)*conv
-        X_t = A0 + M0 + gas[spec]*conv
-        X0 = A0 + M0
-
-        _, s, L = self._disc.size_distribution()
-        g = _shape(s, L)
-
-        # Transport moves A and M separately: start from a realisable state
-        M0, moved = _realisable(X0, M0, g)
-        Y0 = X0 + (g['c'] - 1)*M0
+        base = g['base']
+        A0, M0 = ice.area(spec), ice.mass_part(spec)
+        X_t = (A0 + M0 + gas[spec])*conv
 
         n = rho/(mu*m_H)
         Tbind = self._Tbind[spec]
-        Sa = self._f_ads*self._v_therm(T, m_mol)*eps*n
-        Sd = self._f_des*self._nu_i(Tbind, m_mol)*np.exp(-Tbind/T)
-        Xm = self._etaNbind*eps*np.ones_like(X0)
-        ok = Xm > 0
-        Xm_ = np.where(ok, Xm, 1.)
+        Sa = self._f_ads*self._v_therm(T, m_mol)*g['eps']*n
+        Sd = self._f_des*self._nu_i(Tbind, m_mol)*np.exp(-Tbind/T)*np.ones_like(X_t)
+        Xm = self._etaNbind*g['eps']        # a monolayer on the grains
 
-        X_g = X_t - X0
+        ok = (Xm > 0) & (base > 0) & (X_t > 0)
+        if not ok.any():
+            return
+        k = np.nonzero(ok)[0]
+        b, s, L, amin, R = base[k], g['s'][k], g['L'][k], g['amin'], g['R'][:, k]
+        Xm, Sd, X_t = Xm[k], Sd[k], X_t[k]
+        ra = Sa[k]/Xm                           # layers per unit time, per X_g
+        # Monolayer thickness: its mass over the grains' area times density
+        delta1 = Xm/(conv*3*b*R[1])
+
+        # The grains: core c = kappa a (the volatile's mass-distributed ice
+        # uniform by mass), coated radius a + d
+        A, M = np.maximum(A0[k], 0), np.maximum(M0[k], 0)
+        v = np.clip(M/b, 0, 1)
+        kappa = np.cbrt(1 - v)
+        beta = v/(1 + kappa*(1 + kappa))       # 1 - kappa
+        d = shell_thickness(A/b, s, L, amin)
+        loss = dt*Sd
+
+        # The fractions of the mass moments R_j below each size, and the
+        # ice per unit grain mass with t = p + q a on [x1, x2]:
+        # ((kappa + q) a + p)^3/a^3 - kappa^3, and its derivative in p
+        def moments_below(x, i):
+            return np.array([R[j, i]*_frac_below(s[i] - j, x, L[i]) for j in range(4)])
+
+        def segment(p, q, dP, i):
+            kp = kappa[i]
+            K = kp + q
+            ice = q*(K*K + K*kp + kp*kp)*dP[0] + p*(3*K*K*dP[1] + p*(3*K*dP[2] + p*dP[3]))
+            dice = 3*K*K*dP[1] + p*(6*K*dP[2] + 3*p*dP[3])
+            return ice, dice
+
+        def ice_of(Xg, i):
+            """The ice per unit grain mass at the end of the step, for the
+            vapour Xg at its end, and its derivative in Xg (cells i)"""
+            dl, l, bt, dd = delta1[i], loss[i], beta[i], d[i]
+            gain_rate = dt*ra[i]
+            gain = gain_rate*Xg
+            # Grains with t >= t_star at the start end above a monolayer
+            t_star = dl*(1 + l - gain)
+            with np.errstate(divide='ignore', invalid='ignore'):
+                am = np.where(bt > 0, (t_star - dd)/bt, np.where(dd >= t_star, 0., np.inf))
+                xm = np.clip(np.log(np.maximum(am, 1e-300)/amin), 0, L[i])
+            mid = moments_below(xm, i)
+            sub, dsub = segment((dd + dl*gain)/(1 + l), bt/(1 + l), mid, i)
+            multi, dmulti = segment(dd + dl*(gain - l), bt, R[:, i] - mid, i)
+            return sub + multi, dl*gain_rate*(dsub/(1 + l) + dmulti)
+
+        def fdf(Xg, i):
+            I, dI = ice_of(Xg, i)
+            c = conv*b[i]
+            return Xg + c*I - X_t[i], 1 + c*dI
+
+        tol = self._tol*X_t
+        Xg0 = np.clip(gas[spec][k]*conv, 0, X_t)
+        Xg, conv_k = _newton_root(fdf, Xg0, np.zeros_like(X_t), X_t.copy(), tol)
+        self.n_unconverged += int((~conv_k).sum())
+
+        # Conserving the total: the ice at the root, unless the ice is too
+        # steep in the vapour for that (long steps), then the root's vapour
+        all_k = np.arange(len(k))
+        I1 = b*ice_of(Xg, all_k)[0]
+        steep = np.abs(Xg + conv*I1 - X_t) > tol
+        I1 = np.clip(np.where(steep, (X_t - Xg)/conv, I1), 0, X_t/conv)
+        Xg = X_t - conv*I1
+
+        # Gains to the shell, losses from it first; the equilibrium coverage
+        # below a monolayer, on the cores (area kappa^2), to the shell
         with np.errstate(divide='ignore', invalid='ignore'):
-            theta_eq = np.where(X_g > 0, Sa*X_g/(Sd*Xm_), 0.)
-        theta_eq = np.nan_to_num(theta_eq, nan=0., posinf=1.)
-        # At phi_max the rest would be all at amax (a delta, beta = inf): keep
-        # a margin, which leaves it on a narrow band of sizes below amax
-        phi_max = (1 - PHI_MARGIN)*(X0 - Y0/g['amax_r'])/(Xm_*(1 - 1/g['amax_r']))
-        phi = np.where(ok, np.clip(np.minimum(np.minimum(theta_eq, 1), phi_max), 0, 1), 0.)
-        alpha, beta, xf = _profile(g, Xm, X0, Y0, phi)
-        return dict(g=g, conv=conv, X_t=X_t, X=X0, M=M0, moved=moved,
-                    Sa=Sa, Sd=Sd, Xm=Xm, ok=ok, phi=phi, alpha=alpha,
-                    beta=beta, xf=xf)
+            theta = np.where(Sd > 0, np.minimum(ra*Xg/Sd, 1), 1.)
+        floor = theta*kappa*kappa*Xm/conv
+        M1 = np.minimum(M, np.maximum(I1 - floor, 0))
 
-    def ice_profile(self, T, rho, dust_frac, chem, spec,
-                    grain_cross_section=None):
-        """The profile of spec's ice as a step would rebuild it,
-        theta(a) = max(phi, (alpha + beta a/a_A)/Xm): a dict with phi, alpha,
-        beta and Xm (number abundance per H), xf = ln(a_f/amin) and the shape
-        g (s, L, lr, c, amin_r, amax_r)"""
-        if grain_cross_section is None:
-            grain_cross_section = self._disc.grain_cross_section
-        eps = self._effective_dust_frac(dust_frac, grain_cross_section)
-        b = self._rebuild(T, rho, eps, spec, chem)
-        return {k: b[k] for k in ('phi', 'alpha', 'beta', 'xf', 'Xm', 'g')}
+        A_new, M_new, g_new = A0.copy(), M0.copy(), gas[spec].copy()
+        A_new[k], M_new[k], g_new[k] = I1 - M1, M1, Xg/conv
+        ice.set_parts(spec, A_new, M_new)
+        gas[spec] = g_new

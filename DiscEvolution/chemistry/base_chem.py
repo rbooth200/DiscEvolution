@@ -65,9 +65,9 @@ class ChemicalAbund(object):
         return self.data
 
     def mix_area_to_mass(self, f):
-        """Move a fraction f of the area-distributed ice into the mass-
-        distributed ice (growth mixing). Nothing to do here: all the ice is
-        distributed by mass (see area_ice.AreaMassIceAbund)"""
+        """Move a fraction f of the ice in shells into the mass-distributed
+        ice (growth mixing). Nothing to do here: all the ice is distributed
+        by mass (see area_ice.AreaMassIceAbund)"""
         pass
 
     def clip_negative(self):

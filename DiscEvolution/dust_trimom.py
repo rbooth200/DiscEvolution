@@ -198,20 +198,49 @@ def mean_drift_factors(s, L, St_min, quad, ks=(-1, 0, 1)):
     St_2 = St_1*St_min*R[i + 1]
     return St_1*G[i], St_2*G[i + 1]
 
+
+def shell_thickness(r, s, L, amin):
+    """Thickness d of a mantle of uniform thickness on every grain of the
+    power law (s, L) (one density) holding r times the grains' mass:
+        r = 3 d R_-1 + 3 d^2 R_-2 + d^3 R_-3,   R_k = M_k/M_0.
+    Newton from an upper bound (the cubic is convex and increasing for
+    d >= 0, so the iterates decrease to the root); d = 0 for r <= 0"""
+    R1, R2, R3 = (moment_ratio(-k, s, L, amin) for k in (1, 2, 3))
+    r = np.maximum(r, 0)
+    d = np.minimum(r/(3*R1), np.cbrt(r/R3))
+    for _ in range(100):
+        step = (d*(3*R1 + d*(3*R2 + d*R3)) - r)/(3*R1 + d*(6*R2 + 3*d*R3))
+        d = d - step
+        if np.all(np.abs(step) <= 1e-14*d):
+            break
+    return np.maximum(d, 0)
+
+
+def shell_weights(a, w, d):
+    """Weights of the mantle of uniform thickness d on nodes of sizes a with
+    mass weights w: w ((1 + d/a)^3 - 1)/d, which is the area weight 3 w/a
+    at d = 0"""
+    x = d/a
+    return w*(3 + x*(3 + x))/a
+
 ################################################################################
 # Relative velocities (following cuDisc, Robinson, Booth & Owen 2024)
 ################################################################################
+def _OC07_St_star(St_l):
+    """cuDisc's closed-form approximation (good to 2%) to the Stokes number
+    St* of the transition in Ormel & Cuzzi (2007)"""
+    a_ = 0.51505382481121010
+    b_ = 0.12876345620280252
+    St_c = np.minimum(St_l, 1)
+    return np.where(St_l > 1, 1.,
+                    St_c*(1 - b_ + np.sqrt(b_*b_ + a_*(1-St_c)/(1+St_c))))
+
 def vrel_sqd_OC07(St1, St2, sqrtRe_inv):
     """Ormel & Cuzzi (2007) turbulent relative velocity squared, in units of
     alpha cs^2. Uses cuDisc's closed-form approximation to St* (good to 2%).
     """
-    a_ = 0.51505382481121010
-    b_ = 0.12876345620280252
-
     St_l = np.maximum(St1, St2)
-    St_c = np.minimum(St_l, 1)
-    St_star = np.where(St_l > 1, 1.,
-                       St_c*(1 - b_ + np.sqrt(b_*b_ + a_*(1-St_c)/(1+St_c))))
+    St_star = _OC07_St_star(St_l)
     Sts = np.maximum(St_star, sqrtRe_inv)
 
     # V1(St) = St (St/(Sts + St) - St/(1 + St)) and
@@ -568,8 +597,9 @@ class DustGrowthTriMom(DustyDisc):
 
     Growth of amax is integrated analytically at fixed growth time-scale,
     assuming dv_max is a power law in a during each step, with the local index
-    estimated from the contributions to dv_max, or, once amax has crossed its
-    fragmentation limit, the secant index since the last step (_limit_slope).
+    estimated from the contributions to dv_max (relative_velocity_index; its
+    turbulent part follows the steep rise of the relative velocity just above
+    St* = Re^-1/2).
     Mass exchange between the populations (sweep-up and fragmentation) is
     integrated analytically at fixed coefficients.
 
@@ -649,6 +679,13 @@ class DustGrowthTriMom(DustyDisc):
         moment_table: Invert the moments with a precomputed table
                     (MomentTable), default=True. Needs a finite lower bound
                     on q; otherwise Newton iteration is used.
+        ice_sizes : Grow and shrink the grains with the mass-distributed ice
+                    that condenses or sublimates (update_ices), instead of
+                    changing the dust mass at fixed sizes, default=False.
+                    The ice shells of chemistry.area_ice are not part of
+                    the sizes (they are added to the mass at fixed sizes);
+                    the shell ice that growth mixes into the grains grows
+                    them. Recommended with chemistry.area_ice.
 
         f_frag, f_drift, start_small:
                     Accepted for compatibility with DustGrowthTwoPop, unused.
@@ -663,12 +700,9 @@ class DustGrowthTriMom(DustyDisc):
                  vg2_factor=1.5,
                  q_bounds=(-5., -1.), quadrature=None, moment_table=True,
                  drift_switch=0.3, turb_switch=5.0, frag_width=1.5, f_coll=0.9,
-                 frag_slope=0., frag_size=0.1):
+                 frag_slope=0., frag_size=0.1, ice_sizes=False):
         super(DustGrowthTriMom, self).__init__(grid, star, eos, Sigma, rho_s,
                                               Sc, feedback)
-        # (ln amax, ln dv_max) at the last growth step that moved amax, for
-        # the secant index (_limit_slope, _remember_step); NaN until then
-        self._last_dv = (np.full(self.Ncells, np.nan), np.full(self.Ncells, np.nan))
 
         if a0 <= 1.5*amin:
             raise ValueError("Initial size a0 must exceed 1.5*amin")
@@ -727,6 +761,12 @@ class DustGrowthTriMom(DustyDisc):
 
         # The ices last passed to update_ices, which growth mixes
         self._ices = None
+
+        # ice_sizes: the mass-distributed ice per unit dust mass when last
+        # set (transport carries it with the dust, so a change at the next
+        # update_ices is condensation or sublimation)
+        self._ice_sizes = ice_sizes
+        self._mass_ice_ratio = None
 
         self._head = (', uf_0: {}cm s^-1, uf_ice: {}cm s^-1, thresh: {}'
                       ', f_grow: {}, a0: {}cm, amin: {}cm, f_dv: {}'
@@ -1055,8 +1095,9 @@ class DustGrowthTriMom(DustyDisc):
         the indices of the contributions:
             Brownian motion: -3/2 (exact)
             Radial / azimuthal drift, settling: exact derivatives
-            Turbulence: by regime, 1 (small eddies, St < Re^-1/2), 1/2
-                        (intermediate) and -1/2 (St > 1), joined smoothly.
+            Turbulence: 1 (small eddies, St* < Re^-1/2), then
+                        0.5/(1 - Re^-1/2/St*) (limited to _turb_index_cap),
+                        tending to 1/2 (intermediate) and -1/2 (St > 1).
 
         gas, components: as relative_velocity.
 
@@ -1098,11 +1139,16 @@ class DustGrowthTriMom(DustyDisc):
         if not index:
             return np.sqrt(dv2), dv_rad, dv_az, None
 
-        # beta: each contribution Delta^2 adds Delta d Delta / d ln a
+        # beta: each contribution Delta^2 adds Delta d Delta / d ln a. The
+        # turbulent one: dv^2 has a term (St* - Re^-1/2) that switches on at
+        # St* = Re^-1/2, so just above it d ln dv / d ln a ~ 0.5/(1 - Re^-1/2/St*),
+        # limited to _turb_index_cap; 1 below (small eddies); -p_large for St > 1
+        sri = g['sqrtRe_inv']
         St_L = np.maximum(St1, St2)
-        p_small = 1/(1 + (St_L/g['sqrtRe_inv'])**4)
+        St_star = _OC07_St_star(St_L)
         p_large = St_L**4/(1 + St_L**4)
-        beta_turb = p_small + (1 - p_small)*(0.5 - p_large)
+        m = 0.5/np.maximum(1 - sri/np.maximum(St_star, 1e-300), 0.5/self._turb_index_cap)
+        beta_turb = np.where(St_star > sri, m - p_large, 1.)
         num = turb2*beta_turb - 1.5*bm2
 
         def dX(St, A, B):       # St dX/dSt
@@ -1214,7 +1260,6 @@ class DustGrowthTriMom(DustyDisc):
         returns a dict with:
             t_grow : free growth time-scale of amax
             z0     : s ln(v_frag / dv_max), v_frag at amax (_v_frag)
-            ln_dv  : ln dv_max
             beta   : local power-law index of dv_max with amax
             C1, C2 : sweep-up and fragmentation rate coefficients
         """
@@ -1252,7 +1297,7 @@ class DustGrowthTriMom(DustyDisc):
         C1 = sig01*dv01 / (m1*np.sqrt(2*np.pi*(H0**2 + H1**2)))
         C2 = sig11*dv11*F / (2*m1*np.sqrt(np.pi)*H1)
 
-        return dict(t_grow=t_grow, z0=z0, ln_dv=np.log(dv_max), beta=beta, C1=C1, C2=C2)
+        return dict(t_grow=t_grow, z0=z0, beta=beta, C1=C1, C2=C2)
 
     def _free_growth_time(self, amax, H1, dv_max):
         """Free growth time-scale of amax (eq. 29, integrated at fixed t_grow),
@@ -1261,38 +1306,9 @@ class DustGrowthTriMom(DustyDisc):
         adot_free = Sigma1*dv_max / (np.sqrt(2*np.pi)*H1*self._rho_s)
         return self._fgrow*amax / np.maximum(adot_free, 1e-300)
 
-    # Smallest change in ln amax for the secant index (_limit_slope)
-    _secant_dl = 1e-3
-
-    def _limit_slope(self, ln_dv):
-        """A secant approximation to the index, beta, of dv_max ~ a^beta. Only used
-        near the fragmentation limit, where the local index can be steep.
-
-        returns:
-            bounded, beta_secant
-        """
-        l1, ln_dv1 = self._last_dv
-        l = np.log(self._a[1])
-        dl = l - l1
-        # ln v_frag at both points, with today's v_frag
-        p = self._frag_slope
-        ln_uf = np.log(self._uf) - p*np.log(self._frag_size)
-        ln_vf, ln_vf1 = ln_uf + p*l, ln_uf + p*l1
-        # Check whether we have a bounded interval around the limit that is wide
-        # enough for the secant to be meaningful.
-        bounded = ((ln_dv > ln_vf) != (ln_dv1 > ln_vf1)) & (np.abs(dl) > self._secant_dl)
-        beta_secant = (ln_dv - ln_dv1)/np.where(bounded, dl, 1.)
-        # A falling dv_max/v_frag (past the peak of dv_max) crosses an
-        # unstable limit
-        return bounded & (beta_secant > p), beta_secant
-
-    def _remember_step(self, ln_dv, amax_new):
-        """Store (ln amax, ln dv_max) for estimaing the slope of dv(a) near the
-        fragmenation limit."""
-        l = np.log(self._a[1])
-        moved = np.abs(np.log(amax_new) - l) > self._secant_dl
-        self._last_dv = (np.where(moved, l, self._last_dv[0]),
-                         np.where(moved, ln_dv, self._last_dv[1]))
+    # Largest turbulent index of dv_max just above St* = Re^-1/2
+    # (relative_velocity_index)
+    _turb_index_cap = 5.
 
     def _growth_dt(self, t_grow, z0):
         """Maximum growth step in each cell: growth_cfl e-folds of a growing
@@ -1326,7 +1342,8 @@ class DustGrowthTriMom(DustyDisc):
         """Apply the grain growth.
 
         amax is advanced with the analytic solution at fixed t_grow (assuming
-        a local power law of dv_max in amax, _limit_slope) and the mass
+        a local power law of dv_max in amax, with the index of
+        relative_velocity_index) and the mass
         exchange between populations with the analytic solution at fixed
         coefficients. Cells are sub-cycled so that a growing amax changes by
         at most growth_cfl e-folds per sub-step; a shrinking amax takes a
@@ -1356,10 +1373,6 @@ class DustGrowthTriMom(DustyDisc):
 
             eps_tot, s, L = self.size_distribution()
             rates = self._growth_rates(gas)
-            # Estimate dv_max(a) ~ a^beta. Use a local estimate of beta unless
-            # we have a bounded interval around the fragmentation limit.
-            crossed, beta_secant = self._limit_slope(rates['ln_dv'])
-            beta = np.where(crossed, beta_secant, rates['beta'])
 
             if i < self._max_substeps - 1:
                 h = np.minimum(remaining, self._growth_dt(rates['t_grow'], rates['z0']))
@@ -1367,9 +1380,8 @@ class DustGrowthTriMom(DustyDisc):
                 h = remaining
 
             amax_new = self.grow_amax(self._a[1], rates['t_grow'], rates['z0'],
-                                      self._s_frag*(beta - self._frag_slope), h)
+                                      self._s_frag*(rates['beta'] - self._frag_slope), h)
             amax_new = np.maximum(amax_new, 1.5*self._amin)      # the size floor
-            self._remember_step(rates['ln_dv'], amax_new)
 
             S = self.Sigma*eps_tot
             f1 = large_fraction(s, L)
@@ -1385,7 +1397,29 @@ class DustGrowthTriMom(DustyDisc):
             remaining = remaining - h
 
         if self._ices is not None:
+            # (with ice_sizes, the mixed ice grows the grains at the next
+            # update_ices)
             self._ices.mix_area_to_mass(-np.expm1(-mix))
+
+    @staticmethod
+    def _shell_ice(grains):
+        """The ice in the shells of chemistry.area_ice per unit Sigma (zero
+        for other ices)"""
+        return np.asarray(sum((grains.area(s) for s in getattr(grains, 'area_species', ())),
+                              np.zeros_like(grains.total_abund)), dtype='f8')
+
+    @classmethod
+    def _mass_ice(cls, grains):
+        """Mass-distributed ice per unit Sigma: the volatiles' ice less the
+        shells (chemistry.area_ice)"""
+        tot = sum(grains[s] for s in grains if 'grain' not in s)
+        return np.asarray(tot - cls._shell_ice(grains), dtype='f8')
+
+    def _store_mass_ice_ratio(self):
+        """ice_sizes: the mass-distributed ice per unit dust mass, now"""
+        if self._ice_sizes and self._ices is not None:
+            e = self._eps_tot
+            self._mass_ice_ratio = np.where(e > 0, self._mass_ice(self._ices)/np.where(e > 0, e, 1), 0.)
 
     def _grow_populations(self, eps0, eps1, amax, shape):
         """Set the populations after a growth (sub-)step, keeping M_0: the
@@ -1405,10 +1439,34 @@ class DustGrowthTriMom(DustyDisc):
     def update_ices(self, grains):
         """Update the dust fraction (at fixed size distribution) and the
         fragmentation velocity due to a change in bulk ice abundance. The
-        ices are kept, for growth to mix (ChemicalAbund.mix_area_to_mass)"""
+        ices are kept, for growth to mix (ChemicalAbund.mix_area_to_mass).
+
+        With ice_sizes, the mass-distributed ice gained or lost since the
+        last call (beyond what transport carried; e.g. ice that growth mixed
+        out of the shells of chemistry.area_ice) changes the mass of every
+        grain by the same factor 1 + delta, and so its size by
+        f = (1 + delta)^(1/3): the scaled moments shift exactly,
+        ln(M_-1/M_0) - ln f and ln(M_1/M_0) + ln f, and the power law is
+        refitted (set_moments). The rest of the change (the shells) is at
+        fixed sizes."""
         self._ices = grains
+        eps_old = self._eps_tot
+        if self._ice_sizes and self._mass_ice_ratio is not None:
+            # Mass per grain, base/(base - dM): base the grains without the
+            # shells, dM the change in mass-distributed ice
+            dM = self._mass_ice(grains) - self._mass_ice_ratio*eps_old
+            base = grains.total_abund - self._shell_ice(grains)
+            ok = (eps_old > 0) & (base > 0) & (base - dM > 0)
+            g = np.where(ok, base/np.where(ok, base - dM, 1), 1.)
+            lnf = np.log(g)/3
+            lnf = np.where(ok & (np.abs(lnf) > 1e-12), lnf, 0.)
+            if (lnf != 0).any():
+                y = self._y + np.array([-lnf, lnf])
+                e = grains.total_abund
+                self.set_moments(np.array([e*np.exp(y[0])/self._amin, e, e*np.exp(y[1])*self._amin]))
         self._set_dust_fraction(grains.total_abund)
         eps_new = self._eps_tot
+        self._store_mass_ice_ratio()
 
         # Update the ice fraction
         f_ice = 0
@@ -1544,11 +1602,15 @@ class MomentDrift(object):
                     for donor cell
         f_drift   : Factor multiplying grain size in drift velocities,
                     default=1
-        area_tracers: Indices of the dust-tracer rows carried by the grain
-                    surface area (e.g. the area-distributed ice of
-                    chemistry.area_ice), which drift with the area (M_-1)
-                    velocity and diffuse with its Stokes number. The other
-                    rows follow the dust mass. Default None (all by mass)
+        area_tracers: Indices of the dust-tracer rows that are ice shells
+                    (chemistry.area_ice): a mantle of uniform thickness d on
+                    every grain, holding the row's mass, the grains being the
+                    dust less all the shells (shell_thickness). Each drifts
+                    at its mass-weighted velocity with the Stokes number of
+                    the coated size, a + d, and diffuses with the mean of
+                    that Stokes number (on the quadrature nodes); for
+                    d -> 0 that is the area (M_-1) weighting. The other rows
+                    follow the dust mass. Default None (all by mass)
         limit_amax: Where the moments after transport need q > q_max, keep
                     amax no larger than the largest of the cell and the
                     cells upwind of it (instead of keeping M_1), default=True
@@ -1678,6 +1740,18 @@ class MomentDrift(object):
             V_L, V_R  : node velocities at the edges, [Nq, Ne]
             DeltaVphi : azimuthal velocity of the left nodes relative to the gas
         """
+        gas = self._node_gas(disc, aL, SdL, aR, SdR, v_visc)
+        SigG_av = 0.5*(disc.Sigma_G[1:] + disc.Sigma_G[:-1])
+        f1L, f2L = _drift_factors(disc.Stokes(SigG_av, aL + 1e-300))
+        f1R, f2R = _drift_factors(disc.Stokes(SigG_av, aR + 1e-300))
+        u_gas, v_gas, _ = gas
+        DeltaVphi = -0.5*u_gas*f1L + v_gas*(1 - f2L)
+        return (self._drift_velocity((f1L, f2L), gas),
+                self._drift_velocity((f1R, f2R), gas), DeltaVphi)
+
+    def _node_gas(self, disc, aL, SdL, aR, SdR, v_visc=None):
+        """(u_gas, v_gas, v_COM - v_gas) at the edges, with the feedback of
+        the nodes of _node_velocities"""
         SigmaG = disc.Sigma_G
         SigG_av = 0.5*(SigmaG[1:] + SigmaG[:-1])
 
@@ -1714,10 +1788,7 @@ class MomentDrift(object):
         dV_L = 2*v_gas*f1L - u_gas*f2L
         dV_R = 2*v_gas*f1R - u_gas*f2R
         epsDeltaV = 0.5*((eL*dV_L).sum(0) + (eR*dV_R).sum(0))
-        V_L, V_R = dV_L - epsDeltaV, dV_R - epsDeltaV
-        DeltaVphi = -0.5*u_gas*f1L + v_gas*(1 - f2L)
-
-        return V_L, V_R, DeltaVphi
+        return u_gas, v_gas, epsDeltaV
 
     def _edge_velocities(self, disc, a, w, v_visc=None):
         """Velocities of the quadrature nodes a with mass weights w ([Nq,
@@ -1764,10 +1835,18 @@ class MomentDrift(object):
         SigG_av = 0.5*(SigmaG[1:] + SigmaG[:-1])
         # Stokes number of the smallest grains at the edges
         St_min = disc.Stokes(SigG_av, self._f_drift*disc.amin)
-        (F1L, F2L), (F1R, F2R) = [mean_drift_factors(s, L, St_min, disc._quad, self._ks)
-                                  for _, s, L in (left, right)]
+        FL, FR = [mean_drift_factors(s, L, St_min, disc._quad, self._ks)
+                  for _, s, L in (left, right)]
         m = self._ks.index(0)     # the mass moment
+        gas = self._feedback_gas(disc, left, right, (FL[0][m], FL[1][m]),
+                                 (FR[0][m], FR[1][m]), v_visc)
+        return self._drift_velocity(FL, gas), self._drift_velocity(FR, gas)
 
+    def _feedback_gas(self, disc, left, right, FL, FR, v_visc=None):
+        """(u_gas, v_gas, v_COM - v_gas) at the edges, with the feedback of
+        the sides (Sd, s, L) to the left and right, from the mass-weighted
+        means of their drift factors, FL and FR = (<f1>_0, <f2>_0)"""
+        SigG_av = 0.5*(disc.Sigma_G[1:] + disc.Sigma_G[:-1])
         if disc.feedback:
             # Fractions of the edge's total, the gas plus both sides' dust (as
             # _node_velocities)
@@ -1778,14 +1857,20 @@ class MomentDrift(object):
             eL = eR = 0.
             eps_g = 1.
         # <1/(1+St^2)>_0 = 1 - <St^2/(1+St^2)>_0
-        la0 = 0.5*(eL*(1 - F2L[m]) + eR*(1 - F2R[m]))/eps_g
-        la1 = 0.5*(eL*F1L[m] + eR*F1R[m])/eps_g
+        la0 = 0.5*(eL*(1 - FL[1]) + eR*(1 - FR[1]))/eps_g
+        la1 = 0.5*(eL*FL[0] + eR*FR[0])/eps_g
         u_gas, v_gas = self._edge_gas_velocities(disc, la0, la1, eps_g, v_visc)
 
-        V_L = 2*v_gas*F1L - u_gas*F2L
-        V_R = 2*v_gas*F1R - u_gas*F2R
-        epsDeltaV = 0.5*(eL*V_L[m] + eR*V_R[m])     # v_COM - v_gas
-        return V_L - epsDeltaV, V_R - epsDeltaV
+        epsDeltaV = 0.5*(eL*(2*v_gas*FL[0] - u_gas*FL[1]) +
+                         eR*(2*v_gas*FR[0] - u_gas*FR[1]))
+        return u_gas, v_gas, epsDeltaV
+
+    @staticmethod
+    def _drift_velocity(F, gas):
+        """Velocity relative to the centre of mass of grains with mean drift
+        factors F = (<f1>, <f2>), in the gas of _feedback_gas"""
+        u_gas, v_gas, epsDeltaV = gas
+        return 2*v_gas*F[0] - u_gas*F[1] - epsDeltaV
 
     def _side_velocities(self, disc, left, right, v_visc=None):
         """Velocities of the transported quantities at the interior edges,
@@ -1847,6 +1932,68 @@ class MomentDrift(object):
         return out
 
     ############################################################################
+    # Ice shells (area_tracers)
+    ############################################################################
+    def _shell_nodes(self, a, w, A, base, s, L, amin):
+        """The normalised weights and coated sizes a + d, [n_area, Nq, ...],
+        on nodes a with mass weights w ([Nq, ...]) of the shells holding A
+        ([n_area, ...]) on grains of mass base with the shape (s, L)"""
+        ok = base > 0
+        r = np.where(ok, np.maximum(A, 0)/np.where(ok, base, 1), 0.)
+        d = shell_thickness(r, s, L, amin)[:, None]
+        W = shell_weights(a, w, d)
+        return W/(W.sum(1, keepdims=True) + 1e-300), a + d
+
+    def _cell_shell_nodes(self, disc, D):
+        """_shell_nodes of the cells, with the dust tracers D (per unit
+        Sigma)"""
+        eps_tot, s, L = disc.size_distribution()
+        a, w = disc.quadrature()
+        A = D[self._area_tracers]
+        return self._shell_nodes(a, w, A, eps_tot - np.maximum(A, 0).sum(0), s, L, disc.amin)
+
+    def _shell_velocities(self, disc, left, right, AL, AR, v_visc=None):
+        """Velocities of the shells at the interior edges, relative to the
+        centre of mass, as (V_L, V_R), [n_area, Ncells-1] each: from the
+        sides (Sd, s, L) to the left and right (Sd including the shells),
+        with the shells' surface densities AL, AR, in the gas velocities of
+        the transported quantities (_side_velocities)"""
+        SigG_av = 0.5*(disc.Sigma_G[1:] + disc.Sigma_G[:-1])
+        amin = disc.amin
+        if self._settling:
+            nodes = [disc._quad(s, L, amin) for _, s, L in (left, right)]
+            (aL, wL), (aR, wR) = nodes
+            gas = self._node_gas(disc, self._f_drift*aL, left[0]*wL,
+                                 self._f_drift*aR, right[0]*wR, v_visc)
+        else:
+            St_min = disc.Stokes(SigG_av, self._f_drift*amin)
+            FL, FR = [mean_drift_factors(s, L, St_min, disc._quad, (0,))
+                      for _, s, L in (left, right)]
+            gas = self._feedback_gas(disc, left, right, (FL[0][0], FL[1][0]),
+                                     (FR[0][0], FR[1][0]), v_visc)
+
+        V = []
+        for (Sd, s, L), A in ((left, AL), (right, AR)):
+            a, w = disc._quad(s, L, amin)
+            W, b = self._shell_nodes(a, w, A, Sd - np.maximum(A, 0).sum(0), s, L, amin)
+            f1, f2 = _drift_factors(disc.Stokes(SigG_av, self._f_drift*b))
+            V.append(self._drift_velocity(((W*f1).sum(1), (W*f2).sum(1)), gas))
+        return tuple(V)
+
+    def _cell_shell_velocities(self, disc, D, v_visc=None):
+        """_shell_velocities from the cells on either side of the edges,
+        with the dust tracers D (per unit Sigma)"""
+        A = disc.Sigma*D[self._area_tracers]
+        left, right = self._cell_sides(disc)
+        return self._shell_velocities(disc, left, right, A[:, :-1], A[:, 1:], v_visc)
+
+    def shell_stokes(self, disc, D):
+        """Mean Stokes number of the shells of the dust tracers D (per unit
+        Sigma), with which they diffuse, [n_area, Ncells]"""
+        W, b = self._cell_shell_nodes(disc, D)
+        return (W*disc.Stokes(disc.Sigma_G, b)).sum(1)
+
+    ############################################################################
     # Diffusion
     ############################################################################
     def diffusion_stokes(self, disc):
@@ -1873,24 +2020,20 @@ class MomentDrift(object):
         dust tracers and the gas tracers over dt, in one step of the diffusion
         object (TracerDiffusion, or rkl.RKLDiffusion), with the Schmidt
         numbers of its dust_schmidt: each quantity at its mean Stokes number,
-        the tracers as the dust mass (or area), the gas tracers as the gas"""
+        the tracers as the dust mass (or as their shells, shell_stokes), the
+        gas tracers as the gas"""
         St_Q, St_m = self.diffusion_stokes(disc)
         items = [(Q, diffusion.dust_schmidt(disc, St_Q))]
         if dust_tracers is not None:
             Sc = diffusion.dust_schmidt(disc, St_m)
             if self._area_tracers is not None:
-                Sc_A = diffusion.dust_schmidt(disc, St_Q[self._ks.index(-1)])
-                Sc = np.where(self._area_rows(dust_tracers)[:, None], Sc_A, Sc)
+                Sc = np.array(np.broadcast_to(Sc, dust_tracers.shape))
+                Sc[self._area_tracers] = diffusion.dust_schmidt(
+                    disc, self.shell_stokes(disc, dust_tracers))
             items.append((dust_tracers, Sc))
         if gas_tracers is not None:
             items.append((gas_tracers, diffusion.gas_schmidt(disc)))
         diffusion.diffuse(dt, disc, items)
-
-    def _area_rows(self, dust_tracers):
-        """Mask of the dust-tracer rows carried by the grain area"""
-        mask = np.zeros(len(dust_tracers), dtype=bool)
-        mask[self._area_tracers] = True
-        return mask
 
     ############################################################################
     # Fluxes
@@ -1941,8 +2084,10 @@ class MomentDrift(object):
                 or None)
         faces : dict of (from the left, from the right) edge values at all
                 edges: those of _cell_state (or _face_quantities), 'G' (the
-                gas tracers per unit gas mass, _gas_ratios) and 'X' (the dust
-                tracers per unit of their carrier, _tracer_ratios)
+                gas tracers per unit gas mass, _gas_ratios), 'X' (the dust
+                tracers per unit of their carrier, _tracer_ratios) and, with
+                area_tracers, 'VA' (the shells' velocities at the interior
+                edges, _shell_velocities)
 
         returns:
             Q, G, D : the transported quantities and tracers after the step
@@ -1961,11 +2106,12 @@ class MomentDrift(object):
             G_new = G + dt*self._divergence(disc, _gas_tracer_flux(disc, GL, GR, F_dust))
 
         # Dust tracers have the same distribution as their carrier (the dust
-        # mass, or area): they are carried by its fluxes, at their ratio to it
-        # on the upwind side
+        # mass, or for the shells the area): they are carried by its fluxes
+        # (the shells' at their own velocities), at their ratio to it on the
+        # upwind side
         if D is not None:
             XL, XR = faces['X']
-            cpos, cneg = self._carrier_fluxes(pos, neg, D)
+            cpos, cneg = self._carrier_fluxes(pos, neg, D, faces)
             D_new = D + dt*self._divergence(disc, cpos*XL + cneg*XR)
         return Q_new, G_new, D_new
 
@@ -1988,20 +2134,26 @@ class MomentDrift(object):
 
     def _carrier(self, Q, D):
         """The carrier of each dust-tracer row, per unit Sigma (broadcast to
-        D): the dust mass, or for area tracers M_-1"""
-        C = np.broadcast_to(self._dust_mass(Q), D.shape)
+        D): the dust mass, or for the shells (area_tracers) M_-1"""
+        C = np.array(np.broadcast_to(self._dust_mass(Q), D.shape))
         if self._area_tracers is not None:
-            C = np.where(self._area_rows(D)[:, None], Q[self._ks.index(-1)], C)
+            C[self._area_tracers] = Q[self._ks.index(-1)]
         return C
 
-    def _carrier_fluxes(self, pos, neg, D):
-        """The parts of the fluxes of the dust tracers' carriers (_carrier)"""
+    def _carrier_fluxes(self, pos, neg, D, faces):
+        """The parts of the fluxes of the dust tracers' carriers (_carrier):
+        the shells' carrier (M_-1, at its edge values) moves at their own
+        velocities, faces['VA']"""
         cpos, cneg = self._dust_mass_fluxes(pos, neg)
         if self._area_tracers is not None:
+            shape = (len(D),) + cpos.shape[-1:]
+            cpos = np.array(np.broadcast_to(cpos, shape))
+            cneg = np.array(np.broadcast_to(cneg, shape))
             k1 = self._ks.index(-1)
-            area = self._area_rows(D)[:, None]
-            cpos = np.where(area, pos[k1], cpos)
-            cneg = np.where(area, neg[k1], cneg)
+            n = len(self._area_tracers)
+            QL, QR = (np.broadcast_to(q[k1], (n,) + q.shape[1:]) for q in faces['Q'])
+            cpos[self._area_tracers], cneg[self._area_tracers] = \
+                self._flux_parts(QL, QR, *faces['VA'])
         return cpos, cneg
 
     def _tracer_ratios(self, Q, D):
@@ -2092,6 +2244,13 @@ class MomentDrift(object):
             faces['G'] = self._vl_faces(disc, self._gas_ratios(Q, G))
         if D is not None:
             faces['X'] = self._vl_faces(disc, self._tracer_ratios(Q, D))
+            if self._area_tracers is not None:
+                # The shells of the face states (their carrier, M_-1, times
+                # their ratio to it)
+                k1 = self._ks.index(-1)
+                A = [(fQ[k1]*X[self._area_tracers])[:, 1:-1]
+                     for fQ, X in zip(faces['Q'], faces['X'])]
+                faces['VA'] = self._shell_velocities(disc, left, right, *A, v_visc)
         return faces, V_L, V_R
 
     ############################################################################
@@ -2154,6 +2313,8 @@ class MomentDrift(object):
             faces['G'] = self._cell_faces(self._gas_ratios(Q, gas_tracers))
         if dust_tracers is not None:
             faces['X'] = self._cell_faces(self._tracer_ratios(Q, dust_tracers))
+            if self._area_tracers is not None:
+                faces['VA'] = self._cell_shell_velocities(disc, dust_tracers, v_visc)
 
         if not self._van_leer:
             Q_new, G_new, D_new = self._update(dt, disc, state, faces, V_L, V_R)

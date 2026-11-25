@@ -472,39 +472,19 @@ def test_equilibrium_band_converges_monotonically(beta_true, side):
     assert abs(err[-1]) < 1e-8
 
 
-def test_limit_slope():
-    """A crossing of the fragmentation limit (z changed sign) since the point
-    of the last step that moved amax, with the secant index between the two
-    points; a falling dv_max (negative secant) does not count. A step that
-    barely moves amax keeps the older point."""
-    disc = _setup_disc()
-    s = disc._s_frag
-    ln_dv = lambda z: np.log(disc._uf) - z/s          # ln dv_max for z
-    cell = np.arange(disc.Ncells) % 3
-    z_old = np.where(cell == 0, 1., -1.)
-    amax = disc.grain_size[1]
-    disc._remember_step(ln_dv(z_old), amax*np.exp(0.1))
-    disc.set_dust_frac(disc.dust_frac, [disc.grain_size[0], amax*np.exp(0.1)])
-    # A tiny step keeps the point
-    disc._remember_step(ln_dv(np.zeros(disc.Ncells)), amax*np.exp(0.1 + 1e-6))
-    # 0: crossed downwards; 1: not crossed; 2: crossed upwards with dv_max
-    # falling as amax grows (a negative secant index: kept local)
-    z_new = np.where(cell == 2, 0.5, -0.5)
-    crossed, beta_secant = disc._limit_slope(ln_dv(z_new))
-    assert (crossed == (cell == 0)).all()
-    assert np.allclose(beta_secant[cell == 0], (1. + 0.5)/(s*0.1), rtol=1e-10)
-
-
 @pytest.mark.parametrize("fac", [1., 1 + 1e-12])
-def test_limit_on_steep_transition(fac):
-    """With the fragmentation limit on the steep part of OC07's small-eddy
-    transition (St = 0.7 Re^-1/2), stepping at growth_timestep settles onto it
-    in a few hundred steps; with the local index alone, amax chatters across
-    the limit (5000 steps reach only 4e4 yr). fac > 1 leaves a tiny second
-    sub-step in each call, which must not wipe the stored secant point."""
+@pytest.mark.parametrize("x", [0.55, 0.7, 0.8, 1.0, 1.3])
+def test_limit_on_steep_transition(x, fac):
+    """With the fragmentation limit on or just above the steep rise of dv_max
+    at OC07's small-eddy transition (St = x Re^-1/2), stepping at
+    growth_timestep settles onto it in a few hundred steps. The index of
+    relative_velocity_index follows the rise; a regime-wise index (1, 1/2, -1/2)
+    made amax chatter across the limit (5000 steps reached only 4e4 yr at
+    x = 0.7). fac > 1 leaves a tiny second sub-step in each call, which must
+    not change this."""
     disc = _setup_disc()
     g = disc._collision_gas()
-    a_t = 0.7*g['sqrtRe_inv']/g['K']
+    a_t = x*g['sqrtRe_inv']/g['K']
     disc._uf = disc.relative_velocity(a_t, disc._f_dv*a_t, gas=g)
     t, n, T = 0., 0, 1e5*2*np.pi
     while t < T and n < 1000:
@@ -546,8 +526,9 @@ def test_local_beta_is_bounded():
 
 @pytest.mark.parametrize("feedback", [True, False])
 def test_relative_velocity_index(feedback):
-    """The weighted index matches d ln dv / d ln a away from the small-eddy
-    transition of OC07 (where dv jumps steeply)."""
+    """The weighted index matches d ln dv / d ln a, including above the
+    small-eddy transition of OC07 (dv steepens sharply just above St* =
+    Re^-1/2, St ~ 0.62 Re^-1/2), except in the kink's immediate vicinity."""
     disc = _setup_disc(feedback=feedback)
     sri = disc._sqrtRe_inv()
     h = 1e-4
@@ -558,7 +539,7 @@ def test_relative_velocity_index(feedback):
         bn = (np.log(disc.relative_velocity(a*np.exp(h), 0.4*a*np.exp(h))) -
               np.log(disc.relative_velocity(a*np.exp(-h), 0.4*a*np.exp(-h))))/(2*h)
         St = disc.Stokes(disc.Sigma_G, a)
-        ok = (St < 0.3*sri) | (St > 3*sri)
+        ok = (St < 0.5*sri) | (St > 0.9*sri)
         assert np.all(np.abs(beta - bn)[ok] < 0.25)
         # The drift components, as relative_velocity's
         _, _, dr, da = disc.relative_velocity_index(a, 0.4*a, components=True)
@@ -1123,11 +1104,12 @@ def test_moment_velocities_vs_fine_quadrature(q, amax):
 @pytest.mark.parametrize("feedback,settling", [(False, False), (True, False), (True, True)])
 @pytest.mark.parametrize("van_leer", [False, True])
 def test_transport_tracers(scheme, feedback, settling, van_leer):
-    """Dust tracers proportional to the dust mass (area_tracers: to the
-    area, M_-1) stay so, and the mass is conserved, with feedback and
-    settling; a uniform gas tracer without feedback stays uniform. (Cells
-    filled from empty, below 1e-6 of the peak, have their moments projected
-    onto the power law, which changes M_-1: they are left out of the area
+    """Dust tracers proportional to the dust mass stay so (and a thin shell,
+    area_tracers, proportional to the area, M_-1, to the quadrature's
+    accuracy), and the mass is conserved, with feedback and settling; a
+    uniform gas tracer without feedback stays uniform. (Cells filled from
+    empty, below 1e-6 of the peak, have their moments projected onto the
+    power law, which changes M_-1: they are left out of the area
     comparison.)"""
     disc = _setup_disc(a0=0.1, feedback=feedback)
     if scheme in ('trimean', 'trimax'):
@@ -1139,7 +1121,7 @@ def test_transport_tracers(scheme, feedback, settling, van_leer):
     n = disc.Ncells
     gas = np.ones((1, n))
     dust = np.array([0.3*disc.moments((0,))[0],
-                     (0.2/disc.amin)*disc.moments((-1,))[0] if area
+                     1e-8*disc.amin*disc.moments((-1,))[0] if area
                      else 0.2*disc.moments((0,))[0]])
     dA = np.pi*np.diff((disc.grid.Re*AU)**2)
     M0 = (disc.Sigma*disc.dust_frac.sum(0)*dA).sum()
@@ -1151,7 +1133,7 @@ def test_transport_tracers(scheme, feedback, settling, van_leer):
     np.testing.assert_allclose(dust[0], 0.3*m[1], rtol=1e-10, atol=1e-14*m[1].max())
     if area:
         full = m[1] > 1e-6*m[1].max()
-        np.testing.assert_allclose(dust[1][full], (0.2/disc.amin)*m[0][full], rtol=1e-10)
+        np.testing.assert_allclose(dust[1][full], 1e-8*disc.amin*m[0][full], rtol=1e-7)
     else:
         np.testing.assert_allclose(dust[1], 0.2*m[1], rtol=1e-10, atol=1e-14*m[1].max())
     if not feedback:
@@ -1208,3 +1190,53 @@ def test_vl2_temporal_error_is_a_cross_term():
          for vl in (False, True)}
     assert r[True] > 1.7
     assert r[False] < 1.1
+
+
+###############################################################################
+# Grain sizes with condensing / sublimating ice (ice_sizes)
+###############################################################################
+def _ice_disc(ice_sizes, water):
+    from DiscEvolution.chemistry import ChemicalAbund
+    disc = _setup_disc(a0=0.1, ice_sizes=ice_sizes)
+    ice = ChemicalAbund(['grain', 'H2O'], [100., 18.], disc.Ncells)
+    ice['grain'] = 0.008
+    ice['H2O'] = water
+    disc.update_ices(ice)
+    return disc, ice
+
+
+@pytest.mark.parametrize("delta", [0.5, -0.2])
+def test_ice_sizes_scale_moments(delta):
+    """Mass-distributed ice raising every grain's mass by 1 + delta scales
+    its size by f = (1 + delta)^(1/3): M_k -> (1 + delta) f^k M_k"""
+    disc, ice = _ice_disc(True, 0.002)
+    M0 = disc.moments()
+    eps = 0.01
+    ice['H2O'] = 0.002 + delta*eps
+    disc.update_ices(ice)
+    M1 = disc.moments()
+    f = (1 + delta)**(1/3.)
+    for i, k in enumerate((-1, 0, 1)):
+        assert np.allclose(M1[i], (1 + delta)*f**k*M0[i], rtol=1e-6)
+
+
+def test_ice_sizes_round_trip():
+    """Condensing and then sublimating the same ice restores the state"""
+    disc, ice = _ice_disc(True, 0.002)
+    M0 = disc.moments()
+    ice['H2O'] = 0.006
+    disc.update_ices(ice)
+    ice['H2O'] = 0.002
+    disc.update_ices(ice)
+    assert np.allclose(disc.moments(), M0, rtol=1e-6)
+
+
+def test_ice_sizes_off_fixed_shape():
+    """Without ice_sizes the ice changes the mass at fixed sizes"""
+    disc, ice = _ice_disc(False, 0.002)
+    M0 = disc.moments()
+    ice['H2O'] = 0.007
+    disc.update_ices(ice)
+    M1 = disc.moments()
+    for i in range(3):
+        assert np.allclose(M1[i]/M0[i], 1.5, rtol=1e-12)
